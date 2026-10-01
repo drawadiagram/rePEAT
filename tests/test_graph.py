@@ -1,0 +1,394 @@
+"""The agent loop: routing, state updates, and the full redesign path.
+
+All of these run with no LLM key and no network: tool bodies are stubbed in the
+registry, which is also how the task layer is meant to be substituted.
+"""
+
+from __future__ import annotations
+
+import pytest
+from langgraph.checkpoint.memory import InMemorySaver
+
+from designagent.graph.build import build_graph
+from designagent.graph.nodes.coordinator import classify_rules, describe_state
+from designagent.graph.state import merge_artifacts, merge_worklist, new_state
+from designagent.tasks.registry import CATALOG, TaskDef
+
+# --- a tiny fake protein world --------------------------------------------
+
+REF_SEQ = "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"
+PDB_TEXT = "\n".join(
+    f"ATOM  {i:5d}  CA  ALA A{i:4d}    "
+    f"{i:8.3f}{0.0:8.3f}{0.0:8.3f}  1.00{85.0:6.2f}           C"
+    for i in range(1, 21)
+)
+
+
+@pytest.fixture
+def stub_tools(monkeypatch):
+    """Replace every external tool body with a deterministic stub."""
+    calls: list[str] = []
+
+    async def pdb_lookup(**kw):
+        calls.append("pdb_lookup")
+        if not (kw.get("pdb_id") or kw.get("query")):
+            return {"error": "no match"}
+        return {
+            "pdb_id": "1UBQ",
+            "name": "Ubiquitin",
+            "sequence": REF_SEQ,
+            "length": len(REF_SEQ),
+            "organism": "Homo sapiens",
+            "function": "UBIQUITIN",
+            "uniprot_id": "P0CG48",
+            "chains": [{"chain_id": "A", "length": len(REF_SEQ)}],
+            "ligands": [],
+        }
+
+    async def uniprot_lookup(**kw):
+        calls.append("uniprot_lookup")
+        return {
+            "uniprot_id": "P0CG48",
+            "name": "Polyubiquitin-B",
+            "sequence": REF_SEQ,
+            "length": len(REF_SEQ),
+            "organism": "Homo sapiens",
+            "function": "Covalent attachment to substrates.",
+            "features": [{"type": "Active site", "start": 48, "end": 48, "description": ""}],
+            "pdb_ids": ["1UBQ"],
+        }
+
+    async def literature_lookup(**kw):
+        calls.append("literature_lookup")
+        return {
+            "query": "stub",
+            "refs": [
+                {
+                    "id": "PMC1",
+                    "title": "Stabilizing ubiquitin",
+                    "year": "2024",
+                    "doi": "10.1/x",
+                    "abstract": "T55V raised Tm.",
+                    "relevance": "thermostability",
+                    "mutations": ["T55V"],
+                }
+            ],
+            "n_refs": 1,
+            "mutations_mentioned": ["T55V"],
+        }
+
+    async def pdb_structure(**kw):
+        calls.append("pdb_structure")
+        return {"pdb_id": "1UBQ", "format": "pdb", "text": PDB_TEXT, "bytes": len(PDB_TEXT)}
+
+    async def fold_sequence(sequence="", design_id="", **kw):
+        calls.append("fold_sequence")
+        # pLDDT rises with the number of mutations, so round 1 improves.
+        score = 70.0 + 5.0 * sum(1 for a, b in zip(REF_SEQ, sequence) if a != b)
+        return {
+            "structure": PDB_TEXT,
+            "format": "pdb",
+            "backend": "stub",
+            "sequence": sequence,
+            "design_id": design_id,
+            "metrics": {"plddt": min(score, 99.0)},
+            "length": len(sequence),
+        }
+
+    originals = {}
+    for name, body in (
+        ("pdb_lookup", pdb_lookup),
+        ("uniprot_lookup", uniprot_lookup),
+        ("literature_lookup", literature_lookup),
+        ("pdb_structure", pdb_structure),
+        ("fold_sequence", fold_sequence),
+    ):
+        originals[name] = CATALOG[name]
+        CATALOG[name] = TaskDef(
+            name, body, originals[name].interface, originals[name].description,
+            originals[name].produces,
+        )
+    yield calls
+    CATALOG.update(originals)
+
+
+@pytest.fixture
+def app(deps):
+    return build_graph(deps, checkpointer=InMemorySaver())
+
+
+def _config(thread="t1"):
+    return {"configurable": {"thread_id": thread}}
+
+
+async def _send(app, text, *, session="s1", thread="t1", state=None):
+    base = state or new_state(session)
+    base = {**base, "messages": [{"role": "user", "content": text}]}
+    return await app.ainvoke(base, config=_config(thread))
+
+
+# --- reducers --------------------------------------------------------------
+
+
+def test_merge_artifacts_dedupes_by_id_keeping_last():
+    left = [{"id": "a", "title": "one"}, {"id": "b", "title": "two"}]
+    right = [{"id": "a", "title": "one-updated"}, {"id": "c", "title": "three"}]
+    out = merge_artifacts(left, right)
+    assert [a["id"] for a in out] == ["a", "b", "c"]
+    assert out[0]["title"] == "one-updated"
+
+
+def test_merge_worklist_upserts_status():
+    left = [{"id": "w1", "status": "pending"}]
+    right = [{"id": "w1", "status": "done"}, {"id": "w2", "status": "pending"}]
+    out = merge_worklist(left, right)
+    assert out[0]["status"] == "done"
+    assert len(out) == 2
+
+
+# --- coordinator classification -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("hello there", "chat"),
+        ("what is the lead design?", "chat"),
+        ("load 1UBQ", "initialize"),
+        ("redesign 1UBQ for thermostability", "initialize"),
+        ("write me a report", "summarize"),
+        ("which design scored best?", "chat"),
+        ("how does pLDDT work?", "chat"),
+        ("tell me about the ensemble", "chat"),
+        ("summarize the session", "summarize"),
+    ],
+)
+def test_classify_rules_without_reference(text, expected):
+    assert classify_rules(text, new_state("s"))["intent"] == expected
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("make it more stable", "design"),
+        ("improve solubility", "design"),
+        ("propose some variants", "design"),
+        ("what mutations did you try?", "chat"),
+        ("is the lead design better?", "chat"),
+        ("can you redesign it for stability", "design"),
+        ("show me the structure", "visualize"),
+        ("highlight the active site", "visualize"),
+    ],
+)
+def test_classify_rules_questions_versus_requests(text, expected):
+    state = {**new_state("s"), "reference_design": {"sequence": REF_SEQ}}
+    assert classify_rules(text, state)["intent"] == expected
+
+
+def test_classify_rules_with_reference_loaded():
+    state = {**new_state("s"), "reference_design": {"sequence": REF_SEQ}}
+    assert classify_rules("make it more stable", state)["intent"] == "design"
+    assert classify_rules("show me the structure", state)["intent"] == "visualize"
+    assert classify_rules("apply A42V", state)["mutations"] == ["A42V"]
+
+
+def test_describe_state_without_reference_asks_for_a_target():
+    text = describe_state(new_state("s"))
+    assert "No reference design" in text
+
+
+# --- chat path ------------------------------------------------------------
+
+
+async def test_plain_chat_ends_without_running_tasks(app, stub_tools):
+    out = await _send(app, "hello")
+    assert out["intent"] == "chat"
+    assert stub_tools == []  # nothing was looked up
+    assert out["messages"][-1].content
+
+
+# --- initialization path --------------------------------------------------
+
+
+async def test_initialize_builds_reference_design(app, stub_tools, deps):
+    out = await _send(app, "load PDB 1UBQ")
+    ref = out["reference_design"]
+    assert ref["pdb_id"] == "1UBQ"
+    assert ref["sequence"] == REF_SEQ
+    assert ref["uniprot_id"] == "P0CG48"
+    assert ref["structure_path"].endswith(".pdb")
+    assert ref["literature"][0]["title"] == "Stabilizing ubiquitin"
+    assert "pdb_lookup" in stub_tools and "literature_lookup" in stub_tools
+    # tier 1 recorded the campaign and its reference
+    assert deps.history.graph.campaigns()[0]["id"] == "s1"
+
+
+async def test_unidentifiable_target_reports_instead_of_crashing(app, stub_tools, monkeypatch):
+    async def nothing(**kw):
+        return {"error": "no match"}
+
+    for name in ("pdb_lookup", "uniprot_lookup"):
+        CATALOG[name] = TaskDef(name, nothing, "query", "stub")
+
+    out = await _send(app, "redesign the flux capacitor protein")
+    assert "could not identify" in out["messages"][-1].content.lower()
+    assert not out.get("reference_design", {}).get("sequence")
+
+
+# --- full design loop -----------------------------------------------------
+
+
+async def test_design_loop_produces_lead_ensemble_and_artifacts(app, stub_tools, deps):
+    out = await _send(app, "redesign 1UBQ to improve thermostability")
+
+    assert out["key_metric"]["name"] == "plddt"
+    assert out["key_metric"]["direction"] == "max"
+
+    ensemble = out["ensemble"]
+    assert len(ensemble) >= 2
+    # ranked best-first on the key metric
+    values = [d["metrics"]["plddt"] for d in ensemble if "plddt" in d.get("metrics", {})]
+    assert values == sorted(values, reverse=True)
+
+    lead = out["lead_design"]
+    assert lead["design_id"] == ensemble[0]["design_id"]
+    assert lead["mutations"]  # it differs from the reference
+
+    # the visualization and the summary artifacts were registered
+    kinds = {a["kind"] for a in out["artifacts"]}
+    assert {"molstar", "markdown", "docx", "table"} <= kinds
+    assert out["design_summary"]
+
+    # every design reached tier 1 and tier 2
+    designs = deps.history.graph.designs_in_campaign("s1")
+    assert len(designs) == len(ensemble)
+    assert deps.history.scores.scores_for_design(lead["design_id"])["plddt"] == lead["metrics"]["plddt"]
+
+    # tier 3 golden set was staged
+    assert deps.history.golden.list_sets()[0]["n_rows"] >= 1
+
+
+async def test_explicit_mutations_are_applied(app, stub_tools):
+    out = await _send(app, "redesign 1UBQ applying T55V")
+    assert out["lead_design"]["mutations"] == ["T55V"]
+
+
+async def test_round_budget_is_respected(app, stub_tools, deps):
+    """max_rounds=2, and the stub always improves, so it must stop at 2."""
+    out = await _send(app, "redesign 1UBQ for stability")
+    assert out["round"] <= deps.settings.max_rounds
+
+
+async def test_summary_artifact_contains_the_numbers(app, stub_tools, deps):
+    out = await _send(app, "redesign 1UBQ for stability")
+    markdown = next(a for a in out["artifacts"] if a["kind"] == "markdown")
+    text = deps.artifacts.read_bytes(markdown["id"]).decode()
+    assert "Lead design" in text
+    assert out["lead_design"]["design_id"] in text
+    assert "plddt" in text.lower()
+
+
+async def test_docx_artifact_is_a_real_docx(app, stub_tools, deps):
+    out = await _send(app, "redesign 1UBQ for stability")
+    docx = next(a for a in out["artifacts"] if a["kind"] == "docx")
+    data = deps.artifacts.read_bytes(docx["id"])
+    assert data[:2] == b"PK"  # a zip container
+    from io import BytesIO
+
+    from docx import Document
+
+    doc = Document(BytesIO(data))
+    assert any("Design summary" in p.text for p in doc.paragraphs)
+
+
+# --- visualization path ---------------------------------------------------
+
+
+async def test_visualize_request_builds_a_spec(app, stub_tools, deps):
+    first = await _send(app, "load 1UBQ")
+    out = await _send(
+        app, "show me the structure", state=first, thread="t1"
+    )
+    spec = out["molecular_visualization"]
+    assert spec["structures"]
+    assert spec["representation"] in ("cartoon", "ball-and-stick", "gaussian-surface")
+    assert spec["artifact_id"]
+    stored = deps.artifacts.read_json(spec["artifact_id"])
+    assert stored["title"]
+
+
+async def test_visualization_highlights_functional_residues(app, stub_tools):
+    first = await _send(app, "load 1UBQ")
+    out = await _send(app, "show the active site", state=first)
+    labels = {h["label"] for h in out["molecular_visualization"]["highlights"]}
+    assert "Functional residues" in labels
+
+
+# --- failure handling -----------------------------------------------------
+
+
+async def test_fold_failure_does_not_abort_the_loop(app, stub_tools):
+    async def failing_fold(**kw):
+        return {"error": "fold service unavailable"}
+
+    CATALOG["fold_sequence"] = TaskDef(
+        "fold_sequence", failing_fold, "local", "stub", "structure"
+    )
+    out = await _send(app, "redesign 1UBQ for stability")
+    # The loop still finishes and explains itself.
+    assert out["messages"][-1].content
+    assert out["design_summary"]
+
+
+async def test_task_exception_is_recorded_as_failed(app, stub_tools, deps):
+    async def exploding(**kw):
+        raise RuntimeError("boom")
+
+    CATALOG["fold_sequence"] = TaskDef(
+        "fold_sequence", exploding, "local", "stub", "structure"
+    )
+    await _send(app, "redesign 1UBQ for stability")
+    states = {t["state"] for t in deps.history.graph.tasks_for_campaign("s1")}
+    assert "FAILED" in states
+
+
+async def test_lake_write_failure_does_not_lose_the_round(app, stub_tools, deps, monkeypatch):
+    """Storage is not allowed to destroy work the user already paid for."""
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("attempt to write a readonly database")
+
+    monkeypatch.setattr(deps.history, "record_design", boom)
+    monkeypatch.setattr(deps.history, "rank_round", boom)
+    monkeypatch.setattr(deps.history, "record_analysis", boom)
+
+    out = await _send(app, "redesign 1UBQ for stability")
+
+    # The designs survived, ranked in memory, and the failure is surfaced.
+    assert out["ensemble"]
+    assert out["lead_design"]["design_id"]
+    values = [d["metrics"]["plddt"] for d in out["ensemble"] if "plddt" in d.get("metrics", {})]
+    assert values == sorted(values, reverse=True)
+    assert any("Design History write failed" in w for w in out["warnings"])
+    # and the user is actually told, not just the log
+    assert "Caveats from this run" in out["messages"][-1].content
+    assert out["design_summary"]
+
+
+async def test_structures_are_not_carried_in_state(app, stub_tools, deps):
+    """Coordinates belong in blobs; checkpoints must not balloon with PDB text."""
+    import json
+
+    out = await _send(app, "redesign 1UBQ for stability")
+
+    # Designs reference a blob path, and the file really holds the coordinates.
+    lead = out["lead_design"]
+    assert lead["structure_path"]
+    assert deps.history.read_blob(lead["structure_path"]).startswith(b"ATOM")
+
+    # No PDB text anywhere in the serialized state.
+    blob = json.dumps(
+        {k: v for k, v in out.items() if k != "messages"}, default=str
+    )
+    assert "ATOM  " not in blob
+    assert out.get("pending_results") in (None, {})

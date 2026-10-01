@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/
+node_modules/
+frontend/dist/
+.pytest_cache/
+refcodes/
+cg_logs/
+asyncflow.session.*
+*.egg-info/
+*.tsbuildinfo

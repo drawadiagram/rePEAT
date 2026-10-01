@@ -1,0 +1,9 @@
+# Read at `import flowgentic` time from the current working directory.
+# Both keys must be present: flowgentic does APP_SETTINGS["logger"]["level"]
+# with no fallback once a file is found.
+agent_execution:
+  results_directory: data/flowgentic
+  execution_summary_path: data/flowgentic/execution_summary.md
+  graph_image_path: data/flowgentic/agent_graph.png
+logger:
+  level: INFO

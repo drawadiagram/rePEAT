@@ -1,0 +1,64 @@
+[project]
+name = "designagent"
+version = "0.1.0"
+description = "Protein redesign chat agent: LangGraph loop on flowgentic/asyncflow/rhapsody with a web chat + artifact UI"
+requires-python = ">=3.11"
+
+dependencies = [
+  # --- agent loop ---
+  "langgraph>=1.2,<2",
+  "langgraph-checkpoint-sqlite",
+  "langchain-core>=1.6,<2",
+  "langchain>=1.4,<2",
+  "langchain-anthropic",
+  # langchain-openai / -ollama are NOT used by us, but `import flowgentic` pulls
+  # flowgentic.utils.llm_providers, which imports both at module scope.
+  "langchain-openai",
+  "langchain-ollama",
+  # flowgentic.langGraph.fault_tolerance._default_retryable_exceptions() does
+  # `try: import aiohttp ... except Exception: raise`, so aiohttp is required.
+  "aiohttp",
+  "python-json-logger",
+  "pyyaml",
+  "python-dotenv",
+  # --- web ---
+  "fastapi",
+  "uvicorn[standard]",
+  "httpx",
+  "pydantic>=2",
+  "pydantic-settings",
+  # --- data lake / artifacts ---
+  "kuzu",
+  "pyarrow",
+  "python-docx",
+  "biopython",
+]
+
+[project.optional-dependencies]
+# Heavy. ChemGraph pins langgraph/langchain/pydantic exactly and pulls torch via
+# mace-torch, so install deliberately and re-check the resolved set afterwards.
+chem = ["chemgraph"]
+dev = ["pytest", "pytest-asyncio", "respx", "ruff"]
+
+[project.scripts]
+designagent = "designagent.__main__:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+
+[tool.uv.sources]
+radical-asyncflow = { path = "refcodes/radical.asyncflow", editable = true }
+rhapsody-py = { path = "refcodes/rhapsody", editable = true }
+flowgentic = { path = "refcodes/flowgentic", editable = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
