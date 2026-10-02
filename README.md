@@ -26,6 +26,12 @@ visualizations.
 
 ## Quick start
 
+`refcodes/` holds `radical.asyncflow`, `rhapsody` and `flowgentic` as local
+editable installs. **It is gitignored, so a fresh clone cannot build** — see
+`plans/BACKLOG.md` B1. They are listed in `[tool.uv.sources]` but not in
+`dependencies`, so `uv sync` alone silently leaves them out (B2); use the
+sequence below.
+
 ```bash
 # backend
 uv venv --python 3.12 .venv
@@ -148,15 +154,49 @@ lose custom-event streaming.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q          # offline; stubs replace every tool
+.venv/bin/python -m pytest -q -m "not live"   # 83 tests, offline; stubs replace every tool
+.venv/bin/python -m pytest -q                 # all 89 — the live tier starts a real broker
 ```
 
-Covers the lake tiers, task routing and capabilities, shell-injection safety on
-the Globus path, the classifier, the full design loop, artifact rendering, the
-SSE framing contract, and resilience when storage or a fold service fails.
+The offline tier covers the lake tiers, task routing and capabilities,
+shell-injection safety on the Globus path, the classifier, the full design loop,
+artifact rendering, the SSE framing contract, and resilience when storage or a
+fold service fails. It needs no network, no process pool and no endpoint, because
+nodes reach the outside only through `Deps`.
 
-A live Orbit integration test needs the local broker:
+The 6 tests marked `live` bring up a localhost Orbit broker and endpoint as
+subprocesses and exercise the real client path — push states, incremental log
+tailing by byte offset, a failing job, cancelling a running one. **They are not
+excluded by default**, so a bare `pytest -q` runs them (~25 s longer); they
+self-skip only when the Orbit CLI scripts cannot be found.
 
 ```bash
 .venv/bin/python -m pytest tests/test_orbit_local.py -q
 ```
+
+## Slides
+
+`slides/` holds a code-walk deck for a technical audience — architecture, the
+Task Interface seam, and the findings against the middleware. Its figures are
+drawn from a real campaign rather than a mock-up: `run_model.py` mines
+`data/lake` into `run.json`, which the builder reads.
+
+```bash
+.venv/bin/python slides/check_anchors.py   # re-derive the 31 cited line numbers
+.venv/bin/python slides/run_model.py       # regenerate run.json from data/lake
+.venv/bin/python slides/make_script.py     # regenerate DECK_SCRIPT.md from the deck's notes
+NODE_PATH=<dir with pptxgenjs> node slides/build_deck.js
+```
+
+Run `check_anchors.py` after changing backend code: a slide that cites
+`tasks/base.py:135` while showing something else is worse than one with no
+citation.
+
+## Backlog
+
+Open issues live in [`plans/BACKLOG.md`](plans/BACKLOG.md), each with the
+evidence and how to reproduce it. The ones that most change how you should read
+this README: no HPC endpoint has ever executed a task for this agent (Orbit is
+proven against localhost only), the Globus adapter has never met a live
+endpoint, and `proteinmpnn` falls back to a labelled heuristic proposer when no
+endpoint is attached.

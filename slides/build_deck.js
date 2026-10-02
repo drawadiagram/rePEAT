@@ -1161,17 +1161,20 @@ Last line is the honest one. I had no browser in the session where I built this.
   title(s, "Running it, and what each test tier proves", "How to run it");
 
   code(s, [
-    '$ uv sync --extra dev                        # --extra chem for ChemGraph',
-    '$ python -m designagent --reload             # :8000',
-    '$ cd frontend && npm install && npm run dev  # :5173, proxies /api',
+    '$ uv pip install -e refcodes/radical.asyncflow -e refcodes/rhapsody',
+    '$ uv pip install --no-deps -e refcodes/flowgentic   # its pins conflict',
+    '$ uv pip install -e ".[dev]"                        # ".[chem]" adds ChemGraph',
+    '$ python -m designagent --reload                    # :8000',
+    '$ cd frontend && npm install && npm run dev         # :5173, proxies /api',
     '',
-    '$ pytest -q -m "not live"                    # 83 tests, no network',
-    '$ pytest -q tests/test_orbit_local.py        # 6 tests, real local broker',
+    '$ pytest -q -m "not live"                           # 83 tests, no network',
+    '$ pytest -q tests/test_orbit_local.py               # 6 tests, real local broker',
   ], M, 1.55, 7.3, 1.35, { anchor: "VERBATIM", fs: 10.5 });
 
-  card(s, M + 7.6, 1.55, 5.23, 1.35, "No key required", [
-    "There is no configuration step that must succeed. Every layer notes what it could not do on /api/health and keeps going.",
-  ], { fill: C.panel, fs: 11 });
+  card(s, M + 7.6, 1.55, 5.23, 1.6, "Two things to know", [
+    "No key is required: every layer notes what it could not do on /api/health and keeps going.",
+    "The three middleware packages are local editable installs from refcodes/, which is gitignored — uv sync alone will not get you a working tree.",
+  ], { fill: C.panel, fs: 10.5 });
 
   const rows = [
     ["tests/test_lake.py", "11", "all three tiers against a tmp_path lake: provenance, upserts, ranking, curation rules"],

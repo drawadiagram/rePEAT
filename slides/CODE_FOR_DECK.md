@@ -164,7 +164,13 @@ incremental tailing against a real local endpoint.
 ## S16-A — running it · **VERBATIM** (shell)
 
 ```sh
-uv sync --extra dev                     # add --extra chem for ChemGraph
+# The three middleware packages are local editable installs from refcodes/, which is
+# gitignored. They are in [tool.uv.sources] but NOT in dependencies, so `uv sync` alone
+# does not install them.
+uv pip install -e refcodes/radical.asyncflow -e refcodes/rhapsody
+uv pip install --no-deps -e refcodes/flowgentic   # --no-deps: its pins conflict with ours
+uv pip install -e '.[dev]'                        # '.[chem]' adds ChemGraph
+
 python -m designagent --reload          # :8000, needs the __main__ guard (ProcessPoolExecutor)
 cd frontend && npm install && npm run dev   # :5173, proxies /api
 pytest -q -m "not live"                 # 83 tests, offline
