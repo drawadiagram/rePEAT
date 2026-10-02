@@ -8,7 +8,8 @@ Convention: **A** = correctness or honesty of a claim · **B** = developer exper
 **C** = upstream, in the middleware rather than here · **D** = known-unknown, needs investigation
 before it can be sized.
 
-Status as of `a9ce74b` (2026-10-01).
+Status as of 2026-10-01. Numbering is not stable across commits — entries are deleted
+when fixed and the rest close up, so refer to issues by their title in commit messages.
 
 ---
 
@@ -39,28 +40,15 @@ single-point substitutions by rule. It labels itself
 through. **Keep that honest** — the whole reference campaign in `slides/run.json` is heuristic
 output, and a reader who misses the label will over-read a 0.13 pLDDT difference.
 
-### A4 · The Mol* canvas has never been looked at by a human
-Verified: the dev server, the `/api` proxy, a real artifact fetched through it, and that the
-rcsb-molstar CDN assets return 200 with CORS. Not verified: that the viewer draws. No browser was
-available in the session that built it.
-
-**Next step:** open `http://localhost:5173`, ask for a redesign, confirm the pane renders and the
-highlighted residue is the mutated one.
-
-### A5 · `wrap_nodes` ships off, against the original design
-See `config.py:37` and the long comment in `graph/build.py`. Blocked on **C2** — if
-`EXECUTION_BLOCK` is supposed to preserve the caller's context, this becomes a one-line default flip
-plus a re-verification that status lines still stream. If it is not, the flag should probably be
-deleted rather than left as a trap.
-
 ---
 
 ## B — developer experience
 
 ### B1 · A fresh clone cannot be built
 `refcodes/` is gitignored and is where `radical.asyncflow`, `rhapsody` and `flowgentic` come from, so
-the install sequence in the README cannot run against a clone. There is no vendoring, submodule or
-pinned-revision strategy — the working tree is the only record of which revision of each was used.
+`scripts/setup.sh` cannot run against a clone — it detects this and says so, which is the most it can
+do. There is no vendoring, submodule or pinned-revision strategy, and the working tree is the only
+record of which revision of each was used.
 
 **Why it matters:** three of this project's findings (C1, C2, C3) are claims about specific revisions
 of those packages, and right now nothing records which.
@@ -68,25 +56,7 @@ of those packages, and right now nothing records which.
 **Options:** git submodules pinned to a SHA; or a `refcodes/VERSIONS.md` recording each package's
 commit; or vendoring the three into the repo. The middle one is cheap and would do.
 
-### B2 · `uv sync` silently produces a broken environment
-`radical-asyncflow`, `rhapsody-py` and `flowgentic` appear in `[tool.uv.sources]` but **not** in
-`[project] dependencies`, so `uv sync` resolves and installs without them and the failure only shows
-up at `import flowgentic`. The deck shipped a slide with `uv sync --extra dev` on it for exactly this
-reason; corrected, but the trap remains for the next person.
-
-**Fix:** either add the three to `dependencies` so the sources entries bind, or drop
-`[tool.uv.sources]` entirely so nothing implies `uv sync` is the supported path.
-
-### B3 · A bare `pytest -q` is not offline
-`pytest -q` collects and runs all 89 tests, including the 6 `live` Orbit tests, which start a real
-broker and endpoint as subprocesses (89 s, versus 64 s for `-m "not live"`). They self-skip only when
-the Orbit CLI scripts cannot be found — which is false in any working tree. The README claimed the
-bare command was offline.
-
-**Fix:** `addopts = -m "not live"` in `[tool.pytest.ini_options]`, so the default is the fast offline
-path and the live tier is opt-in by `-m live`.
-
-### B4 · The initializer re-runs its lookups within a single campaign
+### B2 · The initializer re-runs its lookups within a single campaign
 Measured in the reference campaign: the full lookup set ran at `19:17:53` and again at `19:18:58`,
 both under campaign `s-tutp87hw` — `pdb_lookup`, `uniprot_lookup`, `pdb_structure`,
 `literature_lookup`, plus the cross-reference follow-up. That is 5 redundant live API calls and about
@@ -100,19 +70,19 @@ t.submitted_at` against `data/lake/graph`.
 routing probably fixes this; a lookup cache in `tools/` would fix it regardless and is worth having
 anyway, since RCSB and UniProt answers are stable.
 
-### B5 · `asyncflow.session.*` directories accumulate in the repo root
+### B3 · `asyncflow.session.*` directories accumulate in the repo root
 Eight of them at the time of writing. Gitignored, so harmless to the repo, but they make `ls` useless
 and they are never cleaned up. They come from `WorkflowEngine` and are created per run.
 
 **Fix:** point asyncflow at `data/flow/` the way `config.yml` already points its other outputs, if
 the engine supports it; otherwise clean them in `Runtime.aclose()`.
 
-### B6 · Nothing prunes `data/`
+### B4 · Nothing prunes `data/`
 Blobs are content-addressed, so duplicates are free, but nothing ever removes them — the reference
 campaign alone is 5.1 MB across 24 files. Checkpoints, artifacts and the Kuzu WAL grow the same way.
 Fine for development, wrong for anything long-lived.
 
-### B7 · Tier 1 cannot be read while the server is running
+### B5 · Tier 1 cannot be read while the server is running
 Kuzu takes an exclusive file lock. Any out-of-process reader has to copy the database aside first
 (`slides/run_model.py` does). Tiers 2 and 3 are a plain SQLite file and Parquet and read fine in
 place.
@@ -175,14 +145,14 @@ refuses to start without a cert and key. Both are documentation fixes, not code.
 ### D1 · Why did the initializer run twice in one campaign?
 `classify_rules` (`coordinator.py:114–126`) should return `design` rather than `initialize` once
 `reference_design.sequence` is set, which would route the second prompt to the orchestrator. The
-reference campaign shows it running the full initializer twice anyway (see **B4**).
+reference campaign shows it running the full initializer twice anyway (see **B2**).
 
 **Hypotheses, untested:** the second prompt named `1OIL` again and something upstream of the
 `has_reference` check won; or the turn arrived on a different `session_id` and loaded an empty
 checkpoint while reusing the campaign; or the orchestrator itself re-requested the reference.
 
 **How to settle it:** run two prompts in one session with the backend's log at DEBUG and watch the
-`intent` the coordinator emits on the second. Cheap, and it either closes B4 or redirects it.
+`intent` the coordinator emits on the second. Cheap, and it either closes B2 or redirects it.
 
 ### D2 · ESM Atlas drops requests under concurrent load
 One of six round-2 folds came back with no structure (`s-tutp87hw-r2-5`). The campaign absorbed it

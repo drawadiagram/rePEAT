@@ -164,18 +164,19 @@ incremental tailing against a real local endpoint.
 ## S16-A — running it · **VERBATIM** (shell)
 
 ```sh
-# The three middleware packages are local editable installs from refcodes/, which is
-# gitignored. They are in [tool.uv.sources] but NOT in dependencies, so `uv sync` alone
-# does not install them.
-uv pip install -e refcodes/radical.asyncflow -e refcodes/rhapsody
-uv pip install --no-deps -e refcodes/flowgentic   # --no-deps: its pins conflict with ours
-uv pip install -e '.[dev]'                        # '.[chem]' adds ChemGraph
+./scripts/setup.sh                      # the only supported install path
+./scripts/setup.sh --check              # verify an existing .venv, install nothing
 
 python -m designagent --reload          # :8000, needs the __main__ guard (ProcessPoolExecutor)
 cd frontend && npm install && npm run dev   # :5173, proxies /api
-pytest -q -m "not live"                 # 83 tests, offline
-pytest -q tests/test_orbit_local.py     # 6 tests against a real localhost broker + endpoint
+pytest -q                               # 83 tests, offline
+pytest -q -m live                       # 6 tests against a real localhost broker + endpoint
 ```
+
+`uv sync` cannot work: the three middleware packages are local editable installs from `refcodes/`
+(gitignored), and flowgentic pins `radical-asyncflow` and `academy-py` to git URLs that fight the
+local checkouts, so it is installed `--no-deps`. The live tier is deselected by `addopts`, so naming
+`tests/test_orbit_local.py` alone collects nothing — `-m live` is what selects it.
 
 No `ANTHROPIC_API_KEY` is required: every node has a deterministic rule-based path, and the
 reference campaign in `run.json` was produced with `llm: false`.

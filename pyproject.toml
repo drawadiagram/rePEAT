@@ -50,15 +50,29 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["backend"]
 
-[tool.uv.sources]
-radical-asyncflow = { path = "refcodes/radical.asyncflow", editable = true }
-rhapsody-py = { path = "refcodes/rhapsody", editable = true }
-flowgentic = { path = "refcodes/flowgentic", editable = true }
+# NOTE: radical.asyncflow, rhapsody and flowgentic are deliberately NOT declared
+# here, and there is no [tool.uv.sources] block. They are local editable installs
+# from refcodes/, applied by scripts/setup.sh, which is the only supported path.
+#
+# Declaring them would make `uv sync` the obvious command and it cannot work:
+# flowgentic pins `radical-asyncflow @ git+...@main` and `academy-py @ git+...`,
+# so resolving its dependencies fetches from git and fights the local checkout.
+# It is installed --no-deps, and the three packages it then lacks (academy,
+# langchain-community, langchain-mcp-adapters) are not on any path we use.
+#
+# A previous [tool.uv.sources] block listed all three while none was a declared
+# dependency, so `uv sync` resolved cleanly and silently produced an environment
+# that died at `import flowgentic`. See plans/BACKLOG.md B2.
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
+markers = ["live: needs a real substrate (starts an Orbit broker + endpoint)"]
+# The live tier is opt-in: without this, a bare `pytest` spawns a broker and runs
+# ~25s longer, which is not what anyone wants from the default command. Run it
+# with `pytest -m live`. See plans/BACKLOG.md B3.
+addopts = "-m 'not live'"
 
 [tool.ruff]
 line-length = 100

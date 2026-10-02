@@ -275,7 +275,8 @@ for. Now each tier write is guarded, ranking falls back in memory, and the inter
 ### 15 — The web app *(cuttable)* (17:35–19:05) · `S15-A`
 Seven frame kinds, one merged queue so node status and task progress arrive in one ordered stream.
 The SSE buffer, because chunk boundaries land mid-frame. The Mol* lifecycle and the two things that
-bit. End on the unverified item: **no browser was available**, so the canvas is unconfirmed.
+bit. The canvas was confirmed rendering in a browser on 2026-10-01; it was an open item until then,
+because the deck was built without one. Say so — some of the room may have seen the earlier version.
 
 ### 16 — Running it (19:05–20:20) · `S16-A`
 Five commands. The test-tier table and the split that matters: 83 offline, 6 live. Mention the two
@@ -333,7 +334,7 @@ credentials in `~/.radical/orbit`, which a test must not create).
 python3 slides/run_model.py          # regenerate run.json from data/lake
 python3 slides/make_script.py        # regenerate DECK_SCRIPT.md from the deck's notes
 NODE_PATH=<dir with pptxgenjs> node slides/build_deck.js
-pytest -q -m "not live"              # 83 pass; the deck must not have touched the code
+pytest -q                            # 83 pass; the deck must not have touched the code
 ```
 
 Then re-derive the code anchors. `CODE_FOR_DECK.md` carries the per-snippet first-line matcher, and

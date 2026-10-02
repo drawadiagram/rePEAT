@@ -4,16 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Setup
 
-The three middleware packages are **local editable installs from `refcodes/`, which is gitignored
-and not in a fresh clone**. They are listed in `[tool.uv.sources]` but *not* in `dependencies`, so
-`uv sync` will not install them — use the explicit sequence:
-
 ```bash
-uv venv --python 3.12 .venv
-uv pip install -e refcodes/radical.asyncflow -e refcodes/rhapsody
-uv pip install --no-deps -e refcodes/flowgentic   # --no-deps: its pins conflict
-uv pip install -e '.[dev]'
+./scripts/setup.sh           # build .venv and verify it
+./scripts/setup.sh --check   # verify an existing one, install nothing
 ```
+
+That script is the only supported path and **`uv sync` is not an alternative**. The three middleware
+packages are local editable installs from `refcodes/`, which is gitignored and absent from a fresh
+clone; flowgentic pins `radical-asyncflow` and `academy-py` to git URLs that fight the local
+checkouts, so it goes in `--no-deps` and the three deps it then lacks are unused here. `pyproject.toml`
+carries the full reasoning where a `[tool.uv.sources]` block used to be.
+
+Run `--check` after a pull: it fails with the missing piece named, rather than letting the app die
+deep inside an import.
 
 `config.yml` in the **current working directory** is read at `import flowgentic` time. Both
 `agent_execution` and `logger` keys must be present — flowgentic does `APP_SETTINGS["logger"]["level"]`
@@ -27,16 +30,14 @@ cd frontend && npm run dev                      # Vite on :5173, proxies /api
 cd frontend && npm run build                    # tsc -b && vite build
 
 .venv/bin/python -m pytest -q                   # 83 offline tests, no network
-.venv/bin/python -m pytest -q -m "not live"     # same, explicit
+.venv/bin/python -m pytest -q -m live           # 6 live tests; starts a real broker
 .venv/bin/python -m pytest tests/test_graph.py::test_full_redesign_loop -q   # one test
-.venv/bin/python -m pytest tests/test_orbit_local.py -q   # 6 live tests; starts a real broker
 .venv/bin/ruff check backend tests              # line-length 100
 ```
 
-The `live` marker gates the 6 tests that need a substrate, but **nothing deselects them by default**:
-a bare `pytest -q` runs all 89 and starts a real broker (89 s, versus 64 s for `-m "not live"`). They
-self-skip only when the Orbit CLI scripts cannot be found, which is false in any working tree. Use
-`-m "not live"` for the fast loop. See `plans/BACKLOG.md` B3.
+`addopts = "-m 'not live'"` in `pyproject.toml` deselects the 6 live tests by default, because they
+start a real broker. `-m live` on the command line overrides it; naming the file alone does not, and
+collects nothing.
 
 ## Architecture
 

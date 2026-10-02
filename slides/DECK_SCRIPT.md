@@ -21,18 +21,18 @@ realistic rate for technical material delivered with pauses.
 | 3. The constraint | 1.0 | | 12. Local task agents | 1.4 |
 | 4. The loop (F1) | 1.1 | | 13. The lake (F4) | 1.3 |
 | 5. Architecture (F2) | 1.1 | | 14. Degradation | 1.4 |
-| 6. State | 1.2 | | 15. Frontend | 1.5 |
+| 6. State | 1.2 | | 15. Frontend | 1.7 |
 | 7. One campaign, measured (F3) | 1.3 | | 16. Running it | 1.2 |
 | 8. The seam: contract | 1.3 | | 17. Status | 1.3 |
 | 9. The seam: substrate | 1.5 | | 18. Asks | 1.8 |
 
-**Main path (slides 1–18): 3629 words = 23.4 minutes of speech.** Backups add 2.5 min if used.
+**Main path (slides 1–18): 3641 words = 23.5 minutes of speech.** Backups add 2.5 min if used.
 
 | Order | What's in | Speech | Fits |
 |---|---|---|---|
-| **A · full** | slides 1–18 | **23.4** | a 30-minute slot, questions inline |
+| **A · full** | slides 1–18 | **23.5** | a 30-minute slot, questions inline |
 | **B · twenty-five** | drop 12 (task agents) and 15 (frontend) | **20.5** | a 25-minute slot with real Q&A |
-| **C · twenty** | B, and fold 11 (Globus) into 10 as one sentence | **~19.1** | a hard 20 with questions after |
+| **C · twenty** | B, and fold 11 (Globus) into 10 as one sentence | **~19.0** | a hard 20 with questions after |
 
 **Protect 8, 9, 10 and 18.** Those are the seam and the asks, and they are what this room came for.
 Slides 12 and 15 are the designated cuts: the visualization-agent decision and the SSE details are
@@ -196,7 +196,7 @@ The fix is the code at the bottom. Each tier write is guarded independently, a f
 
 And the fourth row is the one I did not have to arrange. ESM Atlas dropped a request during the measured campaign, the design came through sequence-only, the round scored the other five, and the warning surfaced. That is the whole mechanism working on a failure I did not choose.
 
-## 15. Frontend — *1.5 min*
+## 15. Frontend — *1.7 min*
 
 [1:10] Briefly, because the backend is what you came for.
 
@@ -206,7 +206,7 @@ The client code is there because of a bug class people hit constantly: a network
 
 The viewer: rcsb-molstar from the CDN, loader cached on window so one fetch serves every mount, one viewer per mount, resize observed. Two things bit me — createComponent takes no colour, so colours have to go through a plugin call to update the representation theme; and the analyst inlines coordinates as a JSON artifact so the viewer does not need a second authenticated fetch.
 
-Last line is the honest one. I had no browser in the session where I built this. I verified the dev server, the proxy, a real artifact fetched through it, and that the Mol* assets return 200 with CORS. Whether the canvas draws is the one thing I am asking someone to eyeball.
+Last line: this was built without a browser available, so for a while the canvas was the one thing nobody had actually looked at — everything around it checked out, which is exactly the situation where you convince yourself it is fine. It was confirmed rendering on the first of October. I am mentioning it because it was on the status slide as an open item until then, and some of you may have seen that version.
 
 ## 16. Running it — *1.2 min*
 
@@ -224,7 +224,7 @@ What I would call out in the middle column is that test_graph covers the classif
 
 Left, briefly: the loop, two rounds, routed by the improvement test. The query interface against live RCSB, UniProt and Europe PMC. Twelve real folds on the rhapsody pool, six at a time, reaped out of order. All three lake tiers with the counts you saw. Four artifacts on disk. Streaming working.
 
-Right is the column that matters. ProteinMPNN is a job spec and a FASTA parser; with no endpoint, the orchestrator falls back to a heuristic proposer, and the output says so in a note field rather than quietly implying ProteinMPNN ran. The Globus adapter has never met a live endpoint. ORBIT works, against localhost only — which proves the client path and proves nothing about a queue. ChemGraph has been exercised by tests and never by a campaign. The Mol* canvas has not been looked at by a human.
+Right is the column that matters. ProteinMPNN is a job spec and a FASTA parser; with no endpoint, the orchestrator falls back to a heuristic proposer, and the output says so in a note field rather than quietly implying ProteinMPNN ran. The Globus adapter has never met a live endpoint. ORBIT works, against localhost only — which proves the client path and proves nothing about a queue. ChemGraph has been exercised by tests and never by a campaign.
 
 And the bottom line is the one I would put on a slide even if nobody asked: no HPC endpoint has ever run a task for this agent. Everything I have said about the remote path is a statement about the client, not about HPC.
 

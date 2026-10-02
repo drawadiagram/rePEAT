@@ -1139,9 +1139,9 @@ And the fourth row is the one I did not have to arrange. ESM Atlas dropped a req
   ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
 
   text(s, [
-    { text: "Not verified: ", options: { bold: true, color: C.fail } },
-    { text: "no browser was available while building this. The dev server, the proxy, a real " +
-      "artifact fetched through it, and the Mol* CDN assets all check out; the canvas itself is unconfirmed." },
+    { text: "Confirmed rendering ", options: { bold: true, color: C.good } },
+    { text: "in a browser on 2026-10-01. It was built without one — the dev server, the proxy, a " +
+      "real artifact through it and the CDN assets were all that could be checked at the time." },
   ], M, 5.85, 12.3, 0.6, { fontSize: 12.5 });
   s.addNotes(
 `[1:10] Briefly, because the backend is what you came for.
@@ -1152,7 +1152,7 @@ The client code is there because of a bug class people hit constantly: a network
 
 The viewer: rcsb-molstar from the CDN, loader cached on window so one fetch serves every mount, one viewer per mount, resize observed. Two things bit me — createComponent takes no colour, so colours have to go through a plugin call to update the representation theme; and the analyst inlines coordinates as a JSON artifact so the viewer does not need a second authenticated fetch.
 
-Last line is the honest one. I had no browser in the session where I built this. I verified the dev server, the proxy, a real artifact fetched through it, and that the Mol* assets return 200 with CORS. Whether the canvas draws is the one thing I am asking someone to eyeball.`);
+Last line: this was built without a browser available, so for a while the canvas was the one thing nobody had actually looked at — everything around it checked out, which is exactly the situation where you convince yourself it is fine. It was confirmed rendering on the first of October. I am mentioning it because it was on the status slide as an open item until then, and some of you may have seen that version.`);
 }
 
 // ================================================================ 16. Running it
@@ -1161,19 +1161,18 @@ Last line is the honest one. I had no browser in the session where I built this.
   title(s, "Running it, and what each test tier proves", "How to run it");
 
   code(s, [
-    '$ uv pip install -e refcodes/radical.asyncflow -e refcodes/rhapsody',
-    '$ uv pip install --no-deps -e refcodes/flowgentic   # its pins conflict',
-    '$ uv pip install -e ".[dev]"                        # ".[chem]" adds ChemGraph',
-    '$ python -m designagent --reload                    # :8000',
-    '$ cd frontend && npm install && npm run dev         # :5173, proxies /api',
+    '$ ./scripts/setup.sh                        # builds .venv, then verifies it',
+    '$ ./scripts/setup.sh --check                # verify only, install nothing',
+    '$ python -m designagent --reload            # :8000',
+    '$ cd frontend && npm install && npm run dev # :5173, proxies /api',
     '',
-    '$ pytest -q -m "not live"                           # 83 tests, no network',
-    '$ pytest -q tests/test_orbit_local.py               # 6 tests, real local broker',
+    '$ pytest -q                                 # 83 tests, no network',
+    '$ pytest -q -m live                         # 6 tests, starts a real broker',
   ], M, 1.55, 7.3, 1.35, { anchor: "VERBATIM", fs: 10.5 });
 
   card(s, M + 7.6, 1.55, 5.23, 1.6, "Two things to know", [
     "No key is required: every layer notes what it could not do on /api/health and keeps going.",
-    "The three middleware packages are local editable installs from refcodes/, which is gitignored — uv sync alone will not get you a working tree.",
+    "uv sync cannot work here: the three middleware packages are local editable installs from refcodes/, and flowgentic pins two of its own deps to git URLs. setup.sh encodes that, and --check fails loudly instead of letting an import die.",
   ], { fill: C.panel, fs: 10.5 });
 
   const rows = [
@@ -1181,7 +1180,7 @@ Last line is the honest one. I had no browser in the session where I built this.
     ["tests/test_tasks.py", "25", "the contract: futures resolve, failures settle, capability flags honoured, Globus with an injected executor"],
     ["tests/test_graph.py", "—", "18 parametrized classifier cases, a full loop end to end, artifacts, lake-write failure, and the no-structures-in-state guard"],
     ["tests/test_api.py", "12", "SSE frames, artifact serving, task cancel returning 409 with a reason, health"],
-    ["tests/test_orbit_local.py", "6", "a real broker + endpoint as subprocesses: push states, offset log tailing, a failing job, cancelling a running one"],
+    ["pytest -m live", "6", "a real broker + endpoint as subprocesses: push states, offset log tailing, a failing job, cancelling a running one"],
   ];
   const cw = [3.0, 0.7, 8.63];
   const tbl = [["file", "n", "what it actually proves"].map(h => ({ text: h,
@@ -1197,9 +1196,9 @@ Last line is the honest one. I had no browser in the session where I built this.
   text(s, [
     { text: "The split that matters: ", options: { bold: true, color: C.ink } },
     { text: "83 tests need no network, no pool and no endpoint, because nodes only reach through " +
-      "Deps. The 6 that do need a substrate are marked " },
+      "Deps. The 6 that do are marked " },
     { text: "live", options: { fontFace: MF } },
-    { text: " and start their own broker." },
+    { text: ", deselected by default, and start their own broker." },
   ], M, 6.2, 12.3, 0.6, { fontSize: 13 });
   s.addNotes(
 `[1:00] Three commands to run it, two to test it, and no configuration step that has to succeed first.
@@ -1223,13 +1222,13 @@ What I would call out in the middle column is that test_graph covers the classif
     ["All three lake tiers", `${T2.counts.scores} scores, ${T1.nodes.Task} task nodes, an ${T3.n_rows}-row Parquet set`],
     ["Artifacts", "Markdown, .docx, a sortable table, two Mol* specs — all on disk"],
     ["Streaming", "11 status lines plus task chips over one SSE stream"],
+    ["The Mol* artifact pane", "confirmed rendering in a browser, 2026-10-01"],
   ];
   const notReal = [
     ["ProteinMPNN", "a job spec and a parser. No endpoint → a heuristic proposer, labelled as such"],
     ["The Globus adapter", "structurally complete, tested with an injected executor, never met a live endpoint"],
     ["Orbit", "works — against a localhost broker only. Never seen a scheduler or a queue"],
     ["ChemGraph", "wired behind the interface; exercised by tests, never by a campaign"],
-    ["The Mol* canvas", "unverified by eye; no browser was available"],
     ["wrap_nodes", "ships off, against the approved design. Next slide"],
   ];
 
@@ -1238,11 +1237,11 @@ What I would call out in the middle column is that test_graph covers the classif
   text(s, "Runs end to end against something real", M + 0.12, 1.5, 6.0, 0.38,
     { fontSize: 13, bold: true, color: C.white, valign: "middle" });
   real.forEach(([h, b], i) => {
-    const y = 1.98 + i * 0.68;
-    s.addShape(pres.shapes.RECTANGLE, { x: M, y, w: 6.25, h: 0.62,
+    const y = 1.98 + i * 0.6;
+    s.addShape(pres.shapes.RECTANGLE, { x: M, y, w: 6.25, h: 0.55,
       fill: { color: i % 2 ? C.white : C.panel }, line: { color: C.rule, width: 0.5 } });
-    text(s, h, M + 0.12, y + 0.04, 6.0, 0.26, { fontSize: 11.5, bold: true, color: C.ink });
-    text(s, b, M + 0.12, y + 0.3, 6.0, 0.28, { fontSize: 10.5, color: C.muted });
+    text(s, h, M + 0.12, y + 0.02, 6.0, 0.25, { fontSize: 11, bold: true, color: C.ink });
+    text(s, b, M + 0.12, y + 0.26, 6.0, 0.27, { fontSize: 10, color: C.muted });
   });
 
   s.addShape(pres.shapes.RECTANGLE, { x: M + 6.58, y: 1.5, w: 6.25, h: 0.38,
@@ -1250,11 +1249,11 @@ What I would call out in the middle column is that test_graph covers the classif
   text(s, "Built, but has never run for real", M + 6.7, 1.5, 6.0, 0.38,
     { fontSize: 13, bold: true, color: C.white, valign: "middle" });
   notReal.forEach(([h, b], i) => {
-    const y = 1.98 + i * 0.68;
-    s.addShape(pres.shapes.RECTANGLE, { x: M + 6.58, y, w: 6.25, h: 0.62,
+    const y = 1.98 + i * 0.6;
+    s.addShape(pres.shapes.RECTANGLE, { x: M + 6.58, y, w: 6.25, h: 0.55,
       fill: { color: i % 2 ? C.white : C.failTint }, line: { color: C.rule, width: 0.5 } });
-    text(s, h, M + 6.7, y + 0.04, 6.0, 0.26, { fontSize: 11.5, bold: true, color: C.ink });
-    text(s, b, M + 6.7, y + 0.3, 6.0, 0.28, { fontSize: 10.5, color: C.muted });
+    text(s, h, M + 6.7, y + 0.02, 6.0, 0.25, { fontSize: 11, bold: true, color: C.ink });
+    text(s, b, M + 6.7, y + 0.26, 6.0, 0.27, { fontSize: 10, color: C.muted });
   });
 
   text(s, [
@@ -1267,7 +1266,7 @@ What I would call out in the middle column is that test_graph covers the classif
 
 Left, briefly: the loop, two rounds, routed by the improvement test. The query interface against live RCSB, UniProt and Europe PMC. Twelve real folds on the rhapsody pool, six at a time, reaped out of order. All three lake tiers with the counts you saw. Four artifacts on disk. Streaming working.
 
-Right is the column that matters. ProteinMPNN is a job spec and a FASTA parser; with no endpoint, the orchestrator falls back to a heuristic proposer, and the output says so in a note field rather than quietly implying ProteinMPNN ran. The Globus adapter has never met a live endpoint. ORBIT works, against localhost only — which proves the client path and proves nothing about a queue. ChemGraph has been exercised by tests and never by a campaign. The Mol* canvas has not been looked at by a human.
+Right is the column that matters. ProteinMPNN is a job spec and a FASTA parser; with no endpoint, the orchestrator falls back to a heuristic proposer, and the output says so in a note field rather than quietly implying ProteinMPNN ran. The Globus adapter has never met a live endpoint. ORBIT works, against localhost only — which proves the client path and proves nothing about a queue. ChemGraph has been exercised by tests and never by a campaign.
 
 And the bottom line is the one I would put on a slide even if nobody asked: no HPC endpoint has ever run a task for this agent. Everything I have said about the remote path is a statement about the client, not about HPC.`);
 }

@@ -26,24 +26,21 @@ visualizations.
 
 ## Quick start
 
-`refcodes/` holds `radical.asyncflow`, `rhapsody` and `flowgentic` as local
-editable installs. **It is gitignored, so a fresh clone cannot build** — see
-`plans/BACKLOG.md` B1. They are listed in `[tool.uv.sources]` but not in
-`dependencies`, so `uv sync` alone silently leaves them out (B2); use the
-sequence below.
-
 ```bash
-# backend
-uv venv --python 3.12 .venv
-uv pip install -e refcodes/radical.asyncflow -e refcodes/rhapsody
-uv pip install --no-deps -e refcodes/flowgentic
-uv pip install -e '.[dev]'
+./scripts/setup.sh              # builds .venv and verifies it
 cp .env.example .env            # optional: add ANTHROPIC_API_KEY
 .venv/bin/python -m designagent # http://127.0.0.1:8000
 
 # frontend (separate shell)
 cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
+
+`scripts/setup.sh` is the only supported install path, and `--check` verifies an
+existing environment without installing anything. **`uv sync` cannot work here**:
+`radical.asyncflow`, `rhapsody` and `flowgentic` are local editable installs from
+`refcodes/`, and flowgentic pins two of its own dependencies to git URLs that
+fight the local checkouts, so it is installed `--no-deps`. `refcodes/` is
+gitignored, so a fresh clone cannot build at all — see `plans/BACKLOG.md` B1.
 
 Then ask for something, e.g. *"redesign 1UBQ to improve thermostability"*.
 
@@ -154,8 +151,8 @@ lose custom-event streaming.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q -m "not live"   # 83 tests, offline; stubs replace every tool
-.venv/bin/python -m pytest -q                 # all 89 — the live tier starts a real broker
+.venv/bin/python -m pytest -q            # 83 tests, offline; stubs replace every tool
+.venv/bin/python -m pytest -q -m live    # 6 tests; starts a real Orbit broker + endpoint
 ```
 
 The offline tier covers the lake tiers, task routing and capabilities,
@@ -166,13 +163,10 @@ nodes reach the outside only through `Deps`.
 
 The 6 tests marked `live` bring up a localhost Orbit broker and endpoint as
 subprocesses and exercise the real client path — push states, incremental log
-tailing by byte offset, a failing job, cancelling a running one. **They are not
-excluded by default**, so a bare `pytest -q` runs them (~25 s longer); they
-self-skip only when the Orbit CLI scripts cannot be found.
-
-```bash
-.venv/bin/python -m pytest tests/test_orbit_local.py -q
-```
+tailing by byte offset, a failing job, cancelling a running one. They are
+deselected by default (`addopts` in `pyproject.toml`) because they start real
+processes; `-m live` is the only thing that selects them, so naming the file
+alone collects nothing.
 
 ## Slides
 
@@ -199,4 +193,5 @@ evidence and how to reproduce it. The ones that most change how you should read
 this README: no HPC endpoint has ever executed a task for this agent (Orbit is
 proven against localhost only), the Globus adapter has never met a live
 endpoint, and `proteinmpnn` falls back to a labelled heuristic proposer when no
-endpoint is attached.
+endpoint is attached. The Mol* artifact pane was confirmed rendering in a
+browser on 2026-10-01.
