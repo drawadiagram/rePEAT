@@ -1,0 +1,631 @@
+{
+  "generated_from": "/home/mason/exdrive/rad/repeat/data/lake",
+  "tier1": {
+    "available": true,
+    "nodes": {
+      "Campaign": 1,
+      "Reference": 1,
+      "Design": 12,
+      "Task": 37,
+      "Output": 37,
+      "Structure": 11
+    },
+    "rels": {
+      "IN_CAMPAIGN": 12,
+      "REF_OF": 1,
+      "DERIVED_FROM": 6,
+      "BASED_ON": 12,
+      "PRODUCED": 37,
+      "RAN_FOR": 37,
+      "OUTPUT_FOR": 0,
+      "HAS_STRUCTURE": 11
+    },
+    "n_node_tables": 6,
+    "n_rel_tables": 8,
+    "tasks": [
+      {
+        "id": "pdb_lookup-9636420ae1",
+        "name": "pdb_lookup",
+        "interface": "query",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:17:53.893623+00:00",
+        "finished_at": "2026-10-01T19:17:54.453242+00:00"
+      },
+      {
+        "id": "uniprot_lookup-bca800e2de",
+        "name": "uniprot_lookup",
+        "interface": "query",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:17:53.916877+00:00",
+        "finished_at": "2026-10-01T19:17:55.429846+00:00"
+      },
+      {
+        "id": "pdb_structure-6a59a7cf0b",
+        "name": "pdb_structure",
+        "interface": "query",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:17:55.464139+00:00",
+        "finished_at": "2026-10-01T19:17:56.182687+00:00"
+      },
+      {
+        "id": "literature_lookup-d48e0b19b4",
+        "name": "literature_lookup",
+        "interface": "query",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:17:55.472350+00:00",
+        "finished_at": "2026-10-01T19:17:56.360002+00:00"
+      },
+      {
+        "id": "pdb_lookup-20a420d6b8",
+        "name": "pdb_lookup",
+        "interface": "query",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:18:58.362174+00:00",
+        "finished_at": "2026-10-01T19:18:58.838669+00:00"
+      },
+      {
+        "id": "uniprot_lookup-e5d69d4a75",
+        "name": "uniprot_lookup",
+        "interface": "query",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:18:58.370795+00:00",
+        "finished_at": "2026-10-01T19:19:02.270006+00:00"
+      },
+      {
+        "id": "uniprot_lookup-2e98ee13f4",
+        "name": "uniprot_lookup",
+        "interface": "query",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:02.303349+00:00",
+        "finished_at": "2026-10-01T19:19:02.811598+00:00"
+      },
+      {
+        "id": "pdb_structure-d85a86eb77",
+        "name": "pdb_structure",
+        "interface": "query",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:02.846718+00:00",
+        "finished_at": "2026-10-01T19:19:02.993193+00:00"
+      },
+      {
+        "id": "literature_lookup-1ebd60cc94",
+        "name": "literature_lookup",
+        "interface": "query",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:02.855394+00:00",
+        "finished_at": "2026-10-01T19:19:04.597200+00:00"
+      },
+      {
+        "id": "propose_variants-3f09383d96",
+        "name": "propose_variants",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:04.639395+00:00",
+        "finished_at": "2026-10-01T19:19:04.676547+00:00"
+      },
+      {
+        "id": "fold_sequence-dfff95420c",
+        "name": "fold_sequence",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:04.704712+00:00",
+        "finished_at": "2026-10-01T19:19:19.054700+00:00"
+      },
+      {
+        "id": "fold_sequence-318868c1ce",
+        "name": "fold_sequence",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:04.713271+00:00",
+        "finished_at": "2026-10-01T19:19:22.587860+00:00"
+      },
+      {
+        "id": "fold_sequence-17c4985c6d",
+        "name": "fold_sequence",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:04.723281+00:00",
+        "finished_at": "2026-10-01T19:19:30.731059+00:00"
+      },
+      {
+        "id": "fold_sequence-4d3dcfdd93",
+        "name": "fold_sequence",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:04.733748+00:00",
+        "finished_at": "2026-10-01T19:19:18.025861+00:00"
+      },
+      {
+        "id": "fold_sequence-1ac4619efc",
+        "name": "fold_sequence",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:04.742419+00:00",
+        "finished_at": "2026-10-01T19:19:32.635351+00:00"
+      },
+      {
+        "id": "fold_sequence-dab5d88b48",
+        "name": "fold_sequence",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:04.749600+00:00",
+        "finished_at": "2026-10-01T19:19:36.440693+00:00"
+      },
+      {
+        "id": "score_structure-02b0f4cb31",
+        "name": "score_structure",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:36.481719+00:00",
+        "finished_at": "2026-10-01T19:19:36.866878+00:00"
+      },
+      {
+        "id": "score_structure-0ffe25fd5c",
+        "name": "score_structure",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:36.490687+00:00",
+        "finished_at": "2026-10-01T19:19:36.890367+00:00"
+      },
+      {
+        "id": "score_structure-f2f36e33dc",
+        "name": "score_structure",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:36.497969+00:00",
+        "finished_at": "2026-10-01T19:19:36.841030+00:00"
+      },
+      {
+        "id": "score_structure-5528f167f8",
+        "name": "score_structure",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:36.505506+00:00",
+        "finished_at": "2026-10-01T19:19:36.879145+00:00"
+      },
+      {
+        "id": "score_structure-34091c53c0",
+        "name": "score_structure",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:36.511562+00:00",
+        "finished_at": "2026-10-01T19:19:36.917840+00:00"
+      },
+      {
+        "id": "score_structure-ab0a921941",
+        "name": "score_structure",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:36.518657+00:00",
+        "finished_at": "2026-10-01T19:19:36.902430+00:00"
+      },
+      {
+        "id": "generate_visualization-03abbfc6a4",
+        "name": "generate_visualization",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:37.040555+00:00",
+        "finished_at": "2026-10-01T19:19:37.049341+00:00"
+      },
+      {
+        "id": "propose_variants-fc419d1740",
+        "name": "propose_variants",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:37.063604+00:00",
+        "finished_at": "2026-10-01T19:19:37.073246+00:00"
+      },
+      {
+        "id": "fold_sequence-70fda593c6",
+        "name": "fold_sequence",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:37.085509+00:00",
+        "finished_at": "2026-10-01T19:20:02.978647+00:00"
+      },
+      {
+        "id": "fold_sequence-1f9203ff0b",
+        "name": "fold_sequence",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:37.092416+00:00",
+        "finished_at": "2026-10-01T19:20:02.880603+00:00"
+      },
+      {
+        "id": "fold_sequence-196e200135",
+        "name": "fold_sequence",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:37.098279+00:00",
+        "finished_at": "2026-10-01T19:19:50.282009+00:00"
+      },
+      {
+        "id": "fold_sequence-4037d5e5e3",
+        "name": "fold_sequence",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:37.104380+00:00",
+        "finished_at": "2026-10-01T19:19:50.345538+00:00"
+      },
+      {
+        "id": "fold_sequence-a914341a5b",
+        "name": "fold_sequence",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:37.110305+00:00",
+        "finished_at": "2026-10-01T19:20:19.526397+00:00"
+      },
+      {
+        "id": "fold_sequence-14e2f8456e",
+        "name": "fold_sequence",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:19:37.116310+00:00",
+        "finished_at": "2026-10-01T19:20:09.890830+00:00"
+      },
+      {
+        "id": "score_structure-f8bb7fe3f8",
+        "name": "score_structure",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:20:19.558075+00:00",
+        "finished_at": "2026-10-01T19:20:19.676373+00:00"
+      },
+      {
+        "id": "score_structure-b497cb6459",
+        "name": "score_structure",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:20:19.566073+00:00",
+        "finished_at": "2026-10-01T19:20:19.657765+00:00"
+      },
+      {
+        "id": "score_structure-b95a44c2ec",
+        "name": "score_structure",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:20:19.573715+00:00",
+        "finished_at": "2026-10-01T19:20:19.695720+00:00"
+      },
+      {
+        "id": "score_structure-e94ac472c1",
+        "name": "score_structure",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:20:19.581348+00:00",
+        "finished_at": "2026-10-01T19:20:19.712302+00:00"
+      },
+      {
+        "id": "score_structure-899b066ed2",
+        "name": "score_structure",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:20:19.589332+00:00",
+        "finished_at": "2026-10-01T19:20:19.822613+00:00"
+      },
+      {
+        "id": "score_sequences-b4673b3797",
+        "name": "score_sequences",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:20:19.838864+00:00",
+        "finished_at": "2026-10-01T19:20:19.849497+00:00"
+      },
+      {
+        "id": "generate_visualization-61024c84ec",
+        "name": "generate_visualization",
+        "interface": "local",
+        "state": "DONE",
+        "submitted_at": "2026-10-01T19:20:20.024291+00:00",
+        "finished_at": "2026-10-01T19:20:20.034372+00:00"
+      }
+    ],
+    "campaign": {
+      "id": "s-tutp87hw",
+      "goal": "initialize 1OIL as the reference design",
+      "created_at": "2026-10-01T19:17:53.836653+00:00"
+    },
+    "reference": {
+      "id": "ref:1OIL",
+      "pdb_id": "1OIL",
+      "uniprot_id": "P22088",
+      "length": 320
+    }
+  },
+  "tier2": {
+    "available": true,
+    "counts": {
+      "scores": 114,
+      "rankings": 17,
+      "analyses": 2
+    },
+    "n_metrics": 10,
+    "metrics": [
+      {
+        "metric": "length",
+        "n": 12,
+        "min": 320.0,
+        "max": 320.0
+      },
+      {
+        "metric": "mean_hydropathy",
+        "n": 12,
+        "min": 0.03,
+        "max": 0.064
+      },
+      {
+        "metric": "n_aligned",
+        "n": 11,
+        "min": 320.0,
+        "max": 320.0
+      },
+      {
+        "metric": "n_residues",
+        "n": 11,
+        "min": 320.0,
+        "max": 320.0
+      },
+      {
+        "metric": "net_charge",
+        "n": 12,
+        "min": -6.4,
+        "max": -5.4
+      },
+      {
+        "metric": "plddt",
+        "n": 11,
+        "min": 79.33,
+        "max": 81.79
+      },
+      {
+        "metric": "plddt_frac_confident",
+        "n": 11,
+        "min": 0.7375,
+        "max": 0.8313
+      },
+      {
+        "metric": "plddt_min",
+        "n": 11,
+        "min": 31.0,
+        "max": 40.0
+      },
+      {
+        "metric": "rmsd_to_reference",
+        "n": 11,
+        "min": 2.468,
+        "max": 3.877
+      },
+      {
+        "metric": "sequence_identity",
+        "n": 12,
+        "min": 0.9938,
+        "max": 0.9969
+      }
+    ],
+    "by_metric": {
+      "plddt": [
+        {
+          "design_id": "s-tutp87hw-r1-1",
+          "value": 80.28
+        },
+        {
+          "design_id": "s-tutp87hw-r1-2",
+          "value": 79.33
+        },
+        {
+          "design_id": "s-tutp87hw-r1-3",
+          "value": 80.83
+        },
+        {
+          "design_id": "s-tutp87hw-r1-4",
+          "value": 80.44
+        },
+        {
+          "design_id": "s-tutp87hw-r1-5",
+          "value": 81.66
+        },
+        {
+          "design_id": "s-tutp87hw-r1-6",
+          "value": 79.4
+        },
+        {
+          "design_id": "s-tutp87hw-r2-1",
+          "value": 81.55
+        },
+        {
+          "design_id": "s-tutp87hw-r2-2",
+          "value": 81.79
+        },
+        {
+          "design_id": "s-tutp87hw-r2-3",
+          "value": 81.43
+        },
+        {
+          "design_id": "s-tutp87hw-r2-4",
+          "value": 81.22
+        },
+        {
+          "design_id": "s-tutp87hw-r2-6",
+          "value": 81.48
+        }
+      ],
+      "rmsd_to_reference": [
+        {
+          "design_id": "s-tutp87hw-r1-1",
+          "value": 3.823
+        },
+        {
+          "design_id": "s-tutp87hw-r1-2",
+          "value": 3.29
+        },
+        {
+          "design_id": "s-tutp87hw-r1-3",
+          "value": 2.468
+        },
+        {
+          "design_id": "s-tutp87hw-r1-4",
+          "value": 3.797
+        },
+        {
+          "design_id": "s-tutp87hw-r1-5",
+          "value": 3.829
+        },
+        {
+          "design_id": "s-tutp87hw-r1-6",
+          "value": 3.217
+        },
+        {
+          "design_id": "s-tutp87hw-r2-1",
+          "value": 3.813
+        },
+        {
+          "design_id": "s-tutp87hw-r2-2",
+          "value": 3.751
+        },
+        {
+          "design_id": "s-tutp87hw-r2-3",
+          "value": 3.807
+        },
+        {
+          "design_id": "s-tutp87hw-r2-4",
+          "value": 3.877
+        },
+        {
+          "design_id": "s-tutp87hw-r2-6",
+          "value": 3.776
+        }
+      ],
+      "sequence_identity": [
+        {
+          "design_id": "s-tutp87hw-r1-1",
+          "value": 0.9969
+        },
+        {
+          "design_id": "s-tutp87hw-r1-2",
+          "value": 0.9969
+        },
+        {
+          "design_id": "s-tutp87hw-r1-3",
+          "value": 0.9969
+        },
+        {
+          "design_id": "s-tutp87hw-r1-4",
+          "value": 0.9969
+        },
+        {
+          "design_id": "s-tutp87hw-r1-5",
+          "value": 0.9969
+        },
+        {
+          "design_id": "s-tutp87hw-r1-6",
+          "value": 0.9969
+        },
+        {
+          "design_id": "s-tutp87hw-r2-1",
+          "value": 0.9938
+        },
+        {
+          "design_id": "s-tutp87hw-r2-2",
+          "value": 0.9938
+        },
+        {
+          "design_id": "s-tutp87hw-r2-3",
+          "value": 0.9938
+        },
+        {
+          "design_id": "s-tutp87hw-r2-4",
+          "value": 0.9938
+        },
+        {
+          "design_id": "s-tutp87hw-r2-5",
+          "value": 0.9938
+        },
+        {
+          "design_id": "s-tutp87hw-r2-6",
+          "value": 0.9938
+        }
+      ]
+    },
+    "rounds": [
+      {
+        "round": 1,
+        "metric": "plddt",
+        "n_designs": 6,
+        "improved": true,
+        "best_design": "s-tutp87hw-r1-5",
+        "best_value": 81.66
+      },
+      {
+        "round": 2,
+        "metric": "plddt",
+        "n_designs": 6,
+        "improved": true,
+        "best_design": "s-tutp87hw-r2-2",
+        "best_value": 81.79
+      }
+    ]
+  },
+  "tier3": {
+    "available": true,
+    "sets": [
+      {
+        "id": "1oil-20261001T192020",
+        "campaign_id": "s-tutp87hw",
+        "n_rows": 11,
+        "metrics": [
+          "length",
+          "mean_hydropathy",
+          "n_aligned",
+          "n_residues",
+          "net_charge",
+          "plddt",
+          "plddt_frac_confident",
+          "plddt_min",
+          "rmsd_to_reference",
+          "sequence_identity"
+        ],
+        "rules": {
+          "metric": "plddt",
+          "direction": "max",
+          "min_value": null,
+          "max_value": null,
+          "top_k": 12,
+          "require_structure": false,
+          "min_sequence_length": 1,
+          "dedupe_sequences": true
+        },
+        "parquet_bytes": 7950
+      }
+    ]
+  },
+  "blobs": {
+    "available": true,
+    "n": 24,
+    "bytes": 5109594,
+    "by_suffix": {
+      "pdb": 24
+    }
+  },
+  "artifacts": {
+    "available": true,
+    "n": 7,
+    "by_kind": {
+      "json": 2,
+      "molstar": 2,
+      "markdown": 1,
+      "docx": 1,
+      "table": 1
+    }
+  },
+  "code": {
+    "graph": 2007,
+    "tasks": 1642,
+    "tools": 1672,
+    "lake": 1032,
+    "artifacts": 402,
+    "app": 797,
+    "backend_total": 7552,
+    "tests": 1291,
+    "frontend": 1556
+  }
+}

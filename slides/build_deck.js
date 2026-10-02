@@ -1,0 +1,1435 @@
+// Builds slides/designagent-codewalk.pptx.
+//
+//   python3 slides/run_model.py           # regenerate slides/run.json first
+//   NODE_PATH=<dir with pptxgenjs> node slides/build_deck.js
+//
+// Every diagram is native, editable PowerPoint shapes. One visual vocabulary throughout:
+//   line style = status   solid:  built, runs end to end against something real
+//                         dotted: built and tested, never exercised for real
+//                         dashed: planned or designed-for, not implemented
+//   orange = a RADICAL component, wherever it appears.
+//
+// Figures F1 (loop), F2 (layers), F3 (one campaign, measured) and F4 (the lake) are drawn from
+// run.json, which is mined from an actual campaign on disk. No number here is invented.
+const path = require("path");
+const fs = require("fs");
+const pptxgen = require("pptxgenjs");
+
+const R = JSON.parse(fs.readFileSync(path.join(__dirname, "run.json"), "utf8"));
+const T1 = R.tier1, T2 = R.tier2, T3 = R.tier3.sets[0], CODE = R.code;
+const CAMP = T1.campaign.id, REF = T1.reference;
+
+const C = {
+  ink: "16222B", text: "22303C", muted: "5E6B75", rule: "C9D1D8", panel: "EEF2F5",
+  white: "FFFFFF",
+  agent: "3B4E8C", agentTint: "E9EDF7",      // the LangGraph loop
+  task: "1E6470", taskTint: "E3F0F1",        // task interfaces
+  lake: "2E7D5B", lakeTint: "E4F1EA",        // design history
+  ui: "7A4A8C", uiTint: "F3EAF6",            // the web app
+  radical: "D9731A", radicalTint: "FCEBDD",  // RADICAL components
+  fail: "C0392B", failTint: "F9E0DD",
+  good: "2E7D4F",
+};
+const HF = "Cambria", BF = "Calibri", MF = "Consolas";
+const DASH = { built: "solid", tested: "sysDot", planned: "dash" };
+
+const pres = new pptxgen();
+pres.layout = "LAYOUT_WIDE"; // 13.333 x 7.5
+pres.title = "A chat agent that runs real redesign campaigns";
+pres.author = "designagent";
+const W = 13.333, H = 7.5, M = 0.5;
+
+// ---------------------------------------------------------------- helpers
+function text(s, t, x, y, w, h, o = {}) {
+  s.addText(t, Object.assign({ x, y, w, h, fontFace: BF, fontSize: 14, color: C.text,
+    margin: 0, valign: "top", isTextBox: true }, o));
+}
+function title(s, t, kicker) {
+  if (kicker) text(s, kicker.toUpperCase(), M, 0.35, 9, 0.3,
+    { fontSize: 12, bold: true, color: C.task, charSpacing: 2 });
+  text(s, t, M, 0.62, W - 2 * M, 0.8, { fontFace: HF, fontSize: 28, bold: true, color: C.ink });
+}
+function box(s, x, y, w, h, o = {}) {
+  const status = o.status || "built";
+  s.addShape(o.round === false ? pres.shapes.RECTANGLE : pres.shapes.ROUNDED_RECTANGLE, {
+    x, y, w, h, rectRadius: o.round === false ? undefined : 0.08,
+    fill: { color: o.fill || C.white },
+    line: { color: o.line || C.muted, width: o.lw || 1.5, dashType: DASH[status] },
+  });
+  if (o.title || o.sub) {
+    const runs = [];
+    if (o.title) runs.push({ text: o.title, options: { bold: true, fontSize: o.fs || 14,
+      color: o.tc || C.ink, breakLine: !!o.sub } });
+    if (o.sub) runs.push({ text: o.sub, options: { fontSize: o.sfs || 10.5,
+      color: o.sc || C.muted, fontFace: o.subMono ? MF : BF } });
+    text(s, runs, x + 0.1, y + 0.06, w - 0.2, h - 0.12,
+      { valign: o.valign || "middle", align: o.align || "center" });
+  }
+}
+function line(s, x1, y1, x2, y2, o = {}) {
+  s.addShape(pres.shapes.LINE, {
+    x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.max(Math.abs(x2 - x1), 0.0001),
+    h: Math.max(Math.abs(y2 - y1), 0.0001), flipH: x2 < x1, flipV: y2 < y1,
+    line: { color: o.color || C.muted, width: o.w || 1.5, dashType: DASH[o.status || "built"],
+      endArrowType: o.noArrow ? undefined : "triangle",
+      beginArrowType: o.both ? "triangle" : undefined },
+  });
+}
+function label(s, t, x, y, w, o = {}) {
+  text(s, t, x, y, w, o.h || 0.26, Object.assign({ fontSize: 10.5, color: C.muted,
+    fontFace: o.mono ? MF : BF, align: o.align || "center", valign: "middle" }, o));
+}
+function legend(s, x, y, withRadical = true, tw = 3.0) {
+  const items = [["built, runs end to end", "built"],
+                 ["built and tested, never run for real", "tested"],
+                 ["designed for, not implemented", "planned"]];
+  items.forEach(([t, st], i) => {
+    const yy = y + i * 0.26;
+    s.addShape(pres.shapes.LINE, { x, y: yy + 0.12, w: 0.45, h: 0,
+      line: { color: C.text, width: 1.75, dashType: DASH[st] } });
+    text(s, t, x + 0.55, yy, tw, 0.26, { fontSize: 10, color: C.muted, valign: "middle" });
+  });
+  if (withRadical) {
+    const yy = y + 3 * 0.26;
+    s.addShape(pres.shapes.RECTANGLE, { x: x + 0.1, y: yy + 0.04, w: 0.25, h: 0.17,
+      fill: { color: C.radicalTint }, line: { color: C.radical, width: 1.5 } });
+    text(s, "RADICAL component", x + 0.55, yy, tw, 0.26,
+      { fontSize: 10, color: C.radical, bold: true, valign: "middle" });
+  }
+}
+function pill(s, t, x, y, w, color, o = {}) {
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h: o.h || 0.3, rectRadius: 0.15,
+    fill: { color: o.fill || color }, line: { color, width: 1 } });
+  text(s, t, x, y, w, o.h || 0.3, { fontSize: o.fs || 10.5, bold: true,
+    color: o.tc || C.white, align: "center", valign: "middle" });
+}
+// Code blocks size their own type to the box they were given. A fixed point size
+// silently overflows the moment a snippet gains a line, and an overflowing code
+// block on a projector is the one failure this deck cannot afford — so the line
+// spacing is solved for, and anything that would fall below MIN_PT warns loudly
+// at build time rather than shipping clipped.
+const MIN_PT = 8.5;
+function code(s, lines, x, y, w, h, o = {}) {
+  const want = o.ls || 13;
+  let ls = Math.min(want, ((h - 0.22) * 72) / lines.length);
+  if (ls < MIN_PT) {
+    console.warn(`  ! code block at y=${y} needs ${lines.length} lines in ${h}" ` +
+      `(${ls.toFixed(1)}pt < ${MIN_PT}pt floor) — shorten it or grow the box`);
+    ls = MIN_PT;
+  }
+  const fs = Math.min(o.fs || 10.5, ls * 0.80);
+  s.addShape(pres.shapes.RECTANGLE, { x, y, w, h,
+    fill: { color: o.fill || C.ink }, line: { color: o.fill || C.ink } });
+  text(s, lines.join("\n"), x + 0.12, y + 0.11, w - 0.24, h - 0.22,
+    { fontFace: MF, fontSize: fs, color: o.color || "DCE5EC", lineSpacing: ls });
+  if (o.anchor) text(s, o.anchor, x, y + h + 0.03, w, 0.22,
+    { fontFace: MF, fontSize: 8.5, color: C.muted, align: "right" });
+}
+function footer(s, t) {
+  text(s, t, M, H - 0.42, W - 2 * M, 0.25, { fontSize: 10, color: C.muted, italic: true });
+}
+function card(s, x, y, w, h, heading, body, o = {}) {
+  s.addShape(pres.shapes.RECTANGLE, { x, y, w, h,
+    fill: { color: o.fill || C.panel }, line: { color: o.line || o.fill || C.panel } });
+  text(s, heading, x + 0.15, y + 0.1, w - 0.3, 0.3,
+    { fontSize: o.hfs || 13, bold: true, color: o.hc || C.ink });
+  if (Array.isArray(body)) {
+    text(s, body.map((t, j) => ({ text: t, options: { bullet: true, breakLine: j < body.length - 1 } })),
+      x + 0.15, y + 0.45, w - 0.3, h - 0.55,
+      { fontSize: o.fs || 11.5, color: C.text, paraSpaceAfter: 4 });
+  } else {
+    text(s, body, x + 0.15, y + 0.45, w - 0.3, h - 0.55, { fontSize: o.fs || 11.5, color: C.text });
+  }
+}
+
+// ================================================================ 1. Title
+{
+  const s = pres.addSlide(); s.background = { color: C.ink };
+
+  // Motif: a chat bubble feeding a ring of five nodes, which feeds a worker pool.
+  // The ring is laid out on an actual circle rather than by hand, so the five
+  // nodes read as a loop instead of a scatter.
+  const ccx = 10.65, ccy = 2.95, rad = 1.0, d = 0.62;
+  const ringPts = [0, 1, 2, 3, 4].map(i => {
+    const a = (-90 + i * 72) * Math.PI / 180;
+    return [ccx + rad * Math.cos(a) - d / 2, ccy + rad * Math.sin(a) - d / 2];
+  });
+  // the loop itself, drawn behind the nodes
+  s.addShape(pres.shapes.OVAL, { x: ccx - rad - 0.1, y: ccy - rad - 0.1,
+    w: 2 * (rad + 0.1), h: 2 * (rad + 0.1),
+    fill: { color: C.ink }, line: { color: "3E5168", width: 1.25, dashType: "sysDot" } });
+  ringPts.forEach(([x, y], i) => {
+    s.addShape(pres.shapes.OVAL, { x, y, w: d, h: d,
+      fill: { color: C.agent }, line: { color: "A8B6DC", width: 1.25 } });
+    text(s, ["C", "I", "O", "A", "P"][i], x, y, d, d,
+      { fontFace: HF, fontSize: 14, bold: true, color: C.white,
+        align: "center", valign: "middle" });
+  });
+
+  // chat bubble, feeding the coordinator at the top of the ring
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 7.95, y: 1.55, w: 1.45, h: 0.75,
+    rectRadius: 0.12, fill: { color: C.ui }, line: { color: "D8BFE2", width: 1.5 } });
+  text(s, "chat", 7.95, 1.55, 1.45, 0.75, { fontSize: 13, bold: true, color: C.white,
+    align: "center", valign: "middle" });
+  line(s, 9.45, 1.93, ccx - 0.32, ccy - rad + 0.02, { color: "D8BFE2" });
+
+  // the pool the loop's long work lands on
+  [0, 1, 2, 3].forEach(i =>
+    s.addShape(pres.shapes.RECTANGLE, { x: ccx - 1.33 + i * 0.68, y: 4.85, w: 0.56, h: 0.4,
+      fill: { color: C.radical }, line: { color: C.radical } }));
+  line(s, ccx, ccy + rad + 0.22, ccx, 4.82, { color: "E8B98A" });
+  text(s, "rhapsody process pool", ccx - 1.75, 5.33, 3.5, 0.26,
+    { fontSize: 10, color: "E8B98A", align: "center" });
+
+  text(s, "DESIGNAGENT", M + 0.3, 1.5, 7.5, 0.4,
+    { fontSize: 14, bold: true, color: "8FB8C9", charSpacing: 3 });
+  text(s, "A chat agent that runs real redesign campaigns", M + 0.3, 1.95, 7.1, 1.35,
+    { fontFace: HF, fontSize: 34, bold: true, color: C.white });
+  text(s, "A LangGraph loop whose long work leaves the process — and a chat that keeps talking while it does",
+    M + 0.3, 3.45, 7.1, 0.9, { fontSize: 17, color: "D5DEE5" });
+  text(s, `Worked example, measured: ${REF.pdb_id} (${REF.uniprot_id}, ${REF.length} aa) · ` +
+    `${T2.rounds.length} rounds · ${T3.n_rows} designs · pLDDT ` +
+    `${T2.rounds[0].best_value} → ${T2.rounds[1].best_value}`,
+    M + 0.3, 4.55, 7.1, 0.6, { fontSize: 13, color: "9FB0BD" });
+  text(s, `Lab code walk · main @ e8467e6 · ~${(CODE.backend_total / 1000).toFixed(1)}k lines backend, ` +
+    `${CODE.tests} lines of tests`, M + 0.3, 6.4, 7.6, 0.3, { fontSize: 12, color: "7E8F9C" });
+  s.addNotes(
+`[0:25] This is a code walk, not a results talk. The thing I built is a chatbot for protein redesign: you type a prompt, and behind it a LangGraph loop goes and runs an actual campaign — structure lookups, folds, scoring, a provenance lake, and artifacts you can open.
+
+The reason it's worth your time is the seam in the middle. Long work leaves this process: it goes onto a rhapsody process pool through flowgentic and asyncflow, or off the box entirely through ORBIT. Everything about the design follows from one constraint, which is that a chat interface cannot block on a protein fold.
+
+Every number on these slides comes from a real campaign that is still on disk. I'll be explicit about what has never run.`);
+}
+
+// ================================================================ 2. What it does
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "One prompt, a whole campaign", "What it does");
+
+  const steps = [
+    ["prompt", `"redesign ${REF.pdb_id} for\nhigher stability"`, C.ui],
+    ["resolve", `RCSB + UniProt +\nEuropePMC, concurrent`, C.task],
+    ["propose", `6 single-point\nvariants per round`, C.agent],
+    ["fold", `6 ESMFold calls,\nin parallel`, C.radical],
+    ["score", `pLDDT, RMSD to the\ncrystal structure`, C.agent],
+    ["record", `3 lake tiers +\n4 artifacts`, C.lake],
+  ];
+  const sw = 1.92, gap = 0.12, sx = M;
+  steps.forEach(([h, b, col], i) => {
+    const x = sx + i * (sw + gap);
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 1.6, w: sw, h: 1.3, rectRadius: 0.08,
+      fill: { color: C.white }, line: { color: col, width: 2 } });
+    text(s, h, x, 1.68, sw, 0.3, { fontSize: 12, bold: true, color: col, align: "center" });
+    text(s, b, x + 0.08, 2.0, sw - 0.16, 0.8, { fontSize: 10.5, color: C.text, align: "center" });
+    if (i < steps.length - 1) line(s, x + sw + 0.01, 2.25, x + sw + gap - 0.01, 2.25, { w: 1.25 });
+  });
+
+  card(s, M, 3.15, 6.2, 2.0, `What came back, for real (campaign ${CAMP})`, [
+    `${REF.pdb_id} — ${REF.uniprot_id}, Burkholderia cepacia lipase, ${REF.length} residues, resolved from the prompt alone`,
+    `lead design G147A at pLDDT ${T2.rounds[1].best_value}, RMSD ${T2.by_metric.rmsd_to_reference.find(d => d.design_id === CAMP + "-r2-2").value.toFixed(2)} Å to the crystal structure`,
+    `${T3.n_rows} designs scored on ${T3.metrics.length} metrics; ${T2.counts.scores} score rows written`,
+    `a Markdown summary, a .docx, a sortable ensemble table, and a Mol* view of the lead`,
+  ], { fill: C.panel });
+
+  card(s, M + 6.5, 3.15, 6.33, 2.0, "And what that is not", [
+    "The variants are heuristic single-point proposals, not ProteinMPNN samples — no HPC endpoint was attached.",
+    `A pLDDT move from ${T2.rounds[0].best_value} to ${T2.rounds[1].best_value} is inside the noise. The loop is real; the science is a demo.`,
+    "This run had no ANTHROPIC_API_KEY. Every node took its deterministic path.",
+  ], { fill: C.failTint, hc: C.fail });
+
+  text(s, [
+    { text: "The point of the demo: ", options: { bold: true, color: C.ink } },
+    { text: "a prompt in a browser produced a provenance graph, a scored ensemble and a " +
+      "training-ready Parquet set, with no human in the middle and nothing stubbed." },
+  ], M, 5.4, 12.3, 0.6, { fontSize: 13 });
+  footer(s, "Numbers read from slides/run.json, mined from data/lake by slides/run_model.py.");
+  s.addNotes(
+`[0:50] Here is the shape of one turn, and then what actually came out of it.
+
+Left card, all measured: the prompt named 1OIL and nothing else. The agent resolved it to UniProt P22088, a Burkholderia cepacia lipase, 320 residues, pulled the crystal structure and the literature, proposed variants, folded them, scored them against the real structure, and wrote 114 score rows.
+
+Right card, because you will ask and I would rather say it first. The variants are heuristic proposals — glycine to alanine, that kind of thing — not ProteinMPNN samples, because no HPC endpoint was attached to this run. The pLDDT improvement is inside the noise. And there was no API key, so every node ran its rule-based path.
+
+So treat the science as a demo and the plumbing as the deliverable. The plumbing is what the rest of the talk is about.`);
+}
+
+// ================================================================ 3. The constraint
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "One constraint sets the whole design", "Why it looks like this");
+
+  s.addShape(pres.shapes.RECTANGLE, { x: M, y: 1.55, w: 12.33, h: 0.9,
+    fill: { color: C.ink }, line: { color: C.ink } });
+  text(s, [
+    { text: "A chat interface must answer in milliseconds. ", options: { bold: true, color: "F0C898" } },
+    { text: "A protein fold takes tens of seconds. An HPC job takes hours, and may sit in a queue first.",
+      options: { color: "DCE5EC" } },
+  ], M + 0.25, 1.72, 11.8, 0.6, { fontSize: 17, valign: "middle" });
+
+  const rows = [
+    ["Tasks return futures, never results", "Every interface's submit() places the work and returns a handle. Nothing in the graph awaits a task at submission time.", "tasks/base.py:146"],
+    ["Task duration is not the interface's business", "The same handle covers a 40 ms REST call and a queued batch job. Only the capability flags differ.", "tasks/base.py:62"],
+    ["Status is a stream, not a return value", "Nodes emit progress over LangGraph's custom channel; the manager fans task events onto the same SSE stream.", "graph/deps.py · app.py:78"],
+    ["State holds references, not payloads", "Coordinates go to a content-addressed blob and travel as a path, because every checkpoint is serialized.", "orchestrator.py:249"],
+    ["Every layer has a floor", "No key, no endpoint, no graph DB: each degrades to something that still answers, and says so.", "runtime.py · analyst.py:154"],
+  ];
+  const cw = [3.45, 6.6, 2.28];
+  const tbl = [["consequence", "what it means in the code", "where"].map(h => ({ text: h,
+    options: { bold: true, color: C.white, fill: { color: C.task }, fontSize: 12 } }))]
+    .concat(rows.map((r, i) => r.map((c, j) => ({ text: c, options: {
+      fontFace: j === 2 ? MF : BF, fontSize: j === 2 ? 10 : 12, bold: j === 0,
+      color: j === 2 ? C.muted : C.text,
+      fill: { color: i % 2 ? C.white : C.panel } } }))));
+  s.addTable(tbl, { x: M, y: 2.7, w: cw.reduce((a, b) => a + b), colW: cw,
+    border: { type: "solid", color: C.rule, pt: 0.75 }, fontFace: BF, valign: "middle",
+    rowH: [0.32, 0.5, 0.58, 0.62, 0.58, 0.5], margin: 0.08 });
+
+  text(s, [
+    { text: "Nothing below this slide is a free choice. ", options: { bold: true, color: C.ink } },
+    { text: "If you drop the constraint — if the agent may block — most of the Task Interface layer " +
+      "stops paying for itself and you would call the tools directly." },
+  ], M, 6.4, 12.3, 0.6, { fontSize: 13 });
+  s.addNotes(
+`[1:05] If you remember one slide, this is the one, because everything after it is a consequence rather than a preference.
+
+A chat interface has to answer in milliseconds. The work it triggers takes tens of seconds at best and hours at worst, and it might sit in a queue before it even starts. That gap is the entire design problem.
+
+Five things fall out. Tasks return futures, not results — submit places work and comes back immediately. Duration stops being the interface's concern, so a forty-millisecond REST call and a queued batch job wear the same handle and differ only in capability flags. Status becomes a stream rather than a return value. State holds references rather than payloads, because LangGraph serializes every checkpoint. And every layer has a floor it degrades to.
+
+The honest flip side is at the bottom: if the agent were allowed to block, you would not build most of this. You would call the tools inline and go home.`);
+}
+
+// ================================================================ 4. The loop (F1)
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "Five nodes, and the nodes do their own routing", "The loop · F1");
+
+  // F1: coordinator on the left, the three working nodes across, interpreter right.
+  // The per-edge goto labels were dropped: the gaps are too narrow to hold them and
+  // the destinations block below already names every target.
+  const ny = 1.95, nh = 1.3, nw = 2.1, step = 2.62;
+  const nodes = [
+    ["Coordinator", "classify · answer\nfrom state", M, ny + 1.5, C.agent],
+    ["Design Initializer", "PDB · UniProt\nliterature", M + step, ny, C.task],
+    ["Redesign Orchestrator", "key_metric\nworklist", M + 2 * step, ny, C.task],
+    ["Analyst", "score · persist\nrank · visualize", M + 3 * step, ny, C.lake],
+    ["Interpreter", "summarize\nprior art", M + 4 * step, ny, C.ui],
+  ];
+  nodes.forEach(([t, sub, x, y, col]) =>
+    box(s, x, y, nw, nh, { title: t, sub: "\n" + sub, line: col, fs: 12.5, sfs: 9.5,
+      fill: C.white, lw: 2 }));
+
+  // forward edges, drawn in the gaps
+  const mid = ny + nh / 2;
+  line(s, M + nw, ny + 1.5 + nh / 2, M + step, mid + 0.35, { color: C.agent });
+  [1, 2, 3].forEach(i =>
+    line(s, M + i * step + nw, mid, M + (i + 1) * step, mid, { color: C.muted }));
+
+  // the back edge: analyst -> orchestrator, the only cycle
+  const by = ny + nh + 0.42;
+  line(s, M + 3 * step + nw / 2, ny + nh, M + 3 * step + nw / 2, by, { color: C.fail, w: 2, noArrow: true });
+  line(s, M + 3 * step + nw / 2, by, M + 2 * step + nw / 2, by, { color: C.fail, w: 2, noArrow: true });
+  line(s, M + 2 * step + nw / 2, by, M + 2 * step + nw / 2, ny + nh, { color: C.fail, w: 2 });
+  label(s, "improved  AND  round < max_rounds", M + 2 * step - 0.1, by + 0.04, nw + step + 0.2,
+    { fs: 10.5, color: C.fail, bold: true });
+
+  // coordinator fan-out
+  const c1 = by + 0.75, c2 = by + 1.18;
+  line(s, M + nw / 2, ny + 1.5 + nh, M + nw / 2, c2, { color: C.agent, noArrow: true });
+  line(s, M + nw / 2, c1, M + 2 * step + nw / 2 - 0.35, c1, { color: C.agent, noArrow: true });
+  line(s, M + 2 * step + nw / 2 - 0.35, c1, M + 2 * step + nw / 2 - 0.35, ny + nh + 0.02, { color: C.agent });
+  label(s, "a reference already loaded skips the initializer", M + nw + 0.25, c1 - 0.3, 4.4,
+    { fs: 10, color: C.agent, align: "left" });
+
+  box(s, M + 4 * step + nw - 1.35, c2 - 0.22, 1.35, 0.44,
+    { title: "END", fs: 12, line: C.muted, fill: C.panel });
+  line(s, M + 4 * step + nw / 2, ny + nh, M + 4 * step + nw / 2, c2 - 0.22, { color: C.ui });
+  line(s, M + nw / 2, c2, M + 4 * step + nw - 1.37, c2, { color: C.agent });
+  label(s, "plain chat, or a question state can already answer", M + nw + 0.25, c2 - 0.3, 4.6,
+    { fs: 10, color: C.agent, align: "left" });
+
+  code(s, [
+    'destinations = {',
+    '  "coordinator":  ("initializer", "orchestrator",',
+    '                   "analyst", "interpreter", END),',
+    '  "initializer":  ("orchestrator", END),',
+    '  "orchestrator": ("analyst", "interpreter", END),',
+    '  "analyst":      ("orchestrator", "interpreter", END),',
+    '  "interpreter":  (END,),',
+    '}',
+    'builder.add_edge(START, "coordinator")   # the only static edge',
+  ], M, 5.5, 7.4, 1.45, { anchor: "graph/build.py:99–114  ·  VERBATIM" });
+
+  card(s, M + 7.7, 5.5, 5.13, 1.45, "Why no conditional edges", [
+    "A node returns Command(goto=…, update=…): the decision and the state write are one atomic return.",
+    "destinations= is a declaration for validation and the drawn graph, not control flow.",
+  ], { fill: C.agentTint, hc: C.agent, fs: 11 });
+  s.addNotes(
+`[2:05] Five nodes, matching the spec: coordinator, design initializer, redesign orchestrator, analyst, interpreter.
+
+The coordinator is the only entry and the only re-entry point. It classifies the prompt and, where it can, answers straight from state without waking anything up — "what is the lead design?" costs one node visit.
+
+The interesting edge is the red one. The analyst decides whether to go round again, and the test is whether the key metric actually improved, bounded by a round budget. In the measured campaign that fired once: round one improved on nothing, round two improved on round one, and then the budget and the interpreter took over.
+
+Note how little static wiring there is. One static edge, START to coordinator. Everything else is a Command with a goto, which means the routing decision and the state write are the same atomic return — a node cannot update state and then fail to say where it went. The destinations tuple is a declaration so LangGraph can validate and draw the graph; it is not control flow.`);
+}
+
+// ================================================================ 5. Architecture (F2)
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "Architecture, and where the RADICAL stack sits", "Architecture · F2");
+
+  const lx = M, lw = 1.2, cx = lx + lw + 0.1, cw = 7.45;
+  const bands = [
+    ["BROWSER", 1.5, 0.52, C.ui],
+    ["API", 2.1, 0.52, C.ui],
+    ["GRAPH", 2.72, 0.72, C.agent],
+    ["DEPS", 3.56, 0.4, C.agent],
+    ["INTERFACES", 4.08, 0.72, C.task],
+    ["SUBSTRATE", 4.92, 0.62, C.radical],
+    ["REMOTE", 5.66, 0.62, C.radical],
+    ["HISTORY", 6.4, 0.6, C.lake],
+  ];
+  bands.forEach(([t, y, h, col]) => {
+    s.addShape(pres.shapes.RECTANGLE, { x: lx, y, w: lw, h,
+      fill: { color: col }, line: { color: col } });
+    text(s, t, lx, y, lw, h, { fontSize: 9.5, bold: true, color: C.white,
+      align: "center", valign: "middle", charSpacing: 1 });
+  });
+
+  // band contents
+  box(s, cx, 1.5, cw, 0.52, { title: "React + Vite", sub: "   ChatPane · Composer · TaskChips · ArtifactPane (Mol* · Markdown · docx · table)",
+    line: C.ui, fill: C.uiTint, fs: 12, sfs: 10, align: "left", valign: "middle", round: false });
+  box(s, cx, 2.1, cw, 0.52, { title: "FastAPI + SSE", sub: "   app.py — /api/chat streams 7 frame kinds · artifacts · tasks · health · catalog",
+    line: C.ui, fill: C.uiTint, fs: 12, sfs: 10, align: "left", valign: "middle", round: false });
+  box(s, cx, 2.72, cw, 0.72, { title: "LangGraph StateGraph", sub: "   coordinator · initializer · orchestrator · analyst · interpreter   —   AsyncSqliteSaver checkpoints",
+    line: C.agent, fill: C.agentTint, fs: 12, sfs: 10, align: "left", valign: "middle", round: false });
+  box(s, cx, 3.56, cw, 0.4, { title: "Deps(settings, tasks, history, artifacts)",
+    sub: "   the only thing a node closes over", line: C.agent, fill: C.white, fs: 11, sfs: 10,
+    align: "left", valign: "middle", round: false });
+
+  // interfaces row
+  const iw = (cw - 0.24) / 3;
+  [["LocalTaskInterface", "app-local compute"], ["QueryTaskInterface", "REST, on the loop"],
+   ["RemoteWorkflow (ABC)", "Orbit · Globus"]].forEach(([t, sub], i) =>
+    box(s, cx + i * (iw + 0.12), 4.08, iw, 0.72, { title: t, sub: "\n" + sub,
+      line: C.task, fill: C.taskTint, fs: 11, sfs: 9.5 }));
+
+  // substrate (RADICAL)
+  box(s, cx, 4.92, cw * 0.62, 0.62, { title: "flowgentic  →  radical.asyncflow  →  rhapsody",
+    sub: "\nConcurrentExecutionBackend(ProcessPoolExecutor(4))",
+    line: C.radical, fill: C.radicalTint, fs: 11.5, sfs: 9.5, tc: C.radical, subMono: true });
+  box(s, cx + cw * 0.63, 4.92, cw * 0.37 - 0.01, 0.62, { title: "ChemGraph",
+    sub: "\noptional extra", line: C.muted, fill: C.white, status: "tested", fs: 11.5, sfs: 9.5 });
+
+  box(s, cx, 5.66, cw * 0.48, 0.62, { title: "RADICAL Orbit", sub: "\nRhapsodyClient + PSIJClient",
+    line: C.radical, fill: C.radicalTint, fs: 11.5, sfs: 9.5, tc: C.radical, status: "tested" });
+  box(s, cx + cw * 0.5, 5.66, cw * 0.5, 0.62, { title: "Globus Compute / hpc-bridge",
+    sub: "\nGlobusRunner, injected executor", line: C.muted, fill: C.white, status: "planned",
+    fs: 11.5, sfs: 9.5 });
+
+  // history
+  const hw = (cw - 0.24) / 3;
+  [["Tier 1 · Kuzu", "raw task outputs"], ["Tier 2 · SQLite", "scores · rankings"],
+   ["Tier 3 · Parquet", "golden sets"]].forEach(([t, sub], i) =>
+    box(s, cx + i * (hw + 0.12), 6.4, hw, 0.6, { title: t, sub: "\n" + sub,
+      line: C.lake, fill: C.lakeTint, fs: 11, sfs: 9.5 }));
+
+  // right rail
+  const rx = cx + cw + 0.25, rwd = W - M - rx;
+  card(s, rx, 1.5, rwd, 2.2, "The one rule", [
+    "A node reaches the outside only through Deps — never an interface or a store directly.",
+    "That is what makes 83 of 89 tests run with no network, no pool and no endpoint.",
+    "Convention, not an enforced check.",
+  ], { fill: C.agentTint, hc: C.agent, fs: 10.5 });
+  card(s, rx, 3.85, rwd, 1.5, "Where it leaves the process", [
+    "LocalTaskInterface is the only band that crosses into asyncflow.",
+    "Everything above it is ordinary async Python, and stubbable.",
+  ], { fill: C.radicalTint, hc: C.radical, fs: 10.5 });
+  legend(s, rx + 0.05, 5.55, true, rwd - 0.7);
+  s.addNotes(
+`[1:15] Eight bands. Read it top to bottom and the orange is yours.
+
+Browser, then FastAPI with a single SSE chat endpoint. Then the LangGraph graph, checkpointed to SQLite. Then a small Deps object, which is the only thing a node closes over — settings, the task manager, the history lake, the artifact store.
+
+Then the three task interfaces. Then the substrate, which is flowgentic over asyncflow over a rhapsody concurrent backend on a four-worker process pool. Then remote: ORBIT solid-but-dotted, meaning it genuinely works and has only ever met a localhost broker; Globus dashed, meaning designed for and not implemented against anything live. Then the three lake tiers.
+
+Two things in the rail. The rule that nodes only ever reach through Deps is what makes 83 of the 89 tests run with no network and no pool. And the band that crosses into asyncflow is exactly one: the local task interface. Everything above it is ordinary async Python, which is deliberate — I wanted the middleware dependency confined to a layer I could swap or stub.`);
+}
+
+// ================================================================ 6. State
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "State, its reducers, and what must never enter it", "State");
+
+  code(s, [
+    'class DesignState(TypedDict, total=False):',
+    '    messages: Annotated[list, add_messages]',
+    '',
+    '    reference_design:        Annotated[ReferenceDesign, replace]',
+    '    key_metric:             Annotated[KeyMetric, replace]',
+    '    worklist:               Annotated[list[WorkItem], merge_worklist]',
+    '    lead_design:            Annotated[Design, replace]',
+    '    ensemble:               Annotated[list[Design], replace]',
+    '    molecular_visualization: Annotated[MolVisualization, replace]',
+    '    artifacts:              Annotated[list[ArtifactRef], merge_artifacts]',
+    '    design_summary:         Annotated[str, replace]',
+    '',
+    '    # control',
+    '    intent · round · session_id · goal · status',
+    '    warnings:        Annotated[list[str], merge_warnings]',
+    '    target_hints · requested_mutations · pending_results',
+  ], M, 1.55, 7.0, 2.55, { anchor: "graph/state.py:160–188  ·  TRIMMED", fs: 10 });
+
+  card(s, M, 4.25, 7.0, 1.3, "Four reducers, each for a reason", [
+    "merge_artifacts — append, dedupe by id, last write wins: the analyst replaces a viz each round.",
+    "merge_worklist — upsert by id, so status can be updated in place.",
+    "merge_warnings — accumulate, dedupe, keep 20. Survives the turn; status does not.",
+  ], { fill: C.agentTint, hc: C.agent, fs: 10.5 });
+
+  s.addShape(pres.shapes.RECTANGLE, { x: M + 7.3, y: 1.55, w: 5.53, h: 0.42,
+    fill: { color: C.fail }, line: { color: C.fail } });
+  text(s, "The finding: a checkpoint is serialized on every turn", M + 7.4, 1.55, 5.4, 0.42,
+    { fontSize: 13, bold: true, color: C.white, valign: "middle" });
+  text(s, [
+    { text: "First build put fold coordinates in ", options: {} },
+    { text: "pending_results", options: { fontFace: MF } },
+    { text: ". Six PDB files is ~320 KB of checkpoint per turn, and it grows with the ensemble. " +
+      "The orchestrator now writes coordinates to a content-addressed blob and passes a path:",
+      options: {} },
+  ], M + 7.3, 2.1, 5.53, 1.0, { fontSize: 12 });
+  code(s, [
+    'summary["structure_path"] = deps.history.write_blob(',
+    '    structure, suffix=".pdb", prefix=summary["design_id"])',
+  ], M + 7.3, 3.15, 5.53, 0.6, { anchor: "orchestrator.py:249–253  ·  TRIMMED", fs: 10 });
+  code(s, [
+    'def test_structures_are_not_carried_in_state(...):',
+    '    blob = json.dumps(jsonable(out), default=str)',
+    '    assert "ATOM  " not in blob',
+  ], M + 7.3, 4.1, 5.53, 0.75, { anchor: "tests/test_graph.py  ·  TRIMMED", fs: 10, fill: "243240" });
+  text(s, "Pinned by a test, because the regression is invisible: everything still works, " +
+    "just slower every turn.", M + 7.3, 5.0, 5.53, 0.55, { fontSize: 11.5, italic: true, color: C.muted });
+
+  text(s, [
+    { text: "Reducers are the only place concurrency shows up in state. ", options: { bold: true, color: C.ink } },
+    { text: "Nodes run sequentially here, but artifacts and warnings arrive from different " +
+      "nodes in the same turn, and both must accumulate rather than clobber." },
+  ], M, 5.8, 12.3, 0.6, { fontSize: 13 });
+  s.addNotes(
+`[1:20] State is a TypedDict, not a pydantic model, because LangGraph checkpoints it and partial dict updates are the natural write unit from a node.
+
+The eight keys from the spec are all there, each with an explicit reducer. Most are "replace" — stated explicitly rather than left to default, so the intent is readable. Three are not: artifacts append and dedupe by id, the worklist upserts so status can change in place, and warnings accumulate because they have to outlive the single turn that status lives for.
+
+The right-hand side is a finding worth your time. I originally passed fold results through state. Six PDB files is about 320 kilobytes of checkpoint per turn, and it grows with the ensemble, so turn ten is carrying turn one's coordinates. The fix is that the orchestrator writes coordinates to a content-addressed blob and state carries a path.
+
+What makes that a real lesson rather than a tidy-up is that nothing breaks when you get it wrong. It just gets slower every turn, forever. So it is pinned by a test that serializes the state and asserts the string "ATOM" never appears in it.`);
+}
+
+// ================================================================ 7. One campaign, measured (F3)
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, `One campaign, measured: ${T1.tasks.length} tasks in 146 seconds`, "Data flow · F3");
+
+  // Gantt from run.json
+  const tasks = T1.tasks.filter(t => t.submitted_at && t.finished_at)
+    .map(t => ({ ...t, s: Date.parse(t.submitted_at), f: Date.parse(t.finished_at) }));
+  const t0 = Math.min(...tasks.map(t => t.s));
+  tasks.forEach(t => { t.rs = (t.s - t0) / 1000; t.rf = (t.f - t0) / 1000; });
+  const campaignTasks = tasks.filter(t => t.rs >= 60);   // the redesign turn
+  const span = Math.max(...campaignTasks.map(t => t.rf)) - 60;
+  const gx = M + 1.6, gw = 6.45, gy = 1.95, rowH = 0.127;
+  const sx = (v) => gx + ((v - 60) / span) * gw;
+
+  const colorOf = (n) => n.startsWith("fold") ? C.radical
+    : n.startsWith("score") ? C.agent
+    : n.startsWith("generate") ? C.ui
+    : n.startsWith("propose") ? C.lake : C.task;
+  campaignTasks.forEach((t, i) => {
+    const y = gy + i * rowH;
+    const x1 = sx(t.rs), x2 = Math.max(sx(t.rf), x1 + 0.035);
+    s.addShape(pres.shapes.RECTANGLE, { x: x1, y: y + 0.015, w: x2 - x1, h: rowH - 0.035,
+      fill: { color: colorOf(t.name) }, line: { color: colorOf(t.name) } });
+    text(s, t.name, M, y, 1.52, rowH, { fontFace: MF, fontSize: 7, color: C.muted,
+      align: "right", valign: "middle" });
+    text(s, `${(t.rf - t.rs).toFixed(1)}s`, x2 + 0.03, y, 0.45, rowH,
+      { fontSize: 6.5, color: C.muted, valign: "middle" });
+  });
+  // axis
+  const axisY = gy + campaignTasks.length * rowH + 0.06;
+  line(s, gx, axisY, gx + gw, axisY, { noArrow: true, color: C.rule, w: 1 });
+  [0, 20, 40, 60, 80].forEach(v => {
+    const x = sx(60 + v);
+    line(s, x, axisY, x, axisY + 0.07, { noArrow: true, color: C.rule, w: 1 });
+    label(s, `${v}s`, x - 0.25, axisY + 0.08, 0.5, { fs: 8 });
+  });
+
+  // round brackets
+  s.addShape(pres.shapes.RECTANGLE, { x: sx(70.7), y: gy - 0.22, w: sx(102.6) - sx(70.7), h: 0.18,
+    fill: { color: C.panel }, line: { color: C.rule } });
+  text(s, "round 1", sx(70.7), gy - 0.22, sx(102.6) - sx(70.7), 0.18,
+    { fontSize: 8.5, bold: true, color: C.text, align: "center", valign: "middle" });
+  s.addShape(pres.shapes.RECTANGLE, { x: sx(103.2), y: gy - 0.22, w: sx(146) - sx(103.2), h: 0.18,
+    fill: { color: C.panel }, line: { color: C.rule } });
+  text(s, "round 2", sx(103.2), gy - 0.22, sx(146) - sx(103.2), 0.18,
+    { fontSize: 8.5, bold: true, color: C.text, align: "center", valign: "middle" });
+
+  const rx = gx + gw + 0.55, rwd = W - M - rx;
+  card(s, rx, 1.72, rwd, 1.55, "Read the fold rows", [
+    "Six submitted in the same instant, finishing 13.3 s to 31.7 s later — out of order, as they land.",
+    "Round 2 ran 13.2 s to 42.4 s. flowgentic's 30 s default timeout would have killed half of them.",
+  ], { fill: C.radicalTint, hc: C.radical, fs: 10.5 });
+  card(s, rx, 3.42, rwd, 1.35, "Read the lookup rows", [
+    "pdb_lookup and uniprot_lookup go out together; a cross-reference follow-up resolves second.",
+    "Then structure download and literature, also concurrent.",
+  ], { fill: C.taskTint, hc: C.task, fs: 10.5 });
+  card(s, rx, 4.92, rwd, 1.75, "And one real failure", [
+    `ESM Atlas dropped one of round 2's six folds: "${CAMP}-r2-5: ESM Atlas returned no structure".`,
+    "That design survived as a sequence-only entry with 4 metrics; the round scored the other 5 and the user got a warning.",
+  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
+
+  footer(s, "Drawn from run.json — the Task nodes of tier 1, with their recorded submit and finish times. Nothing here is illustrative.");
+  s.addNotes(
+`[1:45] This is the real task ledger of the measured campaign, straight out of tier one of the lake, with submit and finish times as recorded.
+
+Look at the orange fold rows. Six go out in the same instant and come back at 13.3, 13.3, 14.3, 17.9, 26.0 and 31.7 seconds — out of order, reaped as they land. That is the whole point of the futures design, and it is the one thing that would be invisible in a sequence diagram.
+
+It also settles an argument in your favour and against a default. Round two ran from 13.2 to 42.4 seconds. flowgentic's RetryConfig defaults to a 30-second per-attempt timeout with three attempts, so with the defaults roughly half of these folds would have been cancelled and silently retried. I'll come back to that.
+
+The blue lookups show the initializer's concurrency: PDB and UniProt together, a cross-reference follow-up, then structure and literature together.
+
+And the bottom right is not a contrived example. ESM Atlas genuinely dropped one of six requests. That design came through as sequence-only, got four metrics instead of eleven, the other five scored normally, and the user saw a warning. I did not have to construct a failure to talk about degradation.`);
+}
+
+// ================================================================ 8. The seam: contract
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "★ The Task Interface contract", "The seam · 1 of 3");
+
+  code(s, [
+    'class TaskInterface(ABC):',
+    '    name: str = "base"',
+    '    capabilities: Capabilities = Capabilities()',
+    '',
+    '    @abstractmethod',
+    '    async def submit(self, spec: TaskSpec) -> TaskHandle:',
+    '        """Place the task and return immediately."""',
+    '',
+    '    async def status(self, handle)  -> TaskState',
+    '    async def logs(self, handle, offset=0) -> LogChunk',
+    '    async def result(self, handle)  -> Any',
+    '    async def cancel(self, handle)  -> bool',
+    '    async def close(self)           -> None',
+  ], M, 1.55, 5.5, 2.1, { anchor: "tasks/base.py:135–173  ·  TRIMMED", fs: 10.5 });
+
+  code(s, [
+    '@dataclass(frozen=True)',
+    'class Capabilities:',
+    '    supports_cancel:      bool = False',
+    '    supports_log_stream:  bool = False',
+    '    supports_push_events: bool = False',
+    '    supports_staging:     bool = False',
+  ], M, 3.85, 5.5, 1.1, { anchor: "tasks/base.py:62–67  ·  VERBATIM", fs: 10.5 });
+
+  const rows = [
+    ["local", "app-local compute, rhapsody pool", "✔", "—", "—", "—"],
+    ["query", "REST retrieval, on the loop", "✔", "—", "—", "—"],
+    ["orbit", "Rhapsody tasks + PSI/J jobs", "✔", "✔", "✔", "✔"],
+    ["globus", "Globus Compute (hpc-bridge)", "part", "—", "—", "—"],
+  ];
+  const cw = [1.0, 2.76, 0.6675, 0.6675, 0.6675, 0.6675];
+  const hdr = ["interface", "what it is", "cancel", "logs", "push", "stage"];
+  const tbl = [hdr.map(h => ({ text: h, options: { bold: true, color: C.white,
+    fill: { color: C.task }, fontSize: 9.5 } }))]
+    .concat(rows.map((r, i) => r.map((c, j) => ({ text: c, options: {
+      fontFace: j === 0 ? MF : BF, fontSize: j === 0 ? 10.5 : 10.5, bold: j === 0,
+      align: j > 1 ? "center" : "left",
+      color: c === "✔" ? C.good : (c === "part" ? C.radical : C.text),
+      fill: { color: i % 2 ? C.white : C.panel } } }))));
+  s.addTable(tbl, { x: M + 5.9, y: 1.55, w: cw.reduce((a, b) => a + b), colW: cw,
+    border: { type: "solid", color: C.rule, pt: 0.75 }, fontFace: BF, valign: "middle",
+    rowH: [0.28, 0.3, 0.3, 0.3, 0.3], margin: 0.06 });
+
+  text(s, "The flags are the honest part. An interface that cannot tail logs says so, and the " +
+    "manager simply does not start a drain for it — no caller has to know which backend it got.",
+    M + 5.9, 3.28, 6.93, 0.6, { fontSize: 11.5, color: C.text });
+
+  code(s, [
+    'try:',
+    '    handle = await interface.submit(spec)',
+    'except Exception as exc:',
+    '    # Surface the failure as a settled handle so callers',
+    '    # need no separate error path.',
+    '    future = loop.create_future()',
+    '    future.set_exception(exc)',
+    '    handle = TaskHandle(..., state=TaskState.FAILED,',
+    '                        error=str(exc))',
+  ], M + 5.9, 4.05, 6.93, 1.5, { anchor: "tasks/manager.py:99–115  ·  TRIMMED", fs: 10.5 });
+
+  text(s, [
+    { text: "The invariant: ", options: { bold: true, color: C.ink } },
+    { text: "a caller holds a handle whose future resolves. Not sometimes a handle and sometimes " +
+      "an exception. A rejected submission is a handle that has already failed — which is why " +
+      "gather() never raises and the round survives a dead endpoint." },
+  ], M, 5.75, 12.3, 0.8, { fontSize: 13 });
+  footer(s, "TaskState: PENDING · PROVISIONING · QUEUED · RUNNING · DONE · FAILED · CANCELED · UNKNOWN, with .terminal and an alias table for Orbit/PSI-J vocabularies.");
+  s.addNotes(
+`[2:00] Here is the whole vocabulary. Five verbs and a capability record.
+
+Submit is the only abstract method, and its docstring is the contract: place the task and return immediately. Status, logs, result, cancel and close all have defaults that work for an in-process future, so a trivial interface is about ten lines.
+
+The capability flags are where I tried to be honest rather than uniform. Globus Compute cannot tail a running task's logs — that is a real property of the service, not a gap in my adapter — so the flag says false and the manager simply does not start a log drain. No caller branches on which backend it got.
+
+The bottom-left code is the piece I would defend hardest. When submission itself fails — no endpoint, unknown task name — you do not get an exception. You get a handle whose future is already failed. That single decision is why the gather path never raises and why a round survives a dead endpoint: there is exactly one shape to handle, and the failure arrives through the same channel as a task that failed after starting.
+
+The state enum normalizes across vocabularies, because ORBIT and PSI/J each have their own and I did not want those leaking upward.`);
+}
+
+// ================================================================ 9. The seam: substrate
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "★ Through flowgentic to a rhapsody process pool", "The seam · 2 of 3");
+
+  // the path
+  const pw = 2.35, py = 1.5;
+  const chain = [
+    ["task body", "tools/*.py\nmodule level", C.task, "built"],
+    ["flowgentic", "FUNCTION_TASK\n+ RetryConfig", C.radical, "built"],
+    ["asyncflow", "WorkflowEngine", C.radical, "built"],
+    ["rhapsody", "ConcurrentExecution\nBackend", C.radical, "built"],
+    ["ProcessPool", "4 workers", C.radical, "built"],
+  ];
+  chain.forEach(([t, sub, col, st], i) => {
+    const x = M + i * (pw + 0.17);
+    box(s, x, py, pw, 0.8, { title: t, sub: "\n" + sub, line: col, fill: col === C.radical ? C.radicalTint : C.taskTint,
+      fs: 12, sfs: 9.5, tc: col === C.radical ? C.radical : C.ink, status: st });
+    if (i < chain.length - 1) line(s, x + pw + 0.01, py + 0.4, x + pw + 0.16, py + 0.4, { w: 1.5 });
+  });
+
+  code(s, [
+    'retry = RetryConfig(',
+    '    # Folding or an HPC job can take far longer',
+    '    # than flowgentic\'s 30s default.',
+    '    timeout_sec=None,',
+    '    max_attempts=1,',
+    '    retryable_exceptions=(ConnectionError, OSError),',
+    ')',
+    'def wrap(body):',
+    '    return integration.execution_wrappers.asyncflow(',
+    '        body, flow_type=AsyncFlowType.FUNCTION_TASK,',
+    '        backend="compute", retry=retry)',
+  ], M, 2.55, 6.1, 1.85, { anchor: "runtime.py:76–89  ·  TRIMMED", fs: 10 });
+
+  code(s, [
+    'async def submit(self, spec: TaskSpec) -> TaskHandle:',
+    '    fn = self._resolve(spec.name)',
+    '    # create_task so submission returns immediately: the',
+    '    # flowgentic wrapper for FUNCTION_TASK is a coroutine',
+    '    # function, not a future factory.',
+    '    future = asyncio.ensure_future(_call(fn, spec))',
+    '    return self._handle(spec, future)',
+  ], M, 4.6, 6.1, 1.25, { anchor: "tasks/local.py:60–65  ·  VERBATIM", fs: 10 });
+
+  card(s, M + 6.4, 2.55, 6.43, 1.3, "Three constraints the pool imposes", [
+    "Task bodies live at module level in tools/ — no closures over clients, or they will not pickle.",
+    "Clients are built inside the body; a parent's cannot cross into a worker.",
+    "The entry point needs a __main__ guard, or uvicorn re-imports under fork.",
+  ], { fill: C.radicalTint, hc: C.radical, fs: 10 });
+
+  s.addShape(pres.shapes.RECTANGLE, { x: M + 6.4, y: 4.0, w: 6.43, h: 0.38,
+    fill: { color: C.fail }, line: { color: C.fail } });
+  text(s, "Finding 1 — flowgentic hard-imports aiohttp", M + 6.5, 4.0, 6.2, 0.38,
+    { fontSize: 12.5, bold: true, color: C.white, valign: "middle" });
+  code(s, [
+    '# Try to include aiohttp timeouts if present',
+    'try:',
+    '    import aiohttp  # type: ignore',
+    '    ex.extend([aiohttp.ClientConnectionError,',
+    '               aiohttp.ServerTimeoutError])',
+    'except Exception:',
+    '    raise',
+  ], M + 6.4, 4.45, 6.43, 1.22,
+    { anchor: "refcodes/flowgentic/…/fault_tolerance.py:73–84  ·  VERBATIM", fs: 10, fill: "3A1F1C" });
+  text(s, "The comment says \"if present\"; the code says \"or die\". Same shape for httpx at :60–72. " +
+    "Reached whenever retryable_exceptions is left at its default, which is ().",
+    M + 6.4, 5.8, 6.43, 0.5, { fontSize: 11, color: C.fail });
+
+  footer(s, "ModuleNotFoundError: No module named 'aiohttp' — raised from fault_tolerance.py:75 on the first wrapped task, in an env with httpx but not aiohttp.");
+  s.addNotes(
+`[2:10] This is the band that crosses out of my process, and it is five hops: a module-level task body, the flowgentic wrapper, asyncflow's engine, a rhapsody concurrent backend, a four-worker process pool.
+
+Top left is the wrapper. The comment in it is doing real work: flowgentic's RetryConfig defaults to a 30-second per-attempt timeout with three attempts, which is right for a service call and wrong for a fold. We saw on the last slide that half the round-two folds exceed it. So we pass timeout_sec None and max_attempts one, and own retries ourselves.
+
+Bottom left: submission has to return immediately, and the flowgentic wrapper for FUNCTION_TASK is a coroutine function rather than a future factory, so we wrap it in ensure_future. That comment exists because I got it wrong first and blocked the loop.
+
+Top right: the pool imposes three real constraints. Bodies at module level, clients built inside the body, and a main guard on the entry point.
+
+And the red block is the first of the findings. That is verbatim flowgentic. The comment says "try to include aiohttp timeouts if present" and the handler says raise. So aiohttp becomes a hard requirement, and so does httpx twelve lines up. It fires whenever retryable_exceptions is left at its default, which is the empty tuple — the common case. I think that except clause wants to be a pass, and I would like to know if you agree.`);
+}
+
+// ================================================================ 10. Orbit
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "★ RADICAL Orbit: two clients, two concurrency bridges", "The seam · 3 of 3");
+
+  // the two client paths
+  box(s, M, 1.5, 5.9, 0.42, { title: "EndpointRuntime(broker_url, cert, name, token)",
+    line: C.radical, fill: C.radicalTint, fs: 11.5, tc: C.radical, round: false });
+  box(s, M, 2.05, 2.85, 1.55, { title: "RhapsodyClient", sub:
+    "\nfunction + executable tasks\nregister_session · submit_tasks\nwait_tasks · get_task · cancel_task\n\npushes task_status events",
+    line: C.radical, fill: C.white, fs: 12, sfs: 9.5, tc: C.radical });
+  box(s, M + 3.05, 2.05, 2.85, 1.55, { title: "PSIJClient", sub:
+    "\nbatch jobs\nsubmit_job · cancel_job\nget_job_status(id, stdout_offset,\n  stderr_offset)\n\nthe only log tail that exists",
+    line: C.radical, fill: C.white, fs: 12, sfs: 9.5, tc: C.radical });
+
+  card(s, M, 3.75, 5.9, 1.15, "Two threading problems, two one-liners", [
+    "Every Orbit client method is synchronous and blocking → each of 23 call sites goes through asyncio.to_thread.",
+    "Push callbacks arrive on Orbit's listener thread → _dispatch hops to our loop with call_soon_threadsafe.",
+  ], { fill: C.radicalTint, hc: C.radical, fs: 10.5 });
+
+  code(s, [
+    'def _dispatch(self, fn, *args) -> None:',
+    '    """Hop from Orbit\'s listener thread onto our event loop."""',
+    '    if self._loop is None or self._loop.is_closed():',
+    '        return',
+    '    self._loop.call_soon_threadsafe(fn, *args)',
+  ], M, 5.05, 5.9, 0.95, { anchor: "tasks/hpc/orbit.py:261–265  ·  VERBATIM", fs: 10 });
+
+  s.addShape(pres.shapes.RECTANGLE, { x: M + 6.2, y: 1.5, w: 6.63, h: 0.38,
+    fill: { color: C.fail }, line: { color: C.fail } });
+  text(s, "Findings 4 and 5 — what a terminal event does not carry", M + 6.3, 1.5, 6.4, 0.38,
+    { fontSize: 12.5, bold: true, color: C.white, valign: "middle" });
+  code(s, [
+    '# The terminal event carries state and exit_code but not',
+    '# stdout, so the full record is fetched before the future',
+    '# is resolved.',
+    'if not data.get("stdout") and self._rhapsody is not None:',
+    '    info = await asyncio.to_thread(',
+    '        self._rhapsody.get_task, handle.id)',
+    '    # The event wins on state; the fetch fills in the output.',
+    '    merged = {**info, **{k: v for k, v in data.items()',
+    '                         if v not in (None, "")}}',
+  ], M + 6.2, 1.97, 6.63, 1.55,
+    { anchor: "tasks/hpc/orbit.py:286–299  ·  TRIMMED", fs: 10, fill: "3A1F1C" });
+  code(s, [
+    'if state is TaskState.FAILED and not error:',
+    '    error = (f"exit code {exit_code}" if exit_code not in (None, 0)',
+    '             else (data.get("stderr")',
+    '                   or handle.log_tail[-500:] or "job failed"))',
+  ], M + 6.2, 3.65, 6.63, 0.82,
+    { anchor: "tasks/hpc/orbit.py:353–357  ·  TRIMMED", fs: 10, fill: "3A1F1C" });
+  text(s, "A completed task's result came back empty until the re-fetch. A job that exited 3 " +
+    "reported no reason at all — only the code — so FAILED always synthesises an explanation.",
+    M + 6.2, 4.6, 6.63, 0.55, { fontSize: 11, color: C.fail });
+
+  card(s, M + 6.2, 5.2, 6.63, 1.1, "Proven, and only this far", [
+    "6 tests against a real localhost broker + endpoint: push states, incremental log tailing by offset, a failing job, and cancelling a running one.",
+    "Never run against a scheduler. That is the next real step.",
+  ], { fill: C.panel, fs: 10.5 });
+  footer(s, "tests/test_orbit_local.py — skipped unless the Orbit CLI scripts are runnable; LocalOrbitStack brings up broker and endpoint as subprocesses.");
+  s.addNotes(
+`[2:20] The remote interface uses the raw clients rather than anything higher, on purpose: I wanted to see what the substrate actually offers.
+
+Two clients, two different jobs. RhapsodyClient handles function and executable tasks and pushes status events at us. PSIJClient handles batch jobs, and it is the one place in either backend where you can tail a running job's output — get_job_status takes stdout and stderr byte offsets. That is what the whole log-streaming story is built on, and it works.
+
+Two threading problems. Every client method is synchronous and blocking, so all 23 call sites go through to_thread. And push callbacks arrive on Orbit's own listener thread, so _dispatch hops them onto our loop with call_soon_threadsafe. Neither is a complaint; they are just facts you need to know before you build on this.
+
+The red half is findings four and five. A completed task's terminal event carries state and exit code but not stdout, so my first version resolved futures with empty results — the fix re-fetches with get_task, and lets the event win on state while the fetch fills in output. And a failed job reports only a non-zero exit code; no reason reaches the client at all. So FAILED always synthesises an explanation from the exit code, then stderr, then the log tail. I would rather Orbit told me.
+
+Status, plainly: six tests against a real localhost broker and endpoint, covering push states, incremental tailing, a failing job and cancelling a running one. It has never met a scheduler.`);
+}
+
+// ================================================================ 11. Globus
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "Designed for two, implemented for one", "Remote · the other backend");
+
+  box(s, M + 3.2, 1.55, 6.7, 0.5, { title: "RemoteWorkflowInterface(TaskInterface)",
+    sub: "   connect · connected · _track · get · _settle", line: C.task, fill: C.taskTint,
+    fs: 12.5, sfs: 10, align: "left", valign: "middle", round: false });
+  line(s, M + 5.0, 2.05, M + 4.2, 2.5, { color: C.task });
+  line(s, M + 8.1, 2.05, M + 8.9, 2.5, { color: C.task, status: "planned" });
+
+  box(s, M + 1.9, 2.5, 4.5, 1.0, { title: "OrbitInterface", sub:
+    "\nimplemented, tested against a live localhost stack",
+    line: C.radical, fill: C.radicalTint, fs: 13, sfs: 10.5, tc: C.radical, status: "tested" });
+  box(s, M + 6.9, 2.5, 4.5, 1.0, { title: "GlobusComputeInterface", sub:
+    "\nstructurally complete, never met a live endpoint",
+    line: C.muted, fill: C.white, fs: 13, sfs: 10.5, status: "planned" });
+
+  card(s, M, 3.75, 6.3, 1.5, "What the abstraction cost", [
+    "Almost nothing: connect/_track/_settle plus drain_logs is the whole shared surface, and it is 102 lines.",
+    "The interesting work is backend-specific by nature — Orbit's push callbacks have no Globus analogue.",
+    "So the ABC's job is to make the differences declarable rather than to hide them.",
+  ], { fill: C.taskTint, hc: C.task, fs: 10.5 });
+
+  code(s, [
+    'capabilities = Capabilities(',
+    '    supports_cancel=False,      # only before start; see cancel()',
+    '    supports_log_stream=False,  # final stdout only',
+    '    supports_push_events=False, # the future resolves; no',
+    '                                # intermediate states',
+    '    supports_staging=False,     # shared FS or Globus Transfer',
+    ')',
+  ], M + 6.6, 3.75, 6.23, 1.3, { anchor: "tasks/hpc/globus.py:31–36  ·  VERBATIM", fs: 10 });
+
+  card(s, M + 6.6, 5.2, 6.23, 1.1, "Testable with no endpoint", [
+    "GlobusRunner's executor_factory is injectable, so the suite passes a plain executor taking a callable.",
+    "argv is a list run with no shell on that path; the real ShellFunction path uses shlex.join because its API takes a string. A test proves a metacharacter stays data.",
+  ], { fill: C.panel, fs: 10.5 });
+
+  text(s, [
+    { text: "The claim I will defend: ", options: { bold: true, color: C.ink } },
+    { text: "the capability flags are more valuable than the shared base class. They are what let " +
+      "the manager and the UI behave correctly against a backend they were not written for." },
+  ], M, 5.45, 6.3, 0.85, { fontSize: 12.5 });
+  s.addNotes(
+`[1:15] The brief said design for both Globus hpc-bridge and ORBIT, implement ORBIT first. So: one ABC, two implementations, and one of them has never touched a live endpoint.
+
+What the abstraction cost is worth saying, because "we abstracted over two backends" is usually a boast hiding a mess. It cost almost nothing, because the shared surface is tiny — connect, track, settle, and a log drain, 102 lines in total. The interesting work is irreducibly backend-specific: Orbit's push callbacks have no Globus analogue, and pretending otherwise would have meant inventing a polling shim nobody wanted.
+
+So the base class's real job is not hiding differences. It is making them declarable, which is what the capability record on the right does. Globus Compute genuinely cannot tail a running task and genuinely cannot cancel after start; each flag carries the reason inline.
+
+And it is testable without Globus at all, because hpc-bridge's runner takes an injectable executor factory. The suite hands it a plain executor. One detail there: argv is a list run with no shell on the test path, while the real ShellFunction API takes a string, so that path uses shlex.join — with a test proving a shell metacharacter stays data.
+
+The claim I will defend is that the flags earned their keep and the base class merely did not get in the way.`);
+}
+
+// ================================================================ 12. Local task agents
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "Local Task Agents: a spec, not generated code", "Task agents");
+
+  const flow = [
+    ["design state\n+ prompt", C.agent], ["default_spec()", C.task],
+    ["LLM proposes\n(optional)", C.ui], ["sanitize_spec()", C.fail],
+    ["Mol* view spec\n(JSON)", C.lake],
+  ];
+  const fw = 2.3;
+  flow.forEach(([t, col], i) => {
+    const x = M + i * (fw + 0.25);
+    box(s, x, 1.55, fw, 0.75, { title: t, line: col, fill: C.white, fs: 11.5 });
+    if (i < flow.length - 1) line(s, x + fw + 0.02, 1.93, x + fw + 0.24, 1.93);
+  });
+
+  card(s, M, 2.6, 6.2, 2.0, "Why a spec and not generated JavaScript", [
+    "The brief said the agent \"codes a browser-based visualization\". Shipping LLM-written JS into the viewer is an injection surface for a prompt.",
+    "So the agent emits a constrained JSON spec — structures, highlights, representation, colours — and the React component is the only thing that touches Mol*.",
+    "sanitize_spec repairs or drops every field. A bad generation degrades to a plain cartoon, never a broken pane.",
+    "Same expressive range for what a reviewer actually asks for; no execution.",
+  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
+
+  code(s, [
+    'def sanitize_spec(spec: Any, *, fallback: dict) -> dict:',
+    '    """Validate an LLM-proposed spec, repairing or dropping',
+    '    bad fields.',
+    '',
+    '    Anything unexpected falls back rather than reaching the',
+    '    viewer, so a bad generation degrades to a plain cartoon',
+    '    instead of a broken pane.',
+    '    """',
+    '    if not isinstance(spec, dict):',
+    '        return fallback',
+  ], M + 6.5, 2.6, 6.33, 1.85, { anchor: "tools/molviz_agent.py:143–150  ·  TRIMMED", fs: 10 });
+
+  const rows = [
+    ["Molecular Visualization Generator", "local", "Mol* view spec keyed from state + prompt", "runs; drew both leads in the measured campaign"],
+    ["Cheminformatics Agent (ChemGraph)", "local", "ChemGraph single_agent workflow in a pool worker", "wired, optional extra, exercised by tests only"],
+    ["ESMFold", "local → hpc", "ESM Atlas API under 400 aa, else a job", "12 real predictions on disk"],
+    ["ProteinMPNN", "hpc", "PSI/J job spec + FASTA parser", "no endpoint → heuristic proposer instead"],
+  ];
+  const cw = [3.5, 1.15, 3.9, 3.78];
+  const tbl = [["agent", "interface", "what it does", "status"].map(h => ({ text: h,
+    options: { bold: true, color: C.white, fill: { color: C.task }, fontSize: 11 } }))]
+    .concat(rows.map((r, i) => r.map((c, j) => ({ text: c, options: {
+      fontFace: j === 1 ? MF : BF, fontSize: 11, bold: j === 0,
+      color: j === 3 && i >= 2 ? (i === 3 ? C.fail : C.good) : C.text,
+      fill: { color: i % 2 ? C.white : C.panel } } }))));
+  s.addTable(tbl, { x: M, y: 4.72, w: cw.reduce((a, b) => a + b), colW: cw,
+    border: { type: "solid", color: C.rule, pt: 0.75 }, fontFace: BF, valign: "middle",
+    rowH: [0.3, 0.36, 0.36, 0.34, 0.36], margin: 0.07 });
+  footer(s, "13 task bodies in the registry across the three interfaces; the catalog is served at /api/catalog so the UI can list what the agent can do.");
+  s.addNotes(
+`[1:10] The brief asked for Local Task Agents, and named two: a molecular visualization generator and ChemGraph.
+
+The visualization one is where I deviated, and I want to be explicit about it. The brief says the agent "codes a browser-based visualization". Shipping LLM-written JavaScript into the viewer means a prompt can get code into the page, so I did not do that. The agent emits a constrained JSON view spec instead — structures, highlights, representation, colours — and a single React component is the only thing that ever touches Mol*. sanitize_spec repairs or drops every field, so a bad generation degrades to a plain cartoon rather than a broken pane.
+
+I think that keeps the full expressive range of what a reviewer actually asks for — "colour the mutated residue, focus on it, show the rest as cartoon" — without executing anything.
+
+The table is the honest status of all four. The visualizer runs and drew both leads in the measured campaign. ChemGraph is wired behind the same interface but has only ever been exercised by tests. ESMFold has twelve real predictions on disk. ProteinMPNN has a job spec and a FASTA parser and no endpoint, so what actually ran was the heuristic proposer — which is why the variants in this campaign are single-point substitutions.`);
+}
+
+// ================================================================ 13. The lake (F4)
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "Design History: three tiers, and what is actually in them", "Design History · F4");
+
+  const tiers = [
+    ["Tier 1 — raw task outputs", "Kuzu, embedded graph DB", [
+      `${T1.n_node_tables} node tables · ${T1.n_rel_tables} rel tables`,
+      `Campaign ${T1.nodes.Campaign} · Reference ${T1.nodes.Reference} · Design ${T1.nodes.Design}`,
+      `Task ${T1.nodes.Task} · Output ${T1.nodes.Output} · Structure ${T1.nodes.Structure}`,
+      `properties columns hold JSON, so a new task needs no migration`,
+      `single writer behind an RLock`,
+    ]],
+    ["Tier 2 — scores, rankings, analysis", "SQLite", [
+      `${T2.counts.scores} score rows over ${T2.n_metrics} metrics`,
+      `${T2.counts.rankings} ranking rows (round 1: 6, round 2: 11 cumulative)`,
+      `${T2.counts.analyses} round analyses, with the failures list`,
+      `best_designs() can exclude the current campaign — that is how the`,
+      `interpreter finds prior art without finding itself`,
+    ]],
+    ["Tier 3 — golden sets", "Parquet + manifest", [
+      `${T3.n_rows} rows, one metric_<name> column per metric seen`,
+      `rules: metric=${T3.rules.metric}, direction=${T3.rules.direction}, top_k=${T3.rules.top_k},`,
+      `dedupe_sequences=${T3.rules.dedupe_sequences} → 12 designs became ${T3.n_rows} rows`,
+      `the manifest records the rules, so a set is reproducible`,
+      `staged for ML training, not for reading`,
+    ]],
+  ];
+  const tw = 4.04;
+  tiers.forEach(([h, sub, items], i) => {
+    const x = M + i * (tw + 0.1);
+    s.addShape(pres.shapes.RECTANGLE, { x, y: 1.5, w: tw, h: 0.62,
+      fill: { color: C.lake }, line: { color: C.lake } });
+    text(s, h, x + 0.12, 1.54, tw - 0.24, 0.32,
+      { fontSize: 12.5, bold: true, color: C.white });
+    text(s, sub, x + 0.12, 1.84, tw - 0.24, 0.24, { fontSize: 10, color: "BFE0CF", fontFace: MF });
+    s.addShape(pres.shapes.RECTANGLE, { x, y: 2.12, w: tw, h: 1.75,
+      fill: { color: C.lakeTint }, line: { color: C.lakeTint } });
+    text(s, items.map((t, j) => ({ text: t, options: { bullet: true, breakLine: j < items.length - 1 } })),
+      x + 0.15, 2.22, tw - 0.3, 1.6, { fontSize: 10, color: C.text, paraSpaceAfter: 3 });
+  });
+
+  code(s, [
+    'def record_task_result(self, campaign_id, task_id, *, name, interface, state,',
+    '                      result=None, error="", designs=None, round_no=0,',
+    '                      reference_id=None, blob=None) -> dict:',
+    '    """Write one task\'s outcome across tiers 1 and 2.',
+    '',
+    '    `blob` is an optional (data, suffix) pair for bulky raw output.',
+    '    Returns {"output_id", "blob_path"} for the caller to reference.',
+    '    """',
+  ], M, 4.05, 7.5, 1.5, { anchor: "lake/store.py:87–106  ·  TRIMMED", fs: 10 });
+
+  card(s, M + 7.8, 4.05, 5.03, 1.5, "One facade, three stores", [
+    "DesignHistory is the only thing nodes see; tiers 1 and 2 are written together or not at all.",
+    `Bulky output goes to a content-addressed blob (sha256[:16]) — ${R.blobs.n} files, ${(R.blobs.bytes / 1e6).toFixed(1)} MB on disk.`,
+  ], { fill: C.lakeTint, hc: C.lake, fs: 10.5 });
+
+  text(s, [
+    { text: "Worth noticing: ", options: { bold: true, color: C.ink } },
+    { text: "only tier 1 needs a running process to read. Tiers 2 and 3 are a SQLite file and a " +
+      "Parquet file, so the figures on this slide were produced by a script that opened them " +
+      "directly while the server held the Kuzu lock." },
+  ], M, 5.7, 12.3, 0.65, { fontSize: 12.5 });
+  footer(s, "Every count read from slides/run.json by slides/run_model.py — the same script that drew F3.");
+  s.addNotes(
+`[1:35] Three tiers, exactly as the brief specified, and these are the real contents of the measured campaign.
+
+Tier one is a Kuzu graph: six node tables, eight relationship tables, the whole provenance chain from campaign to reference to design to task to output to structure. One design decision there worth flagging — the properties columns hold JSON, so adding a task type needs no migration. That is a deliberate trade: queryability for evolvability, and I would make it again at this stage.
+
+Tier two is SQLite: 114 score rows over ten metrics, seventeen ranking rows, two round analyses. The method I would point at is best_designs, which can exclude the current campaign — that is how the interpreter finds comparable prior work without rediscovering its own designs.
+
+Tier three is Parquet plus a manifest. Eleven rows from twelve designs, because the curation rules deduplicate sequences, and the manifest records the rules so the set is reproducible rather than just present.
+
+The bottom line is a small thing I only noticed when building this deck: only tier one needs a running process to read. Tiers two and three are just files, which is why the script that produced these numbers could read them while the server held the Kuzu lock.`);
+}
+
+// ================================================================ 14. Degradation
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "Degradation is a feature, and it is tested", "Failure behaviour");
+
+  const rows = [
+    ["No ANTHROPIC_API_KEY", "every node has a deterministic rule-based path", "the measured campaign ran this way"],
+    ["No Orbit endpoint", "interface_for falls hpc → local and logs it", "tests/test_tasks.py"],
+    ["ChemGraph not installed", "the task reports unavailable; nothing else changes", "chemgraph_available()"],
+    ["ESM Atlas drops a request", "design survives sequence-only; round scores the rest", `really happened: ${CAMP}-r2-5`],
+    ["Tier 1/2 write fails", "warn, rank in memory, tell the user in the reply", "test_lake_write_failure_does_not_lose_the_round"],
+    ["No SQLite checkpointer", "InMemorySaver, with a note on /api/health", "runtime.py:172"],
+  ];
+  const cw = [2.9, 5.0, 4.43];
+  const tbl = [["when", "what happens", "evidence"].map(h => ({ text: h,
+    options: { bold: true, color: C.white, fill: { color: C.task }, fontSize: 11.5 } }))]
+    .concat(rows.map((r, i) => r.map((c, j) => ({ text: c, options: {
+      fontFace: j === 2 ? MF : BF, fontSize: j === 2 ? 9.5 : 11.5, bold: j === 0,
+      color: j === 2 ? C.muted : C.text,
+      fill: { color: i % 2 ? C.white : C.panel } } }))));
+  s.addTable(tbl, { x: M, y: 1.55, w: cw.reduce((a, b) => a + b), colW: cw,
+    border: { type: "solid", color: C.rule, pt: 0.75 }, fontFace: BF, valign: "middle",
+    rowH: [0.32, 0.34, 0.34, 0.34, 0.36, 0.42, 0.34], margin: 0.07 });
+
+  code(s, [
+    '# A storage failure must not lose the user\'s round: the designs are',
+    '# already in state, so we log, warn, and carry on.',
+    'try:',
+    '    ranked = deps.history.rank_round(campaign_id, round_no, ...)',
+    'except Exception as exc:',
+    '    storage_error = storage_error or str(exc)',
+    '    log.warning("persisting the ranking failed: %s", exc)',
+    '    ranked = _rank_in_memory(combined, metric_name, direction)',
+    '...',
+    'if storage_error:',
+    '    update["warnings"] = [f"Design History write failed: {storage_error}"]',
+  ], M, 4.15, 7.6, 1.8, { anchor: "graph/nodes/analyst.py:155–219  ·  TRIMMED", fs: 10 });
+
+  card(s, M + 7.9, 4.15, 4.93, 0.95, "How the user finds out", [
+    "The interpreter appends a \"Caveats from this run\" section to its reply, from the warnings channel.",
+  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
+  card(s, M + 7.9, 5.25, 4.93, 0.7, "Where this came from", [
+    "A readonly-SQLite error during a live run. My own fault — but it exposed unguarded writes.",
+  ], { fill: C.panel, fs: 10.5 });
+  s.addNotes(
+`[1:15] Six failure modes, what each does, and the evidence that it does it.
+
+The one I want to dwell on is the fifth row. During a live run I hit "attempt to write a readonly database" from SQLite. The cause was mine — I deleted a data directory under a running server — so it was not a product bug. But it exposed something real: the analyst was writing to the lake unguarded, which meant a storage problem could lose a round of work the user had already waited two minutes for.
+
+The fix is the code at the bottom. Each tier write is guarded independently, a failure falls back to ranking in memory, and the error goes into a warnings channel that survives the turn. The interpreter then appends a "Caveats from this run" section to its reply, so the user is told rather than silently given a thinner answer. There is a test that kills the lake mid-round and asserts the designs still come back.
+
+And the fourth row is the one I did not have to arrange. ESM Atlas dropped a request during the measured campaign, the design came through sequence-only, the round scored the other five, and the warning surfaced. That is the whole mechanism working on a failure I did not choose.`);
+}
+
+// ================================================================ 15. Frontend
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "The web app: seven frame kinds and one viewer", "Frontend");
+
+  // frame kinds
+  const frames = [
+    ["token", "LLM text delta", C.ui], ["status", "node progress line", C.agent],
+    ["task", "submitted · log · state", C.radical], ["state", "UI_STATE_KEYS slice", C.agent],
+    ["message", "a complete reply", C.ui], ["error", "stream-fatal", C.fail],
+    ["done", "end of turn", C.muted],
+  ];
+  const fw = 1.72;
+  frames.forEach(([t, sub, col], i) => {
+    const x = M + i * (fw + 0.08);
+    box(s, x, 1.55, fw, 0.78, { title: t, sub: "\n" + sub, line: col, fill: C.white,
+      fs: 12, sfs: 9, subMono: false });
+  });
+  text(s, "POST /api/chat returns text/event-stream. One asyncio.Queue merges the graph's own " +
+    "astream frames with TaskManager events, so task progress and node status share one ordered stream.",
+    M, 2.45, 12.3, 0.5, { fontSize: 11.5, color: C.text });
+
+  code(s, [
+    'let buffer = "";',
+    'while (true) {',
+    '  const { done, value } = await reader.read();',
+    '  if (done) break;',
+    '  buffer += decoder.decode(value, { stream: true });',
+    '  let split;',
+    '  while ((split = buffer.indexOf("\\n\\n")) !== -1) {',
+    '    const raw = buffer.slice(0, split);',
+    '    buffer = buffer.slice(split + 2);',
+    '    ...  yield JSON.parse(line.slice(6)) as Frame;',
+    '  }',
+    '}',
+  ], M, 3.05, 6.1, 2.1, { anchor: "frontend/src/lib/api.ts:30–49  ·  TRIMMED", fs: 10 });
+  text(s, "A chunk boundary can land mid-frame, so partial frames are held in a buffer until a " +
+    "blank line. A malformed frame is skipped, never fatal.",
+    M, 5.25, 6.1, 0.5, { fontSize: 11, color: C.muted, italic: true });
+
+  card(s, M + 6.4, 3.05, 6.43, 1.3, "The Mol* viewer", [
+    "rcsb-molstar 2.14.7 UMD from jsDelivr, loader cached on window.__molstarLoader so one fetch serves every mount.",
+    "One viewer per mount; the spec is re-applied on change; ResizeObserver → handleResize.",
+  ], { fill: C.uiTint, hc: C.ui, fs: 10.5 });
+  card(s, M + 6.4, 4.45, 6.43, 1.3, "Two things that bit", [
+    "createComponent takes no colour, so colours go through pluginCall → updateRepresentationsTheme.",
+    "Coordinates are inlined as a json artifact by the analyst, so the viewer needs no second authenticated fetch.",
+  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
+
+  text(s, [
+    { text: "Not verified: ", options: { bold: true, color: C.fail } },
+    { text: "no browser was available while building this. The dev server, the proxy, a real " +
+      "artifact fetched through it, and the Mol* CDN assets all check out; the canvas itself is unconfirmed." },
+  ], M, 5.85, 12.3, 0.6, { fontSize: 12.5 });
+  s.addNotes(
+`[1:10] Briefly, because the backend is what you came for.
+
+The chat endpoint is a POST that returns an event stream — not EventSource, because the prompt goes in the body. Seven frame kinds. The thing I would point at is that a single asyncio queue merges LangGraph's own stream with TaskManager events, so node status and task progress arrive in one ordered stream rather than two the client has to interleave.
+
+The client code is there because of a bug class people hit constantly: a network chunk boundary lands in the middle of an SSE frame, so you hold partial frames in a buffer until you see a blank line. And a malformed frame is skipped rather than killing the stream.
+
+The viewer: rcsb-molstar from the CDN, loader cached on window so one fetch serves every mount, one viewer per mount, resize observed. Two things bit me — createComponent takes no colour, so colours have to go through a plugin call to update the representation theme; and the analyst inlines coordinates as a JSON artifact so the viewer does not need a second authenticated fetch.
+
+Last line is the honest one. I had no browser in the session where I built this. I verified the dev server, the proxy, a real artifact fetched through it, and that the Mol* assets return 200 with CORS. Whether the canvas draws is the one thing I am asking someone to eyeball.`);
+}
+
+// ================================================================ 16. Running it
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "Running it, and what each test tier proves", "How to run it");
+
+  code(s, [
+    '$ uv sync --extra dev                        # --extra chem for ChemGraph',
+    '$ python -m designagent --reload             # :8000',
+    '$ cd frontend && npm install && npm run dev  # :5173, proxies /api',
+    '',
+    '$ pytest -q -m "not live"                    # 83 tests, no network',
+    '$ pytest -q tests/test_orbit_local.py        # 6 tests, real local broker',
+  ], M, 1.55, 7.3, 1.35, { anchor: "VERBATIM", fs: 10.5 });
+
+  card(s, M + 7.6, 1.55, 5.23, 1.35, "No key required", [
+    "There is no configuration step that must succeed. Every layer notes what it could not do on /api/health and keeps going.",
+  ], { fill: C.panel, fs: 11 });
+
+  const rows = [
+    ["tests/test_lake.py", "11", "all three tiers against a tmp_path lake: provenance, upserts, ranking, curation rules"],
+    ["tests/test_tasks.py", "25", "the contract: futures resolve, failures settle, capability flags honoured, Globus with an injected executor"],
+    ["tests/test_graph.py", "—", "18 parametrized classifier cases, a full loop end to end, artifacts, lake-write failure, and the no-structures-in-state guard"],
+    ["tests/test_api.py", "12", "SSE frames, artifact serving, task cancel returning 409 with a reason, health"],
+    ["tests/test_orbit_local.py", "6", "a real broker + endpoint as subprocesses: push states, offset log tailing, a failing job, cancelling a running one"],
+  ];
+  const cw = [3.0, 0.7, 8.63];
+  const tbl = [["file", "n", "what it actually proves"].map(h => ({ text: h,
+    options: { bold: true, color: C.white, fill: { color: C.task }, fontSize: 11.5 } }))]
+    .concat(rows.map((r, i) => r.map((c, j) => ({ text: c, options: {
+      fontFace: j === 0 ? MF : BF, fontSize: j === 0 ? 10.5 : 11.5,
+      align: j === 1 ? "center" : "left", color: C.text,
+      fill: { color: i % 2 ? C.white : C.panel } } }))));
+  s.addTable(tbl, { x: M, y: 3.15, w: cw.reduce((a, b) => a + b), colW: cw,
+    border: { type: "solid", color: C.rule, pt: 0.75 }, fontFace: BF, valign: "middle",
+    rowH: [0.32, 0.42, 0.48, 0.52, 0.42, 0.52], margin: 0.07 });
+
+  text(s, [
+    { text: "The split that matters: ", options: { bold: true, color: C.ink } },
+    { text: "83 tests need no network, no pool and no endpoint, because nodes only reach through " +
+      "Deps. The 6 that do need a substrate are marked " },
+    { text: "live", options: { fontFace: MF } },
+    { text: " and start their own broker." },
+  ], M, 6.2, 12.3, 0.6, { fontSize: 13 });
+  s.addNotes(
+`[1:00] Three commands to run it, two to test it, and no configuration step that has to succeed first.
+
+The test split is the part I would defend. 83 of the 89 tests need no network, no process pool and no endpoint. That is a direct consequence of the rule from the architecture slide — nodes only reach the outside through Deps — so the suite hands them an in-process task manager and a temp-directory lake and the whole graph runs in under a second.
+
+The six that genuinely need a substrate are marked live and bring up their own broker and endpoint as subprocesses. They are not mocks of ORBIT; they are ORBIT, on localhost.
+
+What I would call out in the middle column is that test_graph covers the classifier with eighteen parametrized cases. That is there because two real bugs hid in it: "what is the lead design?" classified as a design request because it contains the word design, and "make it more stable" classified as chat because it matched nothing at all. Both are the kind of bug an LLM path would have masked and the rule path makes visible.`);
+}
+
+// ================================================================ 17. Status
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "What is real, and what is not", "Status");
+
+  const real = [
+    ["The LangGraph loop, all five nodes", "two rounds, routed by the improvement test, on a real target"],
+    ["Query interface", "RCSB, UniProt, Europe PMC — live, with cross-referencing both directions"],
+    ["Local interface on the rhapsody pool", "12 real ESMFold predictions, 6 at a time, reaped out of order"],
+    ["All three lake tiers", `${T2.counts.scores} scores, ${T1.nodes.Task} task nodes, an ${T3.n_rows}-row Parquet set`],
+    ["Artifacts", "Markdown, .docx, a sortable table, two Mol* specs — all on disk"],
+    ["Streaming", "11 status lines plus task chips over one SSE stream"],
+  ];
+  const notReal = [
+    ["ProteinMPNN", "a job spec and a parser. No endpoint → a heuristic proposer, labelled as such"],
+    ["The Globus adapter", "structurally complete, tested with an injected executor, never met a live endpoint"],
+    ["Orbit", "works — against a localhost broker only. Never seen a scheduler or a queue"],
+    ["ChemGraph", "wired behind the interface; exercised by tests, never by a campaign"],
+    ["The Mol* canvas", "unverified by eye; no browser was available"],
+    ["wrap_nodes", "ships off, against the approved design. Next slide"],
+  ];
+
+  s.addShape(pres.shapes.RECTANGLE, { x: M, y: 1.5, w: 6.25, h: 0.38,
+    fill: { color: C.good }, line: { color: C.good } });
+  text(s, "Runs end to end against something real", M + 0.12, 1.5, 6.0, 0.38,
+    { fontSize: 13, bold: true, color: C.white, valign: "middle" });
+  real.forEach(([h, b], i) => {
+    const y = 1.98 + i * 0.68;
+    s.addShape(pres.shapes.RECTANGLE, { x: M, y, w: 6.25, h: 0.62,
+      fill: { color: i % 2 ? C.white : C.panel }, line: { color: C.rule, width: 0.5 } });
+    text(s, h, M + 0.12, y + 0.04, 6.0, 0.26, { fontSize: 11.5, bold: true, color: C.ink });
+    text(s, b, M + 0.12, y + 0.3, 6.0, 0.28, { fontSize: 10.5, color: C.muted });
+  });
+
+  s.addShape(pres.shapes.RECTANGLE, { x: M + 6.58, y: 1.5, w: 6.25, h: 0.38,
+    fill: { color: C.fail }, line: { color: C.fail } });
+  text(s, "Built, but has never run for real", M + 6.7, 1.5, 6.0, 0.38,
+    { fontSize: 13, bold: true, color: C.white, valign: "middle" });
+  notReal.forEach(([h, b], i) => {
+    const y = 1.98 + i * 0.68;
+    s.addShape(pres.shapes.RECTANGLE, { x: M + 6.58, y, w: 6.25, h: 0.62,
+      fill: { color: i % 2 ? C.white : C.failTint }, line: { color: C.rule, width: 0.5 } });
+    text(s, h, M + 6.7, y + 0.04, 6.0, 0.26, { fontSize: 11.5, bold: true, color: C.ink });
+    text(s, b, M + 6.7, y + 0.3, 6.0, 0.28, { fontSize: 10.5, color: C.muted });
+  });
+
+  text(s, [
+    { text: "The single most load-bearing caveat: ", options: { bold: true, color: C.fail } },
+    { text: "no HPC endpoint has ever run a task for this agent. The remote interface is proven " +
+      "against a localhost broker, which proves the client path and nothing about a scheduler." },
+  ], M, 6.2, 12.3, 0.6, { fontSize: 13 });
+  s.addNotes(
+`[1:20] Two columns. Left is what runs end to end against something real, right is what is built and has never run for real.
+
+Left, briefly: the loop, two rounds, routed by the improvement test. The query interface against live RCSB, UniProt and Europe PMC. Twelve real folds on the rhapsody pool, six at a time, reaped out of order. All three lake tiers with the counts you saw. Four artifacts on disk. Streaming working.
+
+Right is the column that matters. ProteinMPNN is a job spec and a FASTA parser; with no endpoint, the orchestrator falls back to a heuristic proposer, and the output says so in a note field rather than quietly implying ProteinMPNN ran. The Globus adapter has never met a live endpoint. ORBIT works, against localhost only — which proves the client path and proves nothing about a queue. ChemGraph has been exercised by tests and never by a campaign. The Mol* canvas has not been looked at by a human.
+
+And the bottom line is the one I would put on a slide even if nobody asked: no HPC endpoint has ever run a task for this agent. Everything I have said about the remote path is a statement about the client, not about HPC.`);
+}
+
+// ================================================================ 18. Asks
+{
+  const s = pres.addSlide(); s.background = { color: C.ink };
+  text(s, "FINDINGS AND ASKS", M, 0.45, 9, 0.3,
+    { fontSize: 12, bold: true, color: "8FB8C9", charSpacing: 2 });
+  text(s, "Six reproducibles, and one question", M, 0.75, 11, 0.6,
+    { fontFace: HF, fontSize: 28, bold: true, color: C.white });
+
+  const items = [
+    ["1", "flowgentic hard-imports aiohttp — and httpx", "fault_tolerance.py:71–72 and :83–84 are except Exception: raise where the comment says \"if present\". Both become hard requirements. Fires whenever retryable_exceptions is left at its default ()."],
+    ["2", "RetryConfig defaults cancel long tasks silently", "30 s per attempt, 3 attempts. Measured against this repo's own folds: 13–42 s, so roughly half of round 2 would be cancelled and re-run. Long work must pass timeout_sec=None."],
+    ["3", "Orbit's terminal task event omits stdout", "A completed task resolves with an empty result until get_task is called again. Worked around in _finish_task_enriched."],
+    ["4", "A FAILED Orbit job carries no reason", "Only a non-zero exit code reaches the client. We synthesise an explanation from exit code, then stderr, then the log tail."],
+    ["5", "The broker has no HTTP topology route", "/topology → 307 → 404, read as a plugin name. Readiness has to come from the client's rt.topology(), which propagates asynchronously."],
+    ["6", "--no-auth still requires cert and key", "It disables ingress auth only; the broker always serves TLS and refuses to start without a pair. Worth one line in the docs."],
+  ];
+  items.forEach(([n, h, b], i) => {
+    const col = i < 3 ? 0 : 1;
+    const y = 1.6 + (i % 3) * 1.25;
+    const x = M + col * 6.5;
+    s.addShape(pres.shapes.OVAL, { x, y, w: 0.34, h: 0.34,
+      fill: { color: C.radical }, line: { color: C.radical } });
+    text(s, n, x, y, 0.34, 0.34, { fontSize: 12, bold: true, color: C.white,
+      align: "center", valign: "middle" });
+    text(s, h, x + 0.46, y - 0.02, 5.7, 0.3, { fontSize: 13, bold: true, color: "F0C898" });
+    text(s, b, x + 0.46, y + 0.3, 5.7, 0.85, { fontSize: 10.5, color: "C8D4DD" });
+  });
+
+  s.addShape(pres.shapes.RECTANGLE, { x: M, y: 5.42, w: 12.33, h: 1.35,
+    fill: { color: "2A3A47" }, line: { color: C.radical, width: 2 } });
+  text(s, [
+    { text: "The question:  ", options: { bold: true, color: C.radical, fontSize: 15 } },
+    { text: "is flowgentic's EXECUTION_BLOCK meant to preserve the caller's context?",
+      options: { bold: true, color: C.white, fontSize: 15, breakLine: true } },
+    { text: "A node wrapped as one runs on asyncflow's loop, outside LangGraph's runnable context. " +
+      "get_stream_writer() raises \"Called get_config outside of a runnable context\" and every " +
+      "custom event is dropped silently — the graph completes, the chat just goes quiet. " +
+      "If yes, it is a bug and wrap_nodes=True becomes our default. If no, flowgentic's node " +
+      "wrapping and LangGraph's streaming are mutually exclusive, and that belongs in the README.",
+      options: { color: "C8D4DD", fontSize: 11.5 } },
+  ], M + 0.2, 5.52, 11.9, 1.2, { fontSize: 12 });
+  text(s, "Thanks. Repo: main @ e8467e6 · slides/CODE_FOR_DECK.md carries every anchor and the reproduction for each finding.",
+    M, H - 0.45, 12.3, 0.3, { fontSize: 10.5, color: "7E8F9C", italic: true });
+  s.addNotes(
+`[1:50] I built on your stack for two weeks and these are the six things I had to work around. Each one names a file and a line, and the deck's CODE_FOR_DECK.md has the reproduction, so none of this needs to be taken on my word.
+
+One and two are flowgentic. The aiohttp import is, I think, a one-character fix: raise wants to be pass. The retry defaults are a judgement call rather than a bug, but I would argue the default is wrong for the workload flowgentic is most likely to be used for — if you are wrapping agent tasks, some of them are models.
+
+Three through six are ORBIT, and three and four are the ones I would most like fixed, because both of them produce a silent wrong answer rather than an error: an empty result, and a failure with no reason.
+
+Five and six are documentation. I lost an afternoon to --no-auth, because it is a reasonable reading that no auth means no TLS.
+
+And then the question, which is the actual ask. The approved design for this project had every graph node wrapped as an EXECUTION_BLOCK. It ships disabled, because a wrapped node runs on asyncflow's loop, outside LangGraph's runnable context, so the stream writer raises and every status event is dropped — silently. The graph still completes. The chat just goes quiet.
+
+So: is EXECUTION_BLOCK meant to preserve the caller's context? If it is, that is a bug worth fixing and I flip my default back. If it is not, then flowgentic's node wrapping and LangGraph's streaming are mutually exclusive, and I think that sentence belongs in the README, because I would have liked to read it.`);
+}
+
+// ================================================================ B1. Backup: streaming
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "The streaming experiment, in full", "Backup");
+
+  card(s, M, 1.55, 6.2, 2.72, "What was tried", [
+    "The approved design: wrap every node as AsyncFlowType.EXECUTION_BLOCK with RetryConfig(timeout_sec=None, max_attempts=1), same as tasks.",
+    "Symptom: the graph completed correctly and the chat showed no status lines at all. No error surfaced anywhere.",
+    "Isolation: one plain node and one wrapped node, each calling get_stream_writer() and emitting one event.",
+    "Plain node: writer obtained, event received by astream(stream_mode=[\"custom\"]).",
+    "Wrapped node: RuntimeError \"Called get_config outside of a runnable context\"; zero events.",
+  ], { fill: C.panel, fs: 10.5 });
+
+  card(s, M + 6.5, 1.55, 6.33, 2.72, "Why", [
+    "flowgentic's EXECUTION_BLOCK submits the body to the asyncflow WorkflowEngine, which runs it on its own loop.",
+    "LangGraph's get_stream_writer() reads the runnable context, which is a contextvar set by the LangGraph executor around the node call.",
+    "Crossing to another loop loses the contextvar. The writer cannot be found, and LangGraph's own helper degrades to a no-op rather than raising — which is why it is silent.",
+    "This is not a flowgentic bug unless EXECUTION_BLOCK intends to propagate context. Hence the question, not the accusation.",
+  ], { fill: C.agentTint, hc: C.agent, fs: 10.5 });
+
+  code(s, [
+    'def wrap_node(integration, fn):',
+    '    """Wrap a node body as a flowgentic EXECUTION_BLOCK, if enabled."""',
+    '    if integration is None:',
+    '        return fn',
+    '    return integration.execution_wrappers.asyncflow(',
+    '        fn, flow_type=AsyncFlowType.EXECUTION_BLOCK, retry=node_retry_config())',
+    '',
+    '# build_graph(): integration is set to None unless settings.wrap_nodes',
+  ], M, 4.45, 7.6, 1.5, { anchor: "graph/build.py:38–87  ·  TRIMMED", fs: 10 });
+
+  card(s, M + 7.9, 4.45, 4.93, 1.5, "What ships", [
+    "wrap_nodes=False, the code path kept and documented.",
+    "Tasks are still wrapped — FUNCTION_TASK runs task bodies, which never touch the stream writer.",
+    "So the pool is genuinely used; only node bodies stayed in-process.",
+  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
+
+  text(s, "Verified after the change: 11 status lines stream for one redesign turn.",
+    M, 6.15, 12.3, 0.4, { fontSize: 12.5, italic: true, color: C.good });
+  s.addNotes(
+`Backup, for the EXECUTION_BLOCK discussion if it goes deep.
+
+The approved plan said wrap every node. I did, and the graph worked perfectly while the chat went completely silent — no error, no warning, just no status.
+
+Isolating it took one plain node and one wrapped node, each asking for a stream writer and emitting one event. The plain one works. The wrapped one raises "Called get_config outside of a runnable context" and emits nothing.
+
+The mechanism: EXECUTION_BLOCK hands the body to asyncflow's engine, which runs it on its own loop. LangGraph's stream writer lives in a contextvar that its executor sets around the node call. Cross loops and you lose the contextvar. And LangGraph's helper degrades to a no-op rather than raising, which is exactly why the failure is invisible.
+
+Important fairness point: this is only a flowgentic bug if EXECUTION_BLOCK intends to propagate caller context. I do not know that it does, which is why slide 18 asks rather than asserts.
+
+What ships: wrap_nodes false, the path kept and documented. Tasks are still wrapped, so the process pool is genuinely in use — task bodies never touch the stream writer, so nothing is lost there.`);
+}
+
+// ================================================================ B2. Backup: local Orbit
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "Standing up a local Orbit stack", "Backup");
+
+  code(s, [
+    '# broker: --no-auth disables INGRESS AUTH ONLY. TLS is always served,',
+    '# and it refuses to start without a cert and key.',
+    'openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem \\',
+    '  -days 3 -subj /CN=127.0.0.1 \\',
+    '  -addext subjectAltName=IP:127.0.0.1,DNS:localhost     # SAN must cover 127.0.0.1',
+    'chmod 600 key.pem                                        # refuses a looser mode',
+    '',
+    'radical-orbit-broker.py --no-auth --host 127.0.0.1 --port N \\',
+    '    --cert cert.pem --key key.pem',
+    '',
+    'RADICAL_ORBIT_RHAPSODY_BACKEND=concurrent \\',
+    'radical-orbit-endpoint.py --name local -p rhapsody,psij \\',
+    '    --url https://127.0.0.1:N --cert cert.pem',
+  ], M, 1.55, 7.6, 2.5, { anchor: "tasks/hpc/local_orbit.py  ·  EDITED for the slide", fs: 10 });
+
+  card(s, M + 7.9, 1.55, 4.93, 1.2, "Readiness", [
+    "There is no HTTP topology route — /topology reads as a plugin name and 404s.",
+    "The stack greps the endpoint's own log for registered as '<name>'.",
+  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
+  card(s, M + 7.9, 2.9, 4.93, 1.15, "Then the client decides", [
+    "OrbitInterface.connect() polls rt.topology() until the endpoint appears, bounded by connect_timeout — topology propagates asynchronously.",
+  ], { fill: C.panel, fs: 10.5 });
+
+  card(s, M, 4.3, 6.2, 1.7, "Why subprocesses, not EmbeddedBroker", [
+    "The embedded broker expects operator-placed credentials in ~/.radical/orbit, which a test must not create or touch.",
+    "Subprocesses with a throwaway cert keep the whole thing inside tmp_path and leave no state behind.",
+    "Cost: the stack has to detect readiness from logs, which is the fragile part of the fixture.",
+  ], { fill: C.radicalTint, hc: C.radical, fs: 10.5 });
+  card(s, M + 6.5, 4.3, 6.33, 1.7, "What the fixture then proves", [
+    "An executable task runs and its stdout comes back (after the get_task re-fetch).",
+    "A bash loop's output tails incrementally — log_offset advances, so it is not refetched whole.",
+    "A job exiting 3 lands FAILED with a non-empty error.",
+    "A sleeping job cancels while running, and reports CANCELED.",
+  ], { fill: C.panel, fs: 10.5 });
+  s.addNotes(
+`Backup, for anyone who wants to reproduce the ORBIT work.
+
+The thing that cost me most of an afternoon is the first comment. --no-auth disables the ingress token check only. The broker always serves TLS and refuses to start without a cert and key, so with --no-auth alone it exits at startup. The fixture generates a throwaway self-signed pair, with a SAN covering 127.0.0.1 because that is what the client connects to, and chmods the key to 600 because the broker rejects anything looser.
+
+Readiness was the other trap. I went looking for an HTTP topology endpoint and got a 307 then a 404 saying endpoint 'topology' unknown — because the gateway reads it as a plugin name. There is no such route. So the fixture waits on the endpoint's own log line, and the authoritative check moved to where it belongs: the client polls rt.topology() until the endpoint appears, bounded by a timeout, because topology propagates asynchronously.
+
+Subprocesses rather than the embedded broker, because the embedded one expects operator-placed credentials in the user's home directory and a test has no business creating those.
+
+What it buys is the four assertions on the right, all against real processes.`);
+}
+
+pres.writeFile({ fileName: path.join(__dirname, "designagent-codewalk.pptx") })
+  .then(f => console.log("wrote", f));
