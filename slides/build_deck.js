@@ -439,7 +439,7 @@ Note how little static wiring there is. One static edge, START to coordinator. E
   const rx = cx + cw + 0.25, rwd = W - M - rx;
   card(s, rx, 1.5, rwd, 2.2, "The one rule", [
     "A node reaches the outside only through Deps — never an interface or a store directly.",
-    "That is what makes 83 of 89 tests run with no network, no pool and no endpoint.",
+    "That is what makes 93 of 99 tests run with no network, no pool and no endpoint.",
     "Convention, not an enforced check.",
   ], { fill: C.agentTint, hc: C.agent, fs: 10.5 });
   card(s, rx, 3.85, rwd, 1.5, "Where it leaves the process", [
@@ -454,7 +454,7 @@ Browser, then FastAPI with a single SSE chat endpoint. Then the LangGraph graph,
 
 Then the three task interfaces. Then the substrate, which is flowgentic over asyncflow over a rhapsody concurrent backend on a four-worker process pool. Then remote: ORBIT solid-but-dotted, meaning it genuinely works and has only ever met a localhost broker; Globus dashed, meaning designed for and not implemented against anything live. Then the three lake tiers.
 
-Two things in the rail. The rule that nodes only ever reach through Deps is what makes 83 of the 89 tests run with no network and no pool. And the band that crosses into asyncflow is exactly one: the local task interface. Everything above it is ordinary async Python, which is deliberate — I wanted the middleware dependency confined to a layer I could swap or stub.`);
+Two things in the rail. The rule that nodes only ever reach through Deps is what makes 93 of the 99 tests run with no network and no pool. And the band that crosses into asyncflow is exactly one: the local task interface. Everything above it is ordinary async Python, which is deliberate — I wanted the middleware dependency confined to a layer I could swap or stub.`);
 }
 
 // ================================================================ 6. State
@@ -479,7 +479,7 @@ Two things in the rail. The rule that nodes only ever reach through Deps is what
     '    intent · round · session_id · goal · status',
     '    warnings:        Annotated[list[str], merge_warnings]',
     '    target_hints · requested_mutations · pending_results',
-  ], M, 1.55, 7.0, 2.55, { anchor: "graph/state.py:160–188  ·  TRIMMED", fs: 10 });
+  ], M, 1.55, 7.0, 2.55, { anchor: "graph/state.py:168–196  ·  TRIMMED", fs: 10 });
 
   card(s, M, 4.25, 7.0, 1.3, "Four reducers, each for a reason", [
     "merge_artifacts — append, dedupe by id, last write wins: the analyst replaces a viz each round.",
@@ -1166,7 +1166,7 @@ Last line: this was built without a browser available, so for a while the canvas
     '$ python -m designagent --reload            # :8000',
     '$ cd frontend && npm install && npm run dev # :5173, proxies /api',
     '',
-    '$ pytest -q                                 # 83 tests, no network',
+    '$ pytest -q                                 # 93 tests, no network',
     '$ pytest -q -m live                         # 6 tests, starts a real broker',
   ], M, 1.55, 7.3, 1.35, { anchor: "VERBATIM", fs: 10.5 });
 
@@ -1195,7 +1195,7 @@ Last line: this was built without a browser available, so for a while the canvas
 
   text(s, [
     { text: "The split that matters: ", options: { bold: true, color: C.ink } },
-    { text: "83 tests need no network, no pool and no endpoint, because nodes only reach through " +
+    { text: "93 tests need no network, no pool and no endpoint, because nodes only reach through " +
       "Deps. The 6 that do are marked " },
     { text: "live", options: { fontFace: MF } },
     { text: ", deselected by default, and start their own broker." },
@@ -1203,7 +1203,7 @@ Last line: this was built without a browser available, so for a while the canvas
   s.addNotes(
 `[1:00] Three commands to run it, two to test it, and no configuration step that has to succeed first.
 
-The test split is the part I would defend. 83 of the 89 tests need no network, no process pool and no endpoint. That is a direct consequence of the rule from the architecture slide — nodes only reach the outside through Deps — so the suite hands them an in-process task manager and a temp-directory lake and the whole graph runs in under a second.
+The test split is the part I would defend. 93 of the 99 tests need no network, no process pool and no endpoint. That is a direct consequence of the rule from the architecture slide — nodes only reach the outside through Deps — so the suite hands them an in-process task manager and a temp-directory lake and the whole graph runs in under a second.
 
 The six that genuinely need a substrate are marked live and bring up their own broker and endpoint as subprocesses. They are not mocks of ORBIT; they are ORBIT, on localhost.
 

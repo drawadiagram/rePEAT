@@ -25,7 +25,6 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .config import get_settings
-from .graph.state import new_state
 from .runtime import Runtime, build_runtime
 
 log = logging.getLogger(__name__)
@@ -103,9 +102,19 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
                 "configurable": {"thread_id": session_id},
                 "recursion_limit": 50,
             }
+            # Only what this turn contributes; the rest comes from the
+            # checkpoint. Spreading a fresh new_state() here overwrites every
+            # `replace`-reduced channel with its empty default, which wipes the
+            # reference design from turn 2 onward — the blank is committed to
+            # the checkpoint, so it does not come back.
             payload = {
-                **new_state(session_id),
                 "messages": [{"role": "user", "content": body.message}],
+                "session_id": session_id,
+                # Turn-scoped: a cancelled stream can leave a round's raw
+                # results and a stale progress line behind, and neither
+                # belongs to the next turn.
+                "pending_results": {},
+                "status": "",
             }
             try:
                 async for mode, chunk in runtime.app.astream(

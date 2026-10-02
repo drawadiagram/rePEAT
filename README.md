@@ -151,7 +151,7 @@ lose custom-event streaming.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q            # 83 tests, offline; stubs replace every tool
+.venv/bin/python -m pytest -q            # 93 tests, offline; stubs replace every tool
 .venv/bin/python -m pytest -q -m live    # 6 tests; starts a real Orbit broker + endpoint
 ```
 

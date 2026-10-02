@@ -43,6 +43,14 @@ class ReferenceDesign(TypedDict, total=False):
     function: str
     literature: list[LiteratureRef]
     notes: str
+    # UniProt functional features: [{type, start, end, description}]. The
+    # visualization path reads these for active, binding and metal sites.
+    features: list[dict[str, Any]]
+    method: str  # experimental method, from the PDB entry
+    resolution: float | None
+    # Set only when the PDB construct and the UniProt canonical disagree, so
+    # the difference is recorded rather than silently resolved.
+    canonical_sequence: str
 
 
 class KeyMetric(TypedDict, total=False):
@@ -186,6 +194,33 @@ class DesignState(TypedDict, total=False):
     # Raw task records passed from the orchestrator to the analyst for one
     # round. Cleared once the analyst has consumed them.
     pending_results: Annotated[dict[str, Any], replace]
+
+
+def last_user_text(state: DesignState) -> str:
+    """The most recent human turn's text, however the message is shaped.
+
+    Messages arrive either as LangChain objects or as plain dicts (the API posts
+    dicts), and content is a string or a list of content blocks. Nodes other
+    than the coordinator need this too: a view request's own words are the only
+    place the user says what to show.
+    """
+    for message in reversed(state.get("messages") or []):
+        role = getattr(message, "type", None) or (
+            message.get("role") if isinstance(message, dict) else None
+        )
+        if role in ("human", "user"):
+            content = getattr(message, "content", None)
+            if content is None and isinstance(message, dict):
+                content = message.get("content")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                return " ".join(
+                    block.get("text", "")
+                    for block in content
+                    if isinstance(block, dict)
+                )
+    return ""
 
 
 def new_state(session_id: str) -> DesignState:

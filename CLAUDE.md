@@ -29,14 +29,14 @@ with no fallback once it finds a file. Run everything from the repo root.
 cd frontend && npm run dev                      # Vite on :5173, proxies /api
 cd frontend && npm run build                    # tsc -b && vite build
 
-.venv/bin/python -m pytest -q                   # 83 offline tests, no network
+.venv/bin/python -m pytest -q                   # 93 offline tests, no network
 .venv/bin/python -m pytest -q -m live           # 6 live tests; starts a real broker
 .venv/bin/python -m pytest tests/test_graph.py::test_design_loop_produces_lead_ensemble_and_artifacts -q
 .venv/bin/ruff check backend tests              # E/F/I, line-length 100
 ```
 
 `ruff` is in the `dev` extra but was absent from the working venv for a while, so the lint command
-had never been run: it currently reports **36 findings** (16 unused imports, 8 long lines, 7 unsorted
+had never been run: it currently reports **34 findings** (16 unused imports, 8 long lines, 7 unsorted
 import blocks, 3 ambiguous names). All trivial, none fixed yet, because fixing them shifts line
 numbers that the deck's 31 anchors cite. See `plans/BACKLOG.md`.
 
@@ -63,7 +63,7 @@ browser ─SSE─ app.py ── graph/build.py ── nodes ── Deps ── T
 
 **Nodes reach the outside only through `Deps`** (`graph/deps.py`: settings, tasks, history,
 artifacts). Never import a store or an interface into a node. This is convention, not an enforced
-check, and it is the only reason 83 tests run with no network, no process pool and no endpoint — the
+check, and it is the only reason 93 tests run with no network, no process pool and no endpoint — the
 suite hands nodes an in-process `TaskManager` and a `tmp_path` lake.
 
 **Every interface's `submit()` returns immediately with a handle whose `future` resolves later.**
@@ -76,9 +76,23 @@ go to a content-addressed blob (`history.write_blob`) and travel as `structure_p
 `tests/test_graph.py::test_structures_are_not_carried_in_state`, which asserts `"ATOM  "` never
 appears in serialized state. The regression is invisible — nothing breaks, it just grows every turn.
 
+**A turn's graph input carries only what that turn contributes** — the user message, `session_id`,
+and the two turn-scoped resets (`pending_results`, `status`). Everything else comes from the
+checkpoint. Most of `DesignState` is reduced with `replace` (`state.py`), so any key present in the
+input **overwrites** the saved value: passing a fresh `new_state()` wipes the reference design,
+metric, lead, ensemble and view, and commits the blank. That was a real bug — the second prompt of
+every session answered "No reference design is loaded yet" and re-ran the initializer. Pinned by
+`tests/test_graph.py::test_state_survives_into_the_next_turn`, and `_send` in that file deliberately
+mirrors `app.py` rather than threading state by hand, because threading it is what hid the bug.
+
 **Routing is `Command(goto=..., update=...)` from the node body**, so the routing decision and the
 state write are one atomic return. `build.py` declares `destinations` per node for validation; the
 only static edge is `START → coordinator`.
+
+**A view request's own words reach the visualization generator**, not the campaign goal: the
+coordinator writes `goal` only for `design`/`initialize`, so on a "label the active site" turn `goal`
+is still the design objective. `_make_visualization` falls back to `last_user_text(state)`
+(`graph/state.py`) for this reason.
 
 **Process-pool constraints** (`runtime.py`, `tools/`): task bodies live at module level with no
 closures over clients, HTTP/LLM clients are constructed *inside* the body, and the entry point needs

@@ -56,23 +56,9 @@ of those packages, and right now nothing records which.
 **Options:** git submodules pinned to a SHA; or a `refcodes/VERSIONS.md` recording each package's
 commit; or vendoring the three into the repo. The middle one is cheap and would do.
 
-### B2 · The initializer re-runs its lookups within a single campaign
-Measured in the reference campaign: the full lookup set ran at `19:17:53` and again at `19:18:58`,
-both under campaign `s-tutp87hw` — `pdb_lookup`, `uniprot_lookup`, `pdb_structure`,
-`literature_lookup`, plus the cross-reference follow-up. That is 5 redundant live API calls and about
-6 seconds on the second prompt of an already-initialized session.
-
-**Reproduce:** `MATCH (t:Task)-[:RAN_FOR]->(c:Campaign) RETURN t.name, t.submitted_at, c.id ORDER BY
-t.submitted_at` against `data/lake/graph`.
-
-**Unclear:** the classifier should route a second prompt to `design`, not `initialize`, once
-`reference_design.sequence` is set (`coordinator.py:122`). Why it did not is **D1**. Fixing the
-routing probably fixes this; a lookup cache in `tools/` would fix it regardless and is worth having
-anyway, since RCSB and UniProt answers are stable.
-
-### B3 · The lint command had never been run
+### B2 · The lint command had never been run
 `ruff` is declared in the `dev` extra but was missing from the working venv, so `ruff check` had
-never been run against this code. With the rule set now pinned to `E,F,I` it reports **36 findings**:
+never been run against this code. With the rule set now pinned to `E,F,I` it reports **34 findings**:
 16 unused imports (F401), 8 lines over 100 (E501), 7 unsorted import blocks (I001), 3 ambiguous
 variable names (E741, all `l`). Every one is trivial and 23 are auto-fixable.
 
@@ -87,6 +73,17 @@ anchor update have to land together.
 **Also worth deciding:** whether `E,F,I` is the right baseline. `E,F,I,B,UP` reports 67, and the
 extra 31 are mostly `B` (blind `except Exception:`) which this codebase uses deliberately in the
 degradation paths — so that set would need per-site `noqa`, which is probably not worth it.
+
+### B3 · The classifier's keyword lists miss `-ing` forms
+`_has_word` (`coordinator.py`) matches a leading word boundary only, so each entry acts as a prefix.
+That works for `fold` → "folding" but not for any verb whose gerund drops the final `e`:
+`optimize` misses "optimizing", `generate` misses "generating", `iterate` misses "iterating". So
+"keep iterating" and "optimizing solubility" classify as **chat** and silently do nothing.
+
+Affects the no-LLM path only. Noted in a comment at the list, which is the honest minimum, but not
+fixed: stripping a trailing `e` before matching would fix the class at the cost of real false
+positives (`create` → `creat` fires on "creature"). A stem list, or two entries for the verbs that
+matter, is the safe version.
 
 ### B4 · `asyncflow.session.*` directories accumulate in the repo root
 Eight of them at the time of writing. Gitignored, so harmless to the repo, but they make `ls` useless
@@ -133,7 +130,8 @@ lines, a wrapped one streams none.
 
 **The open question:** is `EXECUTION_BLOCK` *meant* to propagate context? If yes, bug. If no,
 flowgentic's node wrapping and LangGraph's streaming are mutually exclusive and that belongs in the
-README. Blocks **A5**.
+README. Until it is answered, `DESIGNAGENT_WRAP_NODES` has to ship `false` against the approved
+design (`config.py:37–40`), which is the deviation slide 17 of the code walk leads with.
 
 ### C3 · `RetryConfig` defaults cancel long work silently
 `timeout_sec=30.0`, `max_attempts=3` (`fault_tolerance.py:23–37`). Measured against this repo's own
@@ -160,17 +158,15 @@ refuses to start without a cert and key. Both are documentation fixes, not code.
 
 ## D — needs investigation
 
-### D1 · Why did the initializer run twice in one campaign?
-`classify_rules` (`coordinator.py:114–126`) should return `design` rather than `initialize` once
-`reference_design.sequence` is set, which would route the second prompt to the orchestrator. The
-reference campaign shows it running the full initializer twice anyway (see **B2**).
+### D1 · The LLM classifier path is unmeasured
+Everything known about routing comes from `classify_rules`: the reported session, the whole reference
+campaign and all 93 tests run with `llm: false`. When a key is present, `CLASSIFY_SYSTEM`
+(`coordinator.py`) decides instead and the rules are never consulted — so the phrasings just fixed in
+the rule path ("label the active site residues", "run another round") are unverified there.
 
-**Hypotheses, untested:** the second prompt named `1OIL` again and something upstream of the
-`has_reference` check won; or the turn arrived on a different `session_id` and loaded an empty
-checkpoint while reusing the campaign; or the orchestrator itself re-requested the reference.
-
-**How to settle it:** run two prompts in one session with the backend's log at DEBUG and watch the
-`intent` the coordinator emits on the second. Cheap, and it either closes B2 or redirects it.
+**How to settle it:** with `ANTHROPIC_API_KEY` set, send the same three turns used to verify the
+state fix and compare the `intent` on each against the rule path's answer. Any divergence is a prompt
+fix in `CLASSIFY_SYSTEM`, not a code change.
 
 ### D2 · ESM Atlas drops requests under concurrent load
 One of six round-2 folds came back with no structure (`s-tutp87hw-r2-5`). The campaign absorbed it

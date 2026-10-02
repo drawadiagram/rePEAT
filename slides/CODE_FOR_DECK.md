@@ -21,9 +21,9 @@ Priority: ★ must show · ○ show if time. ~20 lines is the legible maximum at
 | ID | Slide | Source | Lines | Fidelity | Pri |
 |---|---|---|---|---|---|
 | S4-A | 4 | `backend/designagent/graph/build.py:99–114` | 16 | VERBATIM | ★ |
-| S4-B | 4 | `backend/designagent/graph/nodes/coordinator.py:102–134` | 20 | TRIMMED | ★ |
-| S6-A | 6 | `backend/designagent/graph/state.py:160–188` | 20 | TRIMMED | ★ |
-| S6-B | 6 | `backend/designagent/graph/state.py:109–154` (reducers) | 16 | TRIMMED | ○ |
+| S4-B | 4 | `backend/designagent/graph/nodes/coordinator.py:93–125` | 20 | TRIMMED | ★ |
+| S6-A | 6 | `backend/designagent/graph/state.py:168–196` | 20 | TRIMMED | ★ |
+| S6-B | 6 | `backend/designagent/graph/state.py:117–162` (reducers) | 16 | TRIMMED | ○ |
 | S6-C | 6 | `tests/test_graph.py::test_structures_are_not_carried_in_state` | 12 | TRIMMED | ★ |
 | S7-A | 7 | `backend/designagent/graph/nodes/orchestrator.py:235–255` | 19 | TRIMMED | ★ |
 | S7-B | 7 | `backend/designagent/graph/nodes/orchestrator.py:271–287` | 17 | VERBATIM | ○ |
@@ -46,7 +46,7 @@ Priority: ★ must show · ○ show if time. ~20 lines is the legible maximum at
 | S13-A | 13 | `backend/designagent/lake/graph.py:24–51` (the schema) | 20 | TRIMMED | ★ |
 | S13-B | 13 | `backend/designagent/lake/store.py:87–118` | 18 | TRIMMED | ★ |
 | S14-A | 14 | `backend/designagent/graph/nodes/analyst.py:154–181` | 20 | TRIMMED | ★★ |
-| S14-B | 14 | `backend/designagent/graph/nodes/analyst.py:367–373` (`_rank_in_memory`) | 7 | VERBATIM | ★ |
+| S14-B | 14 | `backend/designagent/graph/nodes/analyst.py:371–377` (`_rank_in_memory`) | 7 | VERBATIM | ★ |
 | S15-A | 15 | `frontend/src/lib/api.ts:28–50` | 20 | TRIMMED | ○ |
 | S16-A | 16 | — (shell) | 6 | VERBATIM | ★ |
 | S17-A | 17 | `backend/designagent/config.py:37–40` | 4 | **VERBATIM** | ★★ |
@@ -169,7 +169,7 @@ incremental tailing against a real local endpoint.
 
 python -m designagent --reload          # :8000, needs the __main__ guard (ProcessPoolExecutor)
 cd frontend && npm install && npm run dev   # :5173, proxies /api
-pytest -q                               # 83 tests, offline
+pytest -q                               # 93 tests, offline
 pytest -q -m live                       # 6 tests against a real localhost broker + endpoint
 ```
 

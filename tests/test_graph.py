@@ -121,10 +121,21 @@ def _config(thread="t1"):
     return {"configurable": {"thread_id": thread}}
 
 
-async def _send(app, text, *, session="s1", thread="t1", state=None):
-    base = state or new_state(session)
-    base = {**base, "messages": [{"role": "user", "content": text}]}
-    return await app.ainvoke(base, config=_config(thread))
+async def _send(app, text, *, session="s1", thread="t1"):
+    """One turn, built exactly as `app.py` builds it.
+
+    This must not thread the previous turn's state back in: doing so hid a bug
+    where the real payload blanked every `replace`-reduced channel, so a session
+    lost its reference design on turn 2. The `app` fixture has a checkpointer —
+    continuity is its job, not the caller's.
+    """
+    payload = {
+        "messages": [{"role": "user", "content": text}],
+        "session_id": session,
+        "pending_results": {},
+        "status": "",
+    }
+    return await app.ainvoke(payload, config=_config(thread))
 
 
 # --- reducers --------------------------------------------------------------
@@ -178,6 +189,16 @@ def test_classify_rules_without_reference(text, expected):
         ("can you redesign it for stability", "design"),
         ("show me the structure", "visualize"),
         ("highlight the active site", "visualize"),
+        # Phrasings that used to fall through to chat.
+        ("label the active site residues in the visualization", "visualize"),
+        ("add labels to the catalytic residues", "visualize"),
+        ("zoom in on residue 147", "visualize"),
+        ("rotate it and show the surface", "visualize"),
+        ("run another round", "design"),
+        ("iterate on the lead", "design"),
+        # ...without swallowing the design request that mentions a residue.
+        ("mutate residue 42 to valine", "design"),
+        ("what happened in that run?", "chat"),
     ],
 )
 def test_classify_rules_questions_versus_requests(text, expected):
@@ -233,6 +254,21 @@ async def test_unidentifiable_target_reports_instead_of_crashing(app, stub_tools
     out = await _send(app, "redesign the flux capacitor protein")
     assert "could not identify" in out["messages"][-1].content.lower()
     assert not out.get("reference_design", {}).get("sequence")
+
+
+async def test_state_survives_into_the_next_turn(app, stub_tools):
+    """app.py used to spread a fresh new_state() into every turn, blanking this.
+
+    Every `replace`-reduced channel was overwritten with its empty default, so
+    the second prompt of a session saw no reference design: it answered "No
+    reference design is loaded yet" and re-ran the whole initializer.
+    """
+    await _send(app, "load PDB 1UBQ")
+    out = await _send(app, "what is loaded?")
+
+    assert out["reference_design"]["pdb_id"] == "1UBQ"
+    assert "No reference design" not in out["messages"][-1].content
+    assert stub_tools.count("pdb_lookup") == 1  # the initializer did not re-run
 
 
 # --- full design loop -----------------------------------------------------
@@ -305,10 +341,8 @@ async def test_docx_artifact_is_a_real_docx(app, stub_tools, deps):
 
 
 async def test_visualize_request_builds_a_spec(app, stub_tools, deps):
-    first = await _send(app, "load 1UBQ")
-    out = await _send(
-        app, "show me the structure", state=first, thread="t1"
-    )
+    await _send(app, "load 1UBQ")
+    out = await _send(app, "show me the structure")
     spec = out["molecular_visualization"]
     assert spec["structures"]
     assert spec["representation"] in ("cartoon", "ball-and-stick", "gaussian-surface")
@@ -318,10 +352,18 @@ async def test_visualize_request_builds_a_spec(app, stub_tools, deps):
 
 
 async def test_visualization_highlights_functional_residues(app, stub_tools):
-    first = await _send(app, "load 1UBQ")
-    out = await _send(app, "show the active site", state=first)
+    await _send(app, "load 1UBQ")
+    out = await _send(app, "show the active site")
     labels = {h["label"] for h in out["molecular_visualization"]["highlights"]}
     assert "Functional residues" in labels
+
+
+async def test_a_label_request_changes_the_view(app, stub_tools):
+    """The phrasing from the bug report: it used to classify as chat."""
+    await _send(app, "load PDB 1UBQ")
+    out = await _send(app, "label the active site residues in the visualization")
+    assert out["intent"] == "visualize"
+    assert out["molecular_visualization"]["highlights"]
 
 
 # --- failure handling -----------------------------------------------------

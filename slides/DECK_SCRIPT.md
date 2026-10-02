@@ -92,7 +92,7 @@ Browser, then FastAPI with a single SSE chat endpoint. Then the LangGraph graph,
 
 Then the three task interfaces. Then the substrate, which is flowgentic over asyncflow over a rhapsody concurrent backend on a four-worker process pool. Then remote: ORBIT solid-but-dotted, meaning it genuinely works and has only ever met a localhost broker; Globus dashed, meaning designed for and not implemented against anything live. Then the three lake tiers.
 
-Two things in the rail. The rule that nodes only ever reach through Deps is what makes 83 of the 89 tests run with no network and no pool. And the band that crosses into asyncflow is exactly one: the local task interface. Everything above it is ordinary async Python, which is deliberate — I wanted the middleware dependency confined to a layer I could swap or stub.
+Two things in the rail. The rule that nodes only ever reach through Deps is what makes 93 of the 99 tests run with no network and no pool. And the band that crosses into asyncflow is exactly one: the local task interface. Everything above it is ordinary async Python, which is deliberate — I wanted the middleware dependency confined to a layer I could swap or stub.
 
 ## 6. State — *1.2 min*
 
@@ -212,7 +212,7 @@ Last line: this was built without a browser available, so for a while the canvas
 
 [1:00] Three commands to run it, two to test it, and no configuration step that has to succeed first.
 
-The test split is the part I would defend. 83 of the 89 tests need no network, no process pool and no endpoint. That is a direct consequence of the rule from the architecture slide — nodes only reach the outside through Deps — so the suite hands them an in-process task manager and a temp-directory lake and the whole graph runs in under a second.
+The test split is the part I would defend. 93 of the 99 tests need no network, no process pool and no endpoint. That is a direct consequence of the rule from the architecture slide — nodes only reach the outside through Deps — so the suite hands them an in-process task manager and a temp-directory lake and the whole graph runs in under a second.
 
 The six that genuinely need a substrate are marked live and bring up their own broker and endpoint as subprocesses. They are not mocks of ORBIT; they are ORBIT, on localhost.
 

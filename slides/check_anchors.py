@@ -25,10 +25,10 @@ ROOT = Path(__file__).resolve().parent.parent
 ANCHORS: list[tuple[str, int, str]] = [
     # S4 — the loop
     ("backend/designagent/graph/build.py", 99, "destinations = {"),
-    ("backend/designagent/graph/nodes/coordinator.py", 102, "def classify_rules"),
+    ("backend/designagent/graph/nodes/coordinator.py", 93, "def classify_rules"),
     # S6 — state
-    ("backend/designagent/graph/state.py", 160, "class DesignState"),
-    ("backend/designagent/graph/state.py", 109, "def merge_artifacts"),
+    ("backend/designagent/graph/state.py", 168, "class DesignState"),
+    ("backend/designagent/graph/state.py", 117, "def merge_artifacts"),
     # S7 — the orchestrator's blob write
     ("backend/designagent/graph/nodes/orchestrator.py", 249,
      'summary["structure_path"] = deps.history.write_blob('),
@@ -65,7 +65,7 @@ ANCHORS: list[tuple[str, int, str]] = [
     # S14 — degradation
     ("backend/designagent/graph/nodes/analyst.py", 155,
      "# A storage failure must not lose"),
-    ("backend/designagent/graph/nodes/analyst.py", 367, "def _rank_in_memory"),
+    ("backend/designagent/graph/nodes/analyst.py", 371, "def _rank_in_memory"),
     # S15 — the frontend
     ("frontend/src/lib/api.ts", 30, 'let buffer = "";'),
     # S17 / B1 — the wrap_nodes deviation

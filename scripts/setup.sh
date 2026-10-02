@@ -5,7 +5,7 @@
 # local editable installs from refcodes/, and flowgentic pins radical-asyncflow
 # and academy-py to git URLs that fight the local checkouts. So it is installed
 # --no-deps, and this script is what encodes that. See pyproject.toml and
-# plans/BACKLOG.md B2.
+# "A fresh clone cannot be built" in plans/BACKLOG.md.
 #
 #   ./scripts/setup.sh            build .venv and verify it
 #   ./scripts/setup.sh --check    verify an existing .venv, install nothing
@@ -71,5 +71,5 @@ ok "graph builds"
 
 printf '\n  Environment is good.\n'
 printf '    .venv/bin/python -m designagent --reload   # :8000\n'
-printf '    .venv/bin/python -m pytest -q              # 83 offline tests\n'
+printf '    .venv/bin/python -m pytest -q              # 93 offline tests\n'
 printf '    .venv/bin/python -m pytest -q -m live      # 6 tests, starts a real broker\n\n'

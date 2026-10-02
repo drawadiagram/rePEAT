@@ -164,7 +164,7 @@ Eight bands, each with its entry symbol. Orange is RADICAL.
 | HISTORY | the three tiers behind one facade | `lake/store.py::DesignHistory` |
 
 **Draw the rule that is not an arrow:** a node never reaches an interface or a store directly, only
-through `Deps`. That is what makes 83 of 89 tests run with no network, no pool and no endpoint. State
+through `Deps`. That is what makes 93 of 99 tests run with no network, no pool and no endpoint. State
 it on the slide; this audience will check whether the claim is enforced or merely intended (it is
 convention here, not an `ast` check — say "convention" if asked).
 
@@ -279,7 +279,7 @@ bit. The canvas was confirmed rendering in a browser on 2026-10-01; it was an op
 because the deck was built without one. Say so — some of the room may have seen the earlier version.
 
 ### 16 — Running it (19:05–20:20) · `S16-A`
-Five commands. The test-tier table and the split that matters: 83 offline, 6 live. Mention the two
+Five commands. The test-tier table and the split that matters: 93 offline, 6 live. Mention the two
 real classifier bugs the 18 parametrized cases caught — *"what is the lead design?"* classified as a
 design request, *"make it more stable"* classified as chat — because they argue for the rule-based
 path being visible rather than masked by an LLM.
@@ -334,7 +334,7 @@ credentials in `~/.radical/orbit`, which a test must not create).
 python3 slides/run_model.py          # regenerate run.json from data/lake
 python3 slides/make_script.py        # regenerate DECK_SCRIPT.md from the deck's notes
 NODE_PATH=<dir with pptxgenjs> node slides/build_deck.js
-pytest -q                            # 83 pass; the deck must not have touched the code
+pytest -q                            # 93 pass; the deck must not have touched the code
 ```
 
 Then re-derive the code anchors. `CODE_FOR_DECK.md` carries the per-snippet first-line matcher, and

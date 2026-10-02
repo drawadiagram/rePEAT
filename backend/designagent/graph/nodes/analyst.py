@@ -15,7 +15,7 @@ from langgraph.types import Command
 from ...tasks.base import TaskSpec
 from ...tools.scoring import mutations_between
 from ..deps import Deps, status
-from ..state import DesignState
+from ..state import DesignState, last_user_text
 
 log = logging.getLogger(__name__)
 
@@ -255,7 +255,10 @@ async def _make_visualization(
                 TaskSpec(
                     name="generate_visualization",
                     params={
-                        "prompt": prompt or state.get("goal", ""),
+                        # The turn's own words before the campaign goal: on a
+                        # "label the active site" turn the goal is still the
+                        # design objective, which says nothing about the view.
+                        "prompt": prompt or last_user_text(state) or state.get("goal", ""),
                         "reference": reference,
                         "lead": lead,
                         "key_metric": state.get("key_metric") or {},
@@ -319,8 +322,9 @@ async def _visualize_only(
         )
 
     status("Building the visualization…", node="analyst")
+    # No explicit prompt: _make_visualization reads the turn's own words.
     visualization = await _make_visualization(
-        deps, state, lead, session_id, campaign_id, prompt=state.get("goal", "")
+        deps, state, lead, session_id, campaign_id
     )
     if not visualization:
         return Command(

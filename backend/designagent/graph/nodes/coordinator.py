@@ -17,7 +17,7 @@ from ...llm import complete, complete_json
 from ...tools.pdb import find_pdb_ids
 from ...tools.uniprot import find_accessions
 from ..deps import Deps, status
-from ..state import DesignState
+from ..state import DesignState, last_user_text
 
 log = logging.getLogger(__name__)
 
@@ -54,11 +54,22 @@ ACTION_WORDS = (
     "stabilise", "engineer", "fold", "predict", "propose", "generate", "sample",
     "increase", "decrease", "raise", "lower", "maximize", "minimise",
     "minimize", "maximise", "make", "build", "create", "load", "fetch",
+    # Asking for more of the same work. Bare "run" is deliberately absent: the
+    # is_question branch below requires `not wants_action`, so it would turn
+    # "what happened in that run?" into a redesign request. "run another round"
+    # is caught by `round` in DESIGN_NOUNS instead.
+    "rerun", "continue", "iterate",
 )
-DESIGN_NOUNS = ("design", "variant", "mutant", "mutation", "redesign")
+# Note on all three lists: _has_word matches a leading word boundary only, so
+# an entry is a prefix. "fold" covers "folding", but "optimize" does not cover
+# "optimizing" — the -ing form drops the final e. Add the form that matters.
+DESIGN_NOUNS = ("design", "variant", "mutant", "mutation", "redesign", "round")
+# What a request to change the view looks like. "residue" is deliberately
+# absent: "mutate residue 42" is a design request, not a view change.
 VIZ_WORDS = (
     "show", "visualize", "visualise", "render", "view", "display", "highlight",
-    "color", "colour",
+    "color", "colour", "label", "annotate", "zoom", "focus", "rotate", "spin",
+    "hide", "select", "cartoon", "surface", "sticks",
 )
 SUMMARY_WORDS = (
     "summary", "summarize", "summarise", "report", "write up", "writeup",
@@ -77,26 +88,6 @@ MUTATION_RE = re.compile(r"\b([ACDEFGHIKLMNPQRSTVWY]\d{1,4}[ACDEFGHIKLMNPQRSTVWY
 def _has_word(text: str, words: tuple[str, ...]) -> bool:
     """Whole-word match, so "design" does not fire on "designed by"."""
     return any(re.search(rf"\b{re.escape(word)}", text) for word in words)
-
-
-def _last_user_text(state: DesignState) -> str:
-    for message in reversed(state.get("messages") or []):
-        role = getattr(message, "type", None) or (
-            message.get("role") if isinstance(message, dict) else None
-        )
-        if role in ("human", "user"):
-            content = getattr(message, "content", None)
-            if content is None and isinstance(message, dict):
-                content = message.get("content")
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                return " ".join(
-                    block.get("text", "")
-                    for block in content
-                    if isinstance(block, dict)
-                )
-    return ""
 
 
 def classify_rules(text: str, state: DesignState) -> dict[str, Any]:
@@ -215,7 +206,7 @@ def describe_state(state: DesignState) -> str:
 
 def make_coordinator(deps: Deps):
     async def coordinator(state: DesignState) -> Command:
-        text = _last_user_text(state)
+        text = last_user_text(state)
         status("Reading your request…", node="coordinator")
 
         decision: dict[str, Any] | None = None
@@ -234,11 +225,19 @@ def make_coordinator(deps: Deps):
             intent = "chat"
 
         has_reference = bool((state.get("reference_design") or {}).get("sequence"))
-        # A design or visualization request with nothing loaded has to bootstrap
-        # first, otherwise there is nothing to work on.
-        if intent in ("design", "visualize") and not has_reference:
-            if decision.get("pdb_id") or decision.get("uniprot_id") or text:
-                intent = "initialize"
+        # A request with nothing loaded has to bootstrap first, but the two
+        # intents want different treatment: a design prompt names its target in
+        # prose the initializer can search ("redesign a thermostable lipase"),
+        # while a view request names nothing to look up, so searching RCSB for
+        # "label the active site residues" only produces a confusing answer.
+        if intent == "design" and not has_reference:
+            intent = "initialize"
+        elif intent == "visualize" and not has_reference:
+            intent = (
+                "initialize"
+                if (decision.get("pdb_id") or decision.get("uniprot_id"))
+                else "chat"
+            )
 
         update: dict[str, Any] = {"intent": intent}
         goal = (decision.get("goal") or "").strip()
