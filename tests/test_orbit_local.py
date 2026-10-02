@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-
 from designagent.tasks.base import TaskSpec, TaskState
 from designagent.tasks.hpc.base import drain_logs
 

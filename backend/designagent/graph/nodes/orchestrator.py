@@ -161,7 +161,7 @@ def make_orchestrator(deps: Deps):
         if plan and any(
             t.get("task") == "run_chemgraph" for t in (plan.get("tasks") or [])
         ):
-            ligands = [l.get("comp_id") for l in (reference.get("ligands") or [])]
+            ligands = [lig.get("comp_id") for lig in (reference.get("ligands") or [])]
             work.append(
                 _item("run_chemgraph", "local", {
                     "task": (
@@ -238,7 +238,10 @@ def make_orchestrator(deps: Deps):
         for record in fold_records:
             result = record.get("result") if isinstance(record.get("result"), dict) else {}
             summary: dict[str, Any] = {
-                "design_id": (result.get("design_id") or (record.get("params") or {}).get("design_id")),
+                "design_id": (
+                    result.get("design_id")
+                    or (record.get("params") or {}).get("design_id")
+                ),
                 "ok": bool(record.get("ok")) and not result.get("error"),
                 "error": record.get("error") or result.get("error", ""),
                 "metrics": result.get("metrics") or {},
@@ -364,7 +367,7 @@ def _plan_context(state: DesignState, round_no: int, sequence: str) -> str:
                 "name": reference.get("name"),
                 "length": reference.get("length"),
                 "organism": reference.get("organism"),
-                "ligands": [l.get("comp_id") for l in (reference.get("ligands") or [])],
+                "ligands": [lig.get("comp_id") for lig in (reference.get("ligands") or [])],
                 "functional_features": [
                     {"type": f.get("type"), "start": f.get("start")}
                     for f in (reference.get("features") or [])[:15]

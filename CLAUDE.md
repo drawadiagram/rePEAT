@@ -35,10 +35,15 @@ cd frontend && npm run build                    # tsc -b && vite build
 .venv/bin/ruff check backend tests              # E/F/I, line-length 100
 ```
 
-`ruff` is in the `dev` extra but was absent from the working venv for a while, so the lint command
-had never been run: it currently reports **34 findings** (16 unused imports, 8 long lines, 7 unsorted
-import blocks, 3 ambiguous names). All trivial, none fixed yet, because fixing them shifts line
-numbers that the deck's 31 anchors cite. See `plans/BACKLOG.md`.
+**The lint is clean and should stay that way** — `E,F,I` at line-length 100, pinned in
+`pyproject.toml` so the rule set does not drift with the ruff version. Two places not to "fix": the
+long line in `molviz_agent.py`'s `SYSTEM` prompt is reflowed rather than `noqa`'d, because a comment
+inside a triple-quoted string becomes part of the prompt; and `except Exception:` in the degradation
+paths is deliberate, which is why `BLE` is not enabled. Whether to widen to `B,UP` is an open
+question with a measurement in `plans/BACKLOG.md`.
+
+Changing backend code moves line numbers the deck cites, so run `slides/check_anchors.py` after any
+edit — see Slides below.
 
 `addopts = "-m 'not live'"` in `pyproject.toml` deselects the 6 live tests by default, because they
 start a real broker. `-m live` on the command line overrides it; naming the file alone does not, and
@@ -148,7 +153,7 @@ reproduce.
 `slides/` holds a code-walk deck built from real data. If you change backend code that a slide cites:
 
 ```bash
-.venv/bin/python slides/check_anchors.py        # 31 cited line numbers, re-derived
+.venv/bin/python slides/check_anchors.py        # 36 cited line numbers, re-derived
 .venv/bin/python slides/run_model.py            # regenerate run.json from data/lake
 .venv/bin/python slides/make_script.py          # regenerate DECK_SCRIPT.md from the deck's notes
 NODE_PATH=<dir with pptxgenjs> node slides/build_deck.js

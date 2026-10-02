@@ -56,23 +56,27 @@ of those packages, and right now nothing records which.
 **Options:** git submodules pinned to a SHA; or a `refcodes/VERSIONS.md` recording each package's
 commit; or vendoring the three into the repo. The middle one is cheap and would do.
 
-### B2 · The lint command had never been run
-`ruff` is declared in the `dev` extra but was missing from the working venv, so `ruff check` had
-never been run against this code. With the rule set now pinned to `E,F,I` it reports **34 findings**:
-16 unused imports (F401), 8 lines over 100 (E501), 7 unsorted import blocks (I001), 3 ambiguous
-variable names (E741, all `l`). Every one is trivial and 23 are auto-fixable.
+### B2 · Is `E,F,I` the right lint baseline?
+`ruff check backend tests` is clean at `E,F,I` and that is what `pyproject.toml` pins. The open
+question is whether to widen it. Measured now that the baseline is clean, `E,F,I,B,UP` reports **29**:
 
-Not fixed yet for a specific reason: removing an import or wrapping a line shifts every line below
-it, and the deck cites **31 source line numbers** across 14 of these files. The cleanup and the
-anchor update have to land together.
+| Rule | n | What it is |
+|---|---|---|
+| UP035 | 11 | `typing.Iterable`/`Dict` etc. — deprecated, belongs in `collections.abc` |
+| B905 | 8 | `zip()` without `strict=` |
+| UP017 | 5 | `datetime.timezone.utc` → `datetime.UTC` |
+| UP034/37/41/42 | 4 | one each: extra parens, quoted annotation, `TimeoutError` alias, `NamedTuple` → class |
+| B017 | 1 | a test asserting on bare `Exception` |
 
-**How to do it:** `ruff check backend tests --fix`, hand-fix the 11 remaining E501/E741, then
-`pytest -q`, then `slides/check_anchors.py` and correct every anchor it reports moved — in both
-`slides/CODE_FOR_DECK.md` and the `anchor:` labels in `slides/build_deck.js`.
+All 29 are mechanical and most are auto-fixable. **Correcting an earlier claim in this file:** the
+old version of this entry said the extra findings were "mostly `B` (blind `except Exception:`)" and
+would need per-site `noqa`. That was wrong — blind `except` is `BLE001`, in the `BLE` set, which is
+not enabled by `B`. There is no conflict with the deliberate `except Exception:` in the degradation
+paths, so the argument against widening was based on a misreading.
 
-**Also worth deciding:** whether `E,F,I` is the right baseline. `E,F,I,B,UP` reports 67, and the
-extra 31 are mostly `B` (blind `except Exception:`) which this codebase uses deliberately in the
-degradation paths — so that set would need per-site `noqa`, which is probably not worth it.
+**What it costs:** `UP035` and `UP017` touch imports and `datetime` calls across many files, which
+moves line numbers the deck's 36 anchors cite — so, as with the cleanup itself, the widening and an
+anchor pass have to land together (see **M1**).
 
 ### B3 · The classifier's keyword lists miss `-ing` forms
 `_has_word` (`coordinator.py`) matches a leading word boundary only, so each entry acts as a prefix.
@@ -182,7 +186,7 @@ would answer it.
 
 ## Maintenance
 
-### M1 · The deck cites 31 source line numbers
+### M1 · The deck cites 36 source line numbers
 Any backend refactor can drift them. `slides/check_anchors.py` re-derives every one and reports where
 a moved line actually is; run it before presenting and after any significant edit. `run.json` and
 `DECK_SCRIPT.md` are generated — see `CLAUDE.md`.

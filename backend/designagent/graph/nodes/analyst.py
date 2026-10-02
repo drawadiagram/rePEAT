@@ -154,7 +154,10 @@ def make_analyst(deps: Deps):
         # --- persist to the lake (tiers 1 and 2) ---
         # A storage failure must not lose the user's round: the designs are
         # already in state, so we log, warn, and carry on.
-        reference_id = f"ref:{reference.get('pdb_id') or reference.get('uniprot_id') or campaign_id}"
+        reference_key = (
+            reference.get("pdb_id") or reference.get("uniprot_id") or campaign_id
+        )
+        reference_id = f"ref:{reference_key}"
         storage_error = ""
         for design in designs:
             try:

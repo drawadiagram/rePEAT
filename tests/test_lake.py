@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from designagent.config import Settings
 from designagent.lake.golden import CurationRules
 from designagent.lake.store import DesignHistory
@@ -137,7 +136,12 @@ def test_golden_require_structure_filters(lake):
     rules = CurationRules(metric="plddt", require_structure=True)
     designs = [
         {"design_id": "a", "sequence": "AA", "metrics": {"plddt": 90.0}},
-        {"design_id": "b", "sequence": "BB", "metrics": {"plddt": 80.0}, "structure_path": "/x.pdb"},
+        {
+            "design_id": "b",
+            "sequence": "BB",
+            "metrics": {"plddt": 80.0},
+            "structure_path": "/x.pdb",
+        },
     ]
     assert [d["design_id"] for d in lake.golden.curate(designs, rules)] == ["b"]
 

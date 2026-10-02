@@ -6,16 +6,14 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-
 from designagent.config import Settings
 from designagent.lake.store import DesignHistory
-from designagent.tasks.base import Capabilities, LogChunk, TaskSpec, TaskState, normalize_state
+from designagent.tasks.base import TaskSpec, TaskState, normalize_state
 from designagent.tasks.hpc.globus import GlobusComputeInterface
 from designagent.tasks.hpc.orbit import to_psij_spec
 from designagent.tasks.local import LocalTaskInterface, QueryTaskInterface
 from designagent.tasks.manager import TaskManager
 from designagent.tasks.registry import CATALOG
-
 
 # --- state normalization ---------------------------------------------------
 

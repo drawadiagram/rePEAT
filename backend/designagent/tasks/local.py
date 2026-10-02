@@ -16,11 +16,9 @@ from typing import Any, Callable
 
 from .base import (
     Capabilities,
-    LogChunk,
     TaskHandle,
     TaskInterface,
     TaskSpec,
-    TaskState,
 )
 from .registry import CATALOG
 

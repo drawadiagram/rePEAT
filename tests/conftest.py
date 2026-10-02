@@ -8,7 +8,6 @@ the `live` marker and are deselected by default.
 from __future__ import annotations
 
 import pytest
-
 from designagent.artifacts.store import ArtifactStore
 from designagent.config import Settings
 from designagent.graph.deps import Deps

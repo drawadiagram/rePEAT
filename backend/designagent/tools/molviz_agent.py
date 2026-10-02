@@ -224,7 +224,8 @@ request, choose what the viewer should emphasize.
 
 Return JSON with these keys:
   title: short string
-  representation: one of cartoon, ball-and-stick, gaussian-surface, molecular-surface, spacefill, putty, backbone
+  representation: one of cartoon, ball-and-stick, gaussian-surface,
+    molecular-surface, spacefill, putty, backbone
   highlights: array of {chain, residues (array of integers), color (#rrggbb), label, representation}
   focus: {chain, residues: [one integer]} or null
   caption: one sentence explaining what is shown
@@ -264,7 +265,7 @@ async def generate_visualization(
                 {"type": f.get("type"), "start": f.get("start"), "end": f.get("end")}
                 for f in (reference.get("features") or [])[:20]
             ],
-            "ligands": [l.get("comp_id") for l in (reference.get("ligands") or [])[:8]],
+            "ligands": [lig.get("comp_id") for lig in (reference.get("ligands") or [])[:8]],
         },
         "lead_design": {
             "design_id": lead.get("design_id"),

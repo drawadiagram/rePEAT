@@ -8,7 +8,6 @@ a tier 3 golden set when the round produced anything worth training on.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from langgraph.types import Command
 
@@ -277,7 +276,11 @@ def _context(state: DesignState, related: list[dict], report: dict) -> str:
                 "length": reference.get("length"),
                 "function": (reference.get("function") or "")[:500],
                 "literature": [
-                    {"title": r.get("title"), "year": r.get("year"), "relevance": r.get("relevance")}
+                    {
+                        "title": r.get("title"),
+                        "year": r.get("year"),
+                        "relevance": r.get("relevance"),
+                    }
                     for r in (reference.get("literature") or [])[:5]
                 ],
             },

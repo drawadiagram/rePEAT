@@ -9,13 +9,13 @@ from __future__ import annotations
 import json
 
 import pytest
-from fastapi.testclient import TestClient
-from langgraph.checkpoint.memory import InMemorySaver
-
 from designagent import app as app_module
 from designagent.graph.build import build_graph
 from designagent.runtime import Runtime
 from designagent.tasks.registry import CATALOG, TaskDef
+from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import InMemorySaver
+
 from tests.test_graph import PDB_TEXT, REF_SEQ  # reuse the fake protein world
 
 

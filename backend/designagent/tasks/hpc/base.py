@@ -19,11 +19,8 @@ from abc import abstractmethod
 from typing import Any
 
 from ..base import (
-    Capabilities,
-    LogChunk,
     TaskHandle,
     TaskInterface,
-    TaskSpec,
     TaskState,
 )
 
@@ -57,7 +54,13 @@ class RemoteWorkflowInterface(TaskInterface):
     def get(self, task_id: str) -> TaskHandle | None:
         return self._handles.get(task_id)
 
-    def _settle(self, handle: TaskHandle, state: TaskState, result: Any = None, error: str = "") -> None:
+    def _settle(
+        self,
+        handle: TaskHandle,
+        state: TaskState,
+        result: Any = None,
+        error: str = "",
+    ) -> None:
         """Resolve a handle's future exactly once from a status update."""
         handle.state = state
         if error:

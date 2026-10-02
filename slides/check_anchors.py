@@ -30,9 +30,9 @@ ANCHORS: list[tuple[str, int, str]] = [
     ("backend/designagent/graph/state.py", 168, "class DesignState"),
     ("backend/designagent/graph/state.py", 117, "def merge_artifacts"),
     # S7 — the orchestrator's blob write
-    ("backend/designagent/graph/nodes/orchestrator.py", 249,
+    ("backend/designagent/graph/nodes/orchestrator.py", 252,
      'summary["structure_path"] = deps.history.write_blob('),
-    ("backend/designagent/graph/nodes/orchestrator.py", 271, "return Command("),
+    ("backend/designagent/graph/nodes/orchestrator.py", 274, "return Command("),
     # S8 — the task contract
     ("backend/designagent/tasks/base.py", 22, "class TaskState"),
     ("backend/designagent/tasks/base.py", 62, "@dataclass(frozen=True)"),
@@ -42,7 +42,7 @@ ANCHORS: list[tuple[str, int, str]] = [
     ("backend/designagent/tasks/manager.py", 99, "try:"),
     # S9 — the substrate
     ("backend/designagent/runtime.py", 76, "retry = RetryConfig("),
-    ("backend/designagent/tasks/local.py", 60, "async def submit"),
+    ("backend/designagent/tasks/local.py", 58, "async def submit"),
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 73,
      "# Try to include aiohttp timeouts if present"),
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 23,
@@ -53,7 +53,7 @@ ANCHORS: list[tuple[str, int, str]] = [
      "# The terminal event carries state and exit_code but not"),
     ("backend/designagent/tasks/hpc/orbit.py", 353,
      "if state is TaskState.FAILED and not error:"),
-    ("backend/designagent/tasks/hpc/base.py", 75, "async def drain_logs"),
+    ("backend/designagent/tasks/hpc/base.py", 78, "async def drain_logs"),
     # S11 — Globus
     ("backend/designagent/tasks/hpc/globus.py", 31, "capabilities = Capabilities("),
     ("backend/designagent/tasks/hpc/globus.py", 90, "def _submit_shell"),
@@ -65,7 +65,7 @@ ANCHORS: list[tuple[str, int, str]] = [
     # S14 — degradation
     ("backend/designagent/graph/nodes/analyst.py", 155,
      "# A storage failure must not lose"),
-    ("backend/designagent/graph/nodes/analyst.py", 371, "def _rank_in_memory"),
+    ("backend/designagent/graph/nodes/analyst.py", 374, "def _rank_in_memory"),
     # S15 — the frontend
     ("frontend/src/lib/api.ts", 30, 'let buffer = "";'),
     # S17 / B1 — the wrap_nodes deviation
@@ -73,7 +73,16 @@ ANCHORS: list[tuple[str, int, str]] = [
      "# Route node bodies through flowgentic's EXECUTION_BLOCK"),
     ("backend/designagent/graph/build.py", 51, "def wrap_node"),
     # B2 — the local Orbit stack
-    ("backend/designagent/tasks/hpc/local_orbit.py", 194, "async def _wait_for_endpoint"),
+    ("backend/designagent/tasks/hpc/local_orbit.py", 193, "async def _wait_for_endpoint"),
+    # Cited in slide body text rather than in a code block's anchor label. These
+    # were untracked until an edit to app.py shifted one of them by a line, which
+    # nothing caught — a citation is a citation wherever it appears on the slide.
+    ("backend/designagent/app.py", 77, "def _frame"),
+    ("backend/designagent/tasks/base.py", 146, "async def submit"),
+    ("backend/designagent/runtime.py", 172, 'notes.append(f"Using in-memory checkpoints'),
+    ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 71, "except Exception:"),
+    ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 75,
+     "import aiohttp"),
 ]
 
 

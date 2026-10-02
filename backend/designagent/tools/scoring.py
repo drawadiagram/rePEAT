@@ -7,10 +7,9 @@ Structure parsing uses Biopython, which is already a dependency.
 from __future__ import annotations
 
 import logging
-import math
 from io import StringIO
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -142,9 +141,7 @@ def rmsd_between(
     text_a: str, text_b: str, fmt_a: str = "pdb", fmt_b: str = "pdb"
 ) -> dict[str, float] | None:
     """Superimpose on shared CA positions and return RMSD in angstroms."""
-    import numpy as np
     from Bio.PDB import Superimposer
-    from Bio.PDB.Atom import Atom
 
     try:
         a = ca_coords(text_a, fmt_a)

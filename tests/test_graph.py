@@ -7,12 +7,11 @@ registry, which is also how the task layer is meant to be substituted.
 from __future__ import annotations
 
 import pytest
-from langgraph.checkpoint.memory import InMemorySaver
-
 from designagent.graph.build import build_graph
 from designagent.graph.nodes.coordinator import classify_rules, describe_state
 from designagent.graph.state import merge_artifacts, merge_worklist, new_state
 from designagent.tasks.registry import CATALOG, TaskDef
+from langgraph.checkpoint.memory import InMemorySaver
 
 # --- a tiny fake protein world --------------------------------------------
 
@@ -298,7 +297,8 @@ async def test_design_loop_produces_lead_ensemble_and_artifacts(app, stub_tools,
     # every design reached tier 1 and tier 2
     designs = deps.history.graph.designs_in_campaign("s1")
     assert len(designs) == len(ensemble)
-    assert deps.history.scores.scores_for_design(lead["design_id"])["plddt"] == lead["metrics"]["plddt"]
+    stored = deps.history.scores.scores_for_design(lead["design_id"])
+    assert stored["plddt"] == lead["metrics"]["plddt"]
 
     # tier 3 golden set was staged
     assert deps.history.golden.list_sets()[0]["n_rows"] >= 1

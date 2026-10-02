@@ -269,9 +269,9 @@ So treat the science as a demo and the plumbing as the deliverable. The plumbing
   const rows = [
     ["Tasks return futures, never results", "Every interface's submit() places the work and returns a handle. Nothing in the graph awaits a task at submission time.", "tasks/base.py:146"],
     ["Task duration is not the interface's business", "The same handle covers a 40 ms REST call and a queued batch job. Only the capability flags differ.", "tasks/base.py:62"],
-    ["Status is a stream, not a return value", "Nodes emit progress over LangGraph's custom channel; the manager fans task events onto the same SSE stream.", "graph/deps.py · app.py:78"],
-    ["State holds references, not payloads", "Coordinates go to a content-addressed blob and travel as a path, because every checkpoint is serialized.", "orchestrator.py:249"],
-    ["Every layer has a floor", "No key, no endpoint, no graph DB: each degrades to something that still answers, and says so.", "runtime.py · analyst.py:154"],
+    ["Status is a stream, not a return value", "Nodes emit progress over LangGraph's custom channel; the manager fans task events onto the same SSE stream.", "graph/deps.py · app.py:77"],
+    ["State holds references, not payloads", "Coordinates go to a content-addressed blob and travel as a path, because every checkpoint is serialized.", "orchestrator.py:252"],
+    ["Every layer has a floor", "No key, no endpoint, no graph DB: each degrades to something that still answers, and says so.", "runtime.py · analyst.py:155"],
   ];
   const cw = [3.45, 6.6, 2.28];
   const tbl = [["consequence", "what it means in the code", "where"].map(h => ({ text: h,
@@ -501,7 +501,7 @@ Two things in the rail. The rule that nodes only ever reach through Deps is what
   code(s, [
     'summary["structure_path"] = deps.history.write_blob(',
     '    structure, suffix=".pdb", prefix=summary["design_id"])',
-  ], M + 7.3, 3.15, 5.53, 0.6, { anchor: "orchestrator.py:249–253  ·  TRIMMED", fs: 10 });
+  ], M + 7.3, 3.15, 5.53, 0.6, { anchor: "orchestrator.py:252–256  ·  TRIMMED", fs: 10 });
   code(s, [
     'def test_structures_are_not_carried_in_state(...):',
     '    blob = json.dumps(jsonable(out), default=str)',
@@ -727,7 +727,7 @@ The state enum normalizes across vocabularies, because ORBIT and PSI/J each have
     '    # function, not a future factory.',
     '    future = asyncio.ensure_future(_call(fn, spec))',
     '    return self._handle(spec, future)',
-  ], M, 4.6, 6.1, 1.25, { anchor: "tasks/local.py:60–65  ·  VERBATIM", fs: 10 });
+  ], M, 4.6, 6.1, 1.25, { anchor: "tasks/local.py:58–63  ·  VERBATIM", fs: 10 });
 
   card(s, M + 6.4, 2.55, 6.43, 1.3, "Three constraints the pool imposes", [
     "Task bodies live at module level in tools/ — no closures over clients, or they will not pickle.",
@@ -1071,7 +1071,7 @@ The bottom line is a small thing I only noticed when building this deck: only ti
     '...',
     'if storage_error:',
     '    update["warnings"] = [f"Design History write failed: {storage_error}"]',
-  ], M, 4.15, 7.6, 1.8, { anchor: "graph/nodes/analyst.py:155–219  ·  TRIMMED", fs: 10 });
+  ], M, 4.15, 7.6, 1.8, { anchor: "graph/nodes/analyst.py:155–222  ·  TRIMMED", fs: 10 });
 
   card(s, M + 7.9, 4.15, 4.93, 0.95, "How the user finds out", [
     "The interpreter appends a \"Caveats from this run\" section to its reply, from the warnings channel.",

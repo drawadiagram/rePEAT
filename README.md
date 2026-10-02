@@ -176,7 +176,7 @@ drawn from a real campaign rather than a mock-up: `run_model.py` mines
 `data/lake` into `run.json`, which the builder reads.
 
 ```bash
-.venv/bin/python slides/check_anchors.py   # re-derive the 31 cited line numbers
+.venv/bin/python slides/check_anchors.py   # re-derive the 36 cited line numbers
 .venv/bin/python slides/run_model.py       # regenerate run.json from data/lake
 .venv/bin/python slides/make_script.py     # regenerate DECK_SCRIPT.md from the deck's notes
 NODE_PATH=<dir with pptxgenjs> node slides/build_deck.js

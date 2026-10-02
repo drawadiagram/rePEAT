@@ -50,8 +50,8 @@ async def fold_esmatlas(sequence: str) -> dict[str, Any]:
 async def fold_local(sequence: str) -> dict[str, Any]:
     """Fold with a locally installed ESMFold. Heavy; only if torch+esm present."""
     try:
-        import torch  # noqa: F401
         import esm  # noqa: F401
+        import torch  # noqa: F401
     except ImportError as exc:
         return {"error": f"local ESMFold unavailable: {exc}"}
 

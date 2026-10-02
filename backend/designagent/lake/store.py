@@ -247,8 +247,14 @@ class DesignHistory:
             designs = self.graph.designs_in_campaign(campaign_id)
             # graph properties carry metrics; make sure tier 2 wins where present
             designs = [
-                {**d, "metrics": {**(d.get("metrics") or {}), **self.scores.scores_for_design(d["design_id"])},
-                 "campaign_id": campaign_id}
+                {
+                    **d,
+                    "metrics": {
+                        **(d.get("metrics") or {}),
+                        **self.scores.scores_for_design(d["design_id"]),
+                    },
+                    "campaign_id": campaign_id,
+                }
                 for d in designs
             ]
         return self.golden.stage(
