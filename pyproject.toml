@@ -76,3 +76,9 @@ addopts = "-m 'not live'"
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+# Pinned explicitly: with only `line-length` set, the rule set came from ruff's
+# own defaults and drifted with the version (0.16 enabled 415 rules here, which
+# is not a baseline anyone chose). E/F/I is the set this project is held to.
+select = ["E", "F", "I"]

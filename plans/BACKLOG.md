@@ -70,19 +70,37 @@ t.submitted_at` against `data/lake/graph`.
 routing probably fixes this; a lookup cache in `tools/` would fix it regardless and is worth having
 anyway, since RCSB and UniProt answers are stable.
 
-### B3 · `asyncflow.session.*` directories accumulate in the repo root
+### B3 · The lint command had never been run
+`ruff` is declared in the `dev` extra but was missing from the working venv, so `ruff check` had
+never been run against this code. With the rule set now pinned to `E,F,I` it reports **36 findings**:
+16 unused imports (F401), 8 lines over 100 (E501), 7 unsorted import blocks (I001), 3 ambiguous
+variable names (E741, all `l`). Every one is trivial and 23 are auto-fixable.
+
+Not fixed yet for a specific reason: removing an import or wrapping a line shifts every line below
+it, and the deck cites **31 source line numbers** across 14 of these files. The cleanup and the
+anchor update have to land together.
+
+**How to do it:** `ruff check backend tests --fix`, hand-fix the 11 remaining E501/E741, then
+`pytest -q`, then `slides/check_anchors.py` and correct every anchor it reports moved — in both
+`slides/CODE_FOR_DECK.md` and the `anchor:` labels in `slides/build_deck.js`.
+
+**Also worth deciding:** whether `E,F,I` is the right baseline. `E,F,I,B,UP` reports 67, and the
+extra 31 are mostly `B` (blind `except Exception:`) which this codebase uses deliberately in the
+degradation paths — so that set would need per-site `noqa`, which is probably not worth it.
+
+### B4 · `asyncflow.session.*` directories accumulate in the repo root
 Eight of them at the time of writing. Gitignored, so harmless to the repo, but they make `ls` useless
 and they are never cleaned up. They come from `WorkflowEngine` and are created per run.
 
 **Fix:** point asyncflow at `data/flow/` the way `config.yml` already points its other outputs, if
 the engine supports it; otherwise clean them in `Runtime.aclose()`.
 
-### B4 · Nothing prunes `data/`
+### B5 · Nothing prunes `data/`
 Blobs are content-addressed, so duplicates are free, but nothing ever removes them — the reference
 campaign alone is 5.1 MB across 24 files. Checkpoints, artifacts and the Kuzu WAL grow the same way.
 Fine for development, wrong for anything long-lived.
 
-### B5 · Tier 1 cannot be read while the server is running
+### B6 · Tier 1 cannot be read while the server is running
 Kuzu takes an exclusive file lock. Any out-of-process reader has to copy the database aside first
 (`slides/run_model.py` does). Tiers 2 and 3 are a plain SQLite file and Parquet and read fine in
 place.

@@ -31,9 +31,14 @@ cd frontend && npm run build                    # tsc -b && vite build
 
 .venv/bin/python -m pytest -q                   # 83 offline tests, no network
 .venv/bin/python -m pytest -q -m live           # 6 live tests; starts a real broker
-.venv/bin/python -m pytest tests/test_graph.py::test_full_redesign_loop -q   # one test
-.venv/bin/ruff check backend tests              # line-length 100
+.venv/bin/python -m pytest tests/test_graph.py::test_design_loop_produces_lead_ensemble_and_artifacts -q
+.venv/bin/ruff check backend tests              # E/F/I, line-length 100
 ```
+
+`ruff` is in the `dev` extra but was absent from the working venv for a while, so the lint command
+had never been run: it currently reports **36 findings** (16 unused imports, 8 long lines, 7 unsorted
+import blocks, 3 ambiguous names). All trivial, none fixed yet, because fixing them shifts line
+numbers that the deck's 31 anchors cite. See `plans/BACKLOG.md`.
 
 `addopts = "-m 'not live'"` in `pyproject.toml` deselects the 6 live tests by default, because they
 start a real broker. `-m live` on the command line overrides it; naming the file alone does not, and
