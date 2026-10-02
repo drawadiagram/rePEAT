@@ -62,17 +62,24 @@ where = ["backend"]
 #
 # A previous [tool.uv.sources] block listed all three while none was a declared
 # dependency, so `uv sync` resolved cleanly and silently produced an environment
-# that died at `import flowgentic`. See plans/BACKLOG.md B2.
+# that died at `import flowgentic`. See "A fresh clone cannot be built" in
+# plans/BACKLOG.md (numbering there is not stable; refer by title).
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
-markers = ["live: needs a real substrate (starts an Orbit broker + endpoint)"]
-# The live tier is opt-in: without this, a bare `pytest` spawns a broker and runs
-# ~25s longer, which is not what anyone wants from the default command. Run it
-# with `pytest -m live`. See plans/BACKLOG.md B3.
-addopts = "-m 'not live'"
+markers = [
+    "live: needs a real substrate (starts an Orbit broker + endpoint)",
+    "remote: submits to a real HPC endpoint (credentials from the environment)",
+    "llm: calls Anthropic with a real key (costs money)",
+]
+# Each extra tier is opt-in, and each is excluded separately rather than lumped
+# together: `-m live` must not drag in a tier that spends money or needs an
+# allocation. Without this a bare `pytest` spawns a broker and runs ~25s longer,
+# which is not what anyone wants from the default command. Run a tier by name:
+# `pytest -m live`, `pytest -m remote`, `pytest -m llm`.
+addopts = "-m 'not live and not remote and not llm'"
 
 [tool.ruff]
 line-length = 100

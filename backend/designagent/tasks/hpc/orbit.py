@@ -27,11 +27,31 @@ log = logging.getLogger(__name__)
 TERMINAL = {"DONE", "FAILED", "CANCELED", "CANCELLED", "COMPLETED"}
 
 
+# Our resource vocabulary → PSI/J's `ResourceSpecV1` keyword arguments. The
+# names differ, and an unknown one is not ignored: the endpoint answers
+# `HTTP 500 — ResourceSpecV1.__init__() got an unexpected keyword argument
+# 'processes'`, which is how this was found. Passing the dict through verbatim
+# meant every batch job failed at submission.
+PSIJ_RESOURCE_KEYS = {
+    "node_count": "node_count",
+    "processes": "process_count",
+    "process_count": "process_count",
+    "processes_per_node": "processes_per_node",
+    "cpus": "cpu_cores_per_process",
+    "cpu_cores_per_process": "cpu_cores_per_process",
+    "gpus": "gpu_cores_per_process",
+    "gpu_cores_per_process": "gpu_cores_per_process",
+    "exclusive_node_use": "exclusive_node_use",
+    "memory": "memory",
+}
+
+
 def to_psij_spec(spec: dict[str, Any]) -> dict[str, Any]:
     """Translate our generic job spec into a PSI/J job spec.
 
-    PSI/J puts scheduler concerns under `attributes` and wants `duration` as a
-    string, which our tool modules should not have to know.
+    PSI/J puts scheduler concerns under `attributes`, wants `duration` as a
+    string, and names its resource fields differently from us — none of which our
+    tool modules should have to know.
     """
     resources = spec.get("resources") or {}
     attributes: dict[str, Any] = {
@@ -47,9 +67,9 @@ def to_psij_spec(spec: dict[str, Any]) -> dict[str, Any]:
         "arguments": [str(a) for a in spec.get("arguments", [])],
         "attributes": attributes,
     }
-    for key in ("node_count", "processes", "processes_per_node", "gpus"):
+    for key, psij_key in PSIJ_RESOURCE_KEYS.items():
         if key in resources:
-            out.setdefault("resources", {})[key] = resources[key]
+            out.setdefault("resources", {})[psij_key] = resources[key]
     if spec.get("environment"):
         out["environment"] = spec["environment"]
     if spec.get("directory"):
@@ -100,6 +120,11 @@ class OrbitInterface(RemoteWorkflowInterface):
     @property
     def connected(self) -> bool:
         return self._rt is not None and bool(self._endpoint)
+
+    @property
+    def endpoint_name(self) -> str:
+        """The endpoint actually resolved, which the hint only narrowed down."""
+        return self._endpoint
 
     async def connect(self) -> None:
         """Start the runtime, find an endpoint, and open plugin sessions."""

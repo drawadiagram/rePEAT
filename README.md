@@ -81,16 +81,32 @@ because the two HPC backends genuinely differ. With no HPC endpoint configured,
 
 ### Remote HPC
 
-Orbit is implemented first. For development, `tasks/hpc/local_orbit.py` brings up
-a localhost `--no-auth` broker plus an endpoint (rhapsody on `concurrent`, PSI/J
-on `local`), so the real client path is exercised with no allocation:
+Orbit is implemented first. Against a real broker:
 
 ```bash
-DESIGNAGENT_ORBIT_ENABLED=true RADICAL_ORBIT_BROKER_URL=http://127.0.0.1:8000 ...
+DESIGNAGENT_ORBIT_ENABLED=true \
+RADICAL_ORBIT_BROKER_URL=https://broker.site:8443 \
+RADICAL_ORBIT_BROKER_CERT=/path/broker_cert.pem \
+RADICAL_ORBIT_BROKER_TOKEN=... \
+DESIGNAGENT_ORBIT_PSIJ_EXECUTOR=slurm DESIGNAGENT_ORBIT_ACCOUNT=... \
+.venv/bin/python -m designagent
 ```
 
+For development, `DESIGNAGENT_ORBIT_LOCAL=true` has the server bring up a
+localhost broker plus an endpoint itself (`tasks/hpc/local_orbit.py`: rhapsody on
+`concurrent`, PSI/J on `local`), so the real client path is exercised with no
+allocation. That broker runs `--no-auth`, which disables *ingress auth only* — it
+still serves TLS and will not start without a cert and key, which the stack
+generates.
+
+The HPC path carries a real job spec: `_job_params` (`graph/nodes/orchestrator.py`)
+fills in the executable from the tool module and the allocation from settings, and
+`to_psij_spec` renames our resource vocabulary to PSI/J's. Without that, a
+submission is `/bin/true` — or, with the wrong field names, an HTTP 500.
+
 The Globus adapter implements the same ABC and takes an injectable
-`executor_factory`, so it is testable offline.
+`executor_factory`, so it is testable offline. It has never met a live endpoint,
+and `globus-compute-sdk` is not installed.
 
 ## Design History (tiered data lake)
 
@@ -107,15 +123,36 @@ summary's caveats.
 
 ## Configuration
 
-Everything is an env var (prefix `DESIGNAGENT_`, see `.env.example`). The ones
-that change behaviour most:
+Settings come from env vars (prefix `DESIGNAGENT_`, see `.env.example`), and can
+also be supplied **to a running server** — from the Settings panel in the UI, or
+`PUT /api/settings`. Those are held in memory and are not written anywhere, so a
+restart returns to `.env`; `GET /api/settings` says which source each value came
+from. Precedence is: values set in the running app, then the environment, then
+`.env` (resolved against the CWD), then the defaults in `config.py`.
+
+```bash
+python -m designagent --check-config            # what is in effect, secrets masked
+python -m designagent --check-config --probe    # ...and does each credential work
+```
+
+The ones that change behaviour most:
 
 - `ANTHROPIC_API_KEY` — enables LLM reasoning
 - `DESIGNAGENT_FOLD_BACKEND` — `esmatlas` (public API, ≤400 aa), `local`, or `hpc`
 - `DESIGNAGENT_POOL_WORKERS` — process-pool size
 - `DESIGNAGENT_MAX_ROUNDS` — redesign rounds before summarizing
-- `DESIGNAGENT_ORBIT_ENABLED` + `RADICAL_ORBIT_*` — remote HPC
+- `DESIGNAGENT_ORBIT_ENABLED` + `RADICAL_ORBIT_*` — remote HPC, with
+  `DESIGNAGENT_ORBIT_PSIJ_EXECUTOR` / `_ACCOUNT` / `_QUEUE` for the site
+- `DESIGNAGENT_ORBIT_LOCAL` — start a localhost broker + endpoint at startup
+- `DESIGNAGENT_ADMIN_TOKEN` — required to change settings over HTTP when the
+  server is not bound to loopback
 - `DESIGNAGENT_WRAP_NODES` — see the note below
+
+A credential is never rendered in full: responses carry presence, source and a
+masked hint, and a log filter scrubs live secret values from records this code
+did not write. Nothing refuses to start — a missing or rejected credential shows
+up in `/api/health`, is badged in the UI, and makes the turn say in its reply
+that it fell back.
 
 ### Optional extras
 
@@ -151,8 +188,10 @@ lose custom-event streaming.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q            # 93 tests, offline; stubs replace every tool
+.venv/bin/python -m pytest -q            # 114 tests, offline; stubs replace every tool
 .venv/bin/python -m pytest -q -m live    # 6 tests; starts a real Orbit broker + endpoint
+.venv/bin/python -m pytest -q -m remote  # 5 tests; submits to a real HPC endpoint
+.venv/bin/python -m pytest -q -m llm     # 4 tests; calls Anthropic with a real key
 ```
 
 The offline tier covers the lake tiers, task routing and capabilities,
@@ -163,10 +202,17 @@ nodes reach the outside only through `Deps`.
 
 The 6 tests marked `live` bring up a localhost Orbit broker and endpoint as
 subprocesses and exercise the real client path — push states, incremental log
-tailing by byte offset, a failing job, cancelling a running one. They are
-deselected by default (`addopts` in `pyproject.toml`) because they start real
-processes; `-m live` is the only thing that selects them, so naming the file
-alone collects nothing.
+tailing by byte offset, a failing job, cancelling a running one.
+
+`remote` and `llm` are the two validation tiers, each excluded separately so that
+`-m live` cannot drag in one that needs an allocation or spends money. `remote`
+reads its broker and scheduler from the environment and submits trivial jobs, so
+the same assertions rehearse against `DESIGNAGENT_ORBIT_LOCAL=true` before a real
+endpoint; `llm` replays the classifier table through the LLM path and reports
+where it disagrees with the rules, and checks that the session summary really came
+from the model. All three tiers are deselected by default (`addopts` in
+`pyproject.toml`), and a marker is the only thing that selects them — naming the
+file alone collects nothing.
 
 ## Slides
 
@@ -176,7 +222,7 @@ drawn from a real campaign rather than a mock-up: `run_model.py` mines
 `data/lake` into `run.json`, which the builder reads.
 
 ```bash
-.venv/bin/python slides/check_anchors.py   # re-derive the 36 cited line numbers
+.venv/bin/python slides/check_anchors.py   # re-derive the 39 cited line numbers
 .venv/bin/python slides/run_model.py       # regenerate run.json from data/lake
 .venv/bin/python slides/make_script.py     # regenerate DECK_SCRIPT.md from the deck's notes
 NODE_PATH=<dir with pptxgenjs> node slides/build_deck.js

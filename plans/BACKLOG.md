@@ -8,7 +8,7 @@ Convention: **A** = correctness or honesty of a claim · **B** = developer exper
 **C** = upstream, in the middleware rather than here · **D** = known-unknown, needs investigation
 before it can be sized.
 
-Status as of 2026-10-01. Numbering is not stable across commits — entries are deleted
+Status as of 2026-10-02. Numbering is not stable across commits — entries are deleted
 when fixed and the rest close up, so refer to issues by their title in commit messages.
 
 ---
@@ -24,6 +24,15 @@ cancellation — and says nothing about a scheduler, a queue, staging, or an all
 `hpc` upgrades from "the client works" to "the path works" the moment that lands, and several entries
 below collapse into it.
 
+**Unblocked.** `tests/test_hpc_remote.py` (`-m remote`) is that submission: it reads the broker,
+cert, token, endpoint and scheduler from settings, so pointing it at a real endpoint is configuration
+rather than code. All 5 pass against `DESIGNAGENT_ORBIT_LOCAL=true` as a rehearsal. Two things the
+rehearsal already found and fixed, both of which would have burned a queue slot to discover:
+PSI/J names its resource fields differently from us and answers **HTTP 500** rather than ignoring an
+unexpected one (`PSIJ_RESOURCE_KEYS` in `orbit.py` now maps them), and the manager's 900 s
+`task_timeout_sec` is shorter than a job's walltime, so a queued job was failed before the scheduler
+started it (`_batch_timeout`).
+
 ### A2 · The Globus adapter has never met a live endpoint
 `tasks/hpc/globus.py` implements the ABC and is tested with an injected executor
 (`tests/test_tasks.py::test_globus_interface_runs_with_injected_executor`), which proves the shape
@@ -32,6 +41,11 @@ Globus Compute, not from observation.
 
 **Risk if ignored:** the flags may be wrong in a direction that matters —
 `supports_cancel=False` is conservative, but `supports_staging=False` may be too pessimistic.
+
+Now reachable from configuration (`DESIGNAGENT_GLOBUS_ENABLED` + `_ENDPOINT_ID`, constructed in
+`runtime._make_globus`), but still unproven, and `globus-compute-sdk` is **not installed** — so
+enabling it reports why it could not start rather than connecting. Credentials come from the SDK's own
+login, not from our settings; if that turns out to need plumbing, it is a new entry.
 
 ### A3 · `proteinmpnn` is a heuristic proposer unless an endpoint is attached
 With no `hpc` interface, `interface_for` falls back to `propose_variants`, which produces
@@ -75,7 +89,7 @@ not enabled by `B`. There is no conflict with the deliberate `except Exception:`
 paths, so the argument against widening was based on a misreading.
 
 **What it costs:** `UP035` and `UP017` touch imports and `datetime` calls across many files, which
-moves line numbers the deck's 36 anchors cite — so, as with the cleanup itself, the widening and an
+moves line numbers the deck's 39 anchors cite — so, as with the cleanup itself, the widening and an
 anchor pass have to land together (see **M1**).
 
 ### B3 · The classifier's keyword lists miss `-ing` forms
@@ -101,7 +115,16 @@ Blobs are content-addressed, so duplicates are free, but nothing ever removes th
 campaign alone is 5.1 MB across 24 files. Checkpoints, artifacts and the Kuzu WAL grow the same way.
 Fine for development, wrong for anything long-lived.
 
-### B6 · Tier 1 cannot be read while the server is running
+### B6 · Runtime settings are not persisted
+`PUT /api/settings` and the Settings panel hold values in memory only: a restart returns to `.env`,
+and `GET /api/settings` reports the source so nothing is hidden. That was deliberate — a secrets file
+is a second source of truth and a new thing to leak — but it means a credential typed into the UI has
+to be typed again after a restart, or copied into `.env` by hand.
+
+**If it becomes annoying:** write the override layer to `data/overrides.json` at 0600 and load it
+below the environment, or offer an "append to .env" action. Not until someone actually wants it.
+
+### B7 · Tier 1 cannot be read while the server is running
 Kuzu takes an exclusive file lock. Any out-of-process reader has to copy the database aside first
 (`slides/run_model.py` does). Tiers 2 and 3 are a plain SQLite file and Parquet and read fine in
 place.
@@ -144,15 +167,25 @@ round. Reasonable for a service call, wrong for the agent tasks flowgentic exist
 
 ### C4 · Orbit's terminal task event omits stdout
 A completed rhapsody task resolves with an empty result until `get_task` is called a second time.
-Worked around in `orbit.py:290` `_finish_task_enriched`. This and C5 both produce a *silent wrong
+Worked around in `orbit.py:315` `_finish_task_enriched`. This and C5 both produce a *silent wrong
 answer* rather than an error, which is what makes them the two worth fixing first.
 
 ### C5 · A FAILED Orbit job carries no reason
-Only a non-zero exit code reaches the client. `orbit.py:353–357` synthesises an explanation from the
+Only a non-zero exit code reaches the client. `orbit.py:376–382` synthesises an explanation from the
 exit code, then stderr, then the log tail, so the user sees something — but the real reason never
 left the endpoint.
 
-### C6 · Broker documentation gaps
+### C6 · PSI/J spec fields are dropped in transit
+`to_psij_spec` (`orbit.py`) does not forward `stdin_text` or `outputs`, and neither does the broker's
+`plugin_psij.py`. `fold_job_spec` (`esmfold.py`) relies on `stdin_text` to feed a sequence without
+hitting argv limits, and both job specs declare `outputs` for staging. Reproduce by submitting
+`fold_job_spec(...)` through `hpc` and watching the remote command read an empty stdin.
+
+**Consequence now:** a job spec must carry its inputs on the command line, which is why
+`mpnn_job_spec` passes a path and `fold_job_spec` is not yet used on a real endpoint. Either the
+client should inline stdin into the command (`printf … | cmd`) or the plugin should carry the field.
+
+### C7 · Broker documentation gaps
 Two afternoon-sized traps: there is no HTTP topology route (`/topology` is read as a plugin name and
 404s after a 307, so readiness must come from the client's `rt.topology()`, which propagates
 asynchronously); and `--no-auth` disables *ingress auth only* — the broker still serves TLS and
@@ -164,13 +197,20 @@ refuses to start without a cert and key. Both are documentation fixes, not code.
 
 ### D1 · The LLM classifier path is unmeasured
 Everything known about routing comes from `classify_rules`: the reported session, the whole reference
-campaign and all 93 tests run with `llm: false`. When a key is present, `CLASSIFY_SYSTEM`
-(`coordinator.py`) decides instead and the rules are never consulted — so the phrasings just fixed in
-the rule path ("label the active site residues", "run another round") are unverified there.
+campaign and all 114 offline tests run with `llm: false`. When a key is present, `CLASSIFY_SYSTEM`
+(`coordinator.py`) decides instead and the rules are never consulted — so the phrasings fixed in the
+rule path ("label the active site residues", "run another round") are unverified there.
 
-**How to settle it:** with `ANTHROPIC_API_KEY` set, send the same three turns used to verify the
-state fix and compare the `intent` on each against the rule path's answer. Any divergence is a prompt
-fix in `CLASSIFY_SYSTEM`, not a code change.
+**Unblocked, not answered.** `tests/test_llm_live.py::test_llm_routing_matches_the_rule_table`
+(`-m llm`) replays the two tables in `test_graph.py` — `CASES_WITHOUT_REFERENCE` and
+`CASES_WITH_REFERENCE`, 26 phrasings — through `CLASSIFY_SYSTEM` and prints every divergence. It
+reports rather than fails, because the fix for a divergence is a prompt change and a red test would
+make the tier useless for finding them. **Still needs a key and one run.**
+
+Already found while wiring that tier, with a key present: `build_llm` passed `temperature=0.0`, which
+`claude-sonnet-5-5` rejects outright — so *every* LLM call failed and fell back to rules. Invisible
+with no key, because the call never happened. Fixed in `llm.py`; the lesson is that an unmeasured path
+is not a working path.
 
 ### D2 · ESM Atlas drops requests under concurrent load
 One of six round-2 folds came back with no structure (`s-tutp87hw-r2-5`). The campaign absorbed it
@@ -186,7 +226,9 @@ would answer it.
 
 ## Maintenance
 
-### M1 · The deck cites 36 source line numbers
+### M1 · The deck cites 39 source line numbers
 Any backend refactor can drift them. `slides/check_anchors.py` re-derives every one and reports where
-a moved line actually is; run it before presenting and after any significant edit. `run.json` and
+a moved line actually is; run it before presenting and after any significant edit. The table is not
+self-maintaining: three citations in `CODE_FOR_DECK.md` had no anchor and drifted unnoticed until the
+deck was scanned for every `file:line` it prints. When adding a citation, add the anchor. `run.json` and
 `DECK_SCRIPT.md` are generated — see `CLAUDE.md`.

@@ -277,6 +277,15 @@ async def generate_visualization(
 
     import json
 
-    proposed = await complete_json(SYSTEM, json.dumps(context, default=str))
+    # Runs in a pool worker, so `complete_json` resolves the key from the settings
+    # the worker was handed at fork (runtime.py). `llm_error` travels back with the
+    # spec because the worker cannot reach the node's warnings channel itself.
+    reasons: list[str] = []
+    proposed = await complete_json(
+        SYSTEM, json.dumps(context, default=str), on_fallback=reasons.append
+    )
     spec = sanitize_spec(proposed, fallback=fallback)
-    return {"spec": spec, "llm_used": proposed is not None}
+    from ..llm import NO_KEY
+
+    error = next((r for r in reasons if r != NO_KEY), "")
+    return {"spec": spec, "llm_used": proposed is not None, "llm_error": error}

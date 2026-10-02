@@ -14,7 +14,7 @@ from langgraph.types import Command
 from ...artifacts.render import summary_docx, summary_markdown
 from ...lake.golden import CurationRules
 from ...llm import complete
-from ..deps import Deps, status
+from ..deps import Deps, llm_caveat, status
 from ..state import DesignState
 
 log = logging.getLogger(__name__)
@@ -64,16 +64,19 @@ def make_interpreter(deps: Deps):
 
         # --- the narrative ---
         summary_text = ""
+        caveats: list[str] = []
         if deps.settings.llm_available:
             summary_text = (
                 await complete(
                     SUMMARY_SYSTEM,
                     _context(state, related, report),
                     settings=deps.settings,
+                    on_fallback=llm_caveat(deps, caveats),
                     max_tokens=1200,
                 )
                 or ""
             )
+        summary_source = "llm" if summary_text else "rules"
         if not summary_text:
             summary_text = _rule_based_summary(
                 goal, reference, key_metric, lead, ensemble, related, tasks
@@ -160,8 +163,10 @@ def make_interpreter(deps: Deps):
             except Exception as exc:
                 log.warning("staging a golden set failed: %s", exc)
 
-        # Non-fatal problems are told to the user, not just logged.
-        warnings = list(state.get("warnings") or [])
+        # Non-fatal problems are told to the user, not just logged. `caveats` is
+        # this node's own: a summary that silently came from rules because the key
+        # was rejected would otherwise look like a normal answer.
+        warnings = list(state.get("warnings") or []) + caveats
         reply = summary_text
         if warnings:
             reply += "\n\n**Caveats from this run:**\n" + "\n".join(
@@ -172,9 +177,11 @@ def make_interpreter(deps: Deps):
             goto="__end__",
             update={
                 "design_summary": summary_text,
+                "summary_source": summary_source,
                 "artifacts": artifacts,
                 "messages": [{"role": "assistant", "content": reply}],
                 "status": "",
+                **({"warnings": caveats} if caveats else {}),
             },
         )
 

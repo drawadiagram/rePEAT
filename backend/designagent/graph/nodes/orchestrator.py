@@ -16,8 +16,9 @@ from langgraph.types import Command
 from ...llm import complete_json
 from ...tasks.base import TaskSpec
 from ...tasks.registry import describe
-from ...tools.esmfold import ESMATLAS_MAX_LEN
-from ..deps import Deps, status
+from ...tools.esmfold import ESMATLAS_MAX_LEN, fold_job_spec
+from ...tools.proteinmpnn import mpnn_job_spec
+from ..deps import Deps, llm_caveat, status
 from ..state import DesignState
 
 log = logging.getLogger(__name__)
@@ -107,11 +108,13 @@ def make_orchestrator(deps: Deps):
 
         # --- decide the metric and the plan ---
         plan: dict[str, Any] | None = None
+        caveats: list[str] = []
         if deps.settings.llm_available:
             plan = await complete_json(
                 PLAN_SYSTEM + "\n\nCatalog:\n" + describe({"local", "query", "hpc"}),
                 _plan_context(state, round_no, parent_sequence),
                 settings=deps.settings,
+                on_fallback=llm_caveat(deps, caveats),
                 max_tokens=900,
             )
 
@@ -147,15 +150,26 @@ def make_orchestrator(deps: Deps):
             hints = reference.get("literature_mutations") or []
             use_hpc = deps.tasks.hpc_available
             task_name = "proteinmpnn" if use_hpc else "propose_variants"
-            work.append(
-                _item(task_name, "hpc" if use_hpc else "local", {
-                    "sequence": parent_sequence,
-                    "n": n_variants,
-                    "suggested_mutations": hints,
-                    "seed": round_no,
-                    "structure_path": reference.get("structure_path", ""),
-                })
-            )
+            params = {
+                "sequence": parent_sequence,
+                "n": n_variants,
+                "suggested_mutations": hints,
+                "seed": round_no,
+                "structure_path": reference.get("structure_path", ""),
+            }
+            if use_hpc:
+                # Without this the remote interface submits `to_psij_spec({})`,
+                # which is `/bin/true` — a job that succeeds and does nothing.
+                params.update(
+                    _job_params(
+                        deps,
+                        mpnn_job_spec(
+                            reference.get("structure_path", ""),
+                            num_sequences=n_variants,
+                        ),
+                    )
+                )
+            work.append(_item(task_name, "hpc" if use_hpc else "local", params))
 
         # ChemGraph only when the goal is actually about chemistry.
         if plan and any(
@@ -186,7 +200,7 @@ def make_orchestrator(deps: Deps):
             specs,
             session_id=session_id,
             campaign_id=campaign_id,
-            timeout=deps.settings.task_timeout_sec,
+            timeout=_batch_timeout(deps, specs),
         )
 
         # --- fold every candidate produced ---
@@ -210,15 +224,20 @@ def make_orchestrator(deps: Deps):
         for i, variant in enumerate(variants):
             design_id = f"{campaign_id}-r{round_no}-{i + 1}"
             variant["design_id"] = design_id
+            params = {
+                "sequence": variant["sequence"],
+                "design_id": design_id,
+                "backend": fold_backend,
+                "_interface": "hpc" if fold_backend == "hpc" else "local",
+            }
+            if fold_backend == "hpc":
+                params.update(
+                    _job_params(deps, fold_job_spec(variant["sequence"], name=design_id))
+                )
             fold_specs.append(
                 TaskSpec(
                     name="fold_sequence",
-                    params={
-                        "sequence": variant["sequence"],
-                        "design_id": design_id,
-                        "backend": fold_backend,
-                        "_interface": "hpc" if fold_backend == "hpc" else "local",
-                    },
+                    params=params,
                     label=f"fold {design_id}",
                     kind="job" if fold_backend == "hpc" else "function",
                 )
@@ -229,7 +248,7 @@ def make_orchestrator(deps: Deps):
             fold_specs,
             session_id=session_id,
             campaign_id=campaign_id,
-            timeout=deps.settings.task_timeout_sec,
+            timeout=_batch_timeout(deps, fold_specs),
         )
 
         # Coordinates go to a blob here, not into state: a checkpoint carrying
@@ -286,6 +305,7 @@ def make_orchestrator(deps: Deps):
                     "parent_id": parent.get("design_id"),
                 },
                 "status": f"Round {round_no}: scoring {len(variants)} candidate(s)",
+                **({"warnings": caveats} if caveats else {}),
             },
         )
 
@@ -293,6 +313,36 @@ def make_orchestrator(deps: Deps):
 
 
 # --- helpers ---------------------------------------------------------------
+
+
+def _job_params(deps: Deps, job_spec: dict[str, Any]) -> dict[str, Any]:
+    """Carry a job spec and the site's scheduler details to a remote interface.
+
+    `OrbitInterface._submit_job` reads `job_spec` and `executor` out of the spec's
+    params; everything in `job_spec` that the site decides — the allocation, the
+    queue, the walltime — comes from settings rather than from the tool module,
+    which cannot know them.
+    """
+    settings = deps.settings
+    spec = {**job_spec, "duration_sec": settings.orbit_job_duration_sec}
+    if settings.orbit_account:
+        spec["account"] = settings.orbit_account
+    if settings.orbit_queue:
+        spec["queue"] = settings.orbit_queue
+    return {"job_spec": spec, "executor": settings.orbit_psij_executor}
+
+
+def _batch_timeout(deps: Deps, specs: list[TaskSpec]) -> float | None:
+    """The manager's ceiling for a batch, widened when it contains a real job.
+
+    `task_timeout_sec` defaults to 900 s, which is shorter than a job's own
+    walltime: a queued job would be failed by us before the scheduler had started
+    it. A queued job is not a late job.
+    """
+    base = deps.settings.task_timeout_sec
+    if base is None or not any(spec.kind == "job" for spec in specs):
+        return base
+    return max(base, deps.settings.orbit_job_duration_sec + 300)
 
 
 def _fold_backend(deps: Deps, variants: list[dict]) -> str:

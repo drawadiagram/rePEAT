@@ -1,4 +1,12 @@
-import type { AgentState, ArtifactRef, Frame, TaskChip } from "./types";
+import type {
+  AgentState,
+  ArtifactRef,
+  Frame,
+  ProbeResult,
+  SettingsApplied,
+  SettingsView,
+  TaskChip,
+} from "./types";
 
 /**
  * POST a prompt and yield SSE frames as they arrive.
@@ -61,6 +69,57 @@ export async function fetchSession(
 export async function fetchHealth(): Promise<Record<string, unknown>> {
   const response = await fetch("/api/health");
   return response.ok ? response.json() : {};
+}
+
+/**
+ * Settings. Values go out, never come back: a GET returns presence, source and a
+ * masked hint, so a field left untouched in the panel must be sent as `undefined`
+ * rather than as the hint it displayed.
+ *
+ * `admin` is the shared secret the server demands when it is not on loopback.
+ */
+export async function fetchSettings(): Promise<SettingsView | null> {
+  const response = await fetch("/api/settings");
+  return response.ok ? response.json() : null;
+}
+
+function adminHeaders(admin?: string): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (admin) headers["X-Designagent-Admin"] = admin;
+  return headers;
+}
+
+export async function saveSettings(
+  values: Record<string, unknown>,
+  options: { force?: boolean; admin?: string } = {},
+): Promise<{ ok: boolean; status: number; body: SettingsApplied | { detail?: string } }> {
+  const response = await fetch("/api/settings", {
+    method: "PUT",
+    headers: adminHeaders(options.admin),
+    body: JSON.stringify({ ...values, force: options.force ?? false }),
+  });
+  return { ok: response.ok, status: response.status, body: await response.json() };
+}
+
+export async function testSettings(
+  values: Record<string, unknown>,
+  admin?: string,
+): Promise<Record<string, ProbeResult>> {
+  const response = await fetch("/api/settings/test", {
+    method: "POST",
+    headers: adminHeaders(admin),
+    body: JSON.stringify(values),
+  });
+  if (!response.ok) return {};
+  return (await response.json()).probes ?? {};
+}
+
+export async function clearSettings(admin?: string): Promise<boolean> {
+  const response = await fetch("/api/settings", {
+    method: "DELETE",
+    headers: adminHeaders(admin),
+  });
+  return response.ok;
 }
 
 export async function fetchArtifactText(url: string): Promise<string> {

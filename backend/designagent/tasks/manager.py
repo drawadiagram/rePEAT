@@ -91,6 +91,18 @@ class TaskManager:
         iface = self.interfaces.get("hpc")
         return iface is not None and getattr(iface, "connected", True)
 
+    def attach_hpc(self, interface: TaskInterface) -> None:
+        """Register a remote interface on a running manager.
+
+        Used when HPC credentials arrive after startup: routing reads
+        `self.interfaces` on every submission, so nothing else has to be rebuilt.
+        Closing the interface it replaces is the caller's job.
+        """
+        self.interfaces["hpc"] = interface
+
+    def detach_hpc(self) -> None:
+        self.interfaces.pop("hpc", None)
+
     # --- submission ---------------------------------------------------
     async def submit(
         self, spec: TaskSpec, *, session_id: str = "", campaign_id: str = ""

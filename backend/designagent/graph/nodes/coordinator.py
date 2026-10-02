@@ -16,7 +16,7 @@ from langgraph.types import Command
 from ...llm import complete, complete_json
 from ...tools.pdb import find_pdb_ids
 from ...tools.uniprot import find_accessions
-from ..deps import Deps, status
+from ..deps import Deps, llm_caveat, status
 from ..state import DesignState, last_user_text
 
 log = logging.getLogger(__name__)
@@ -210,11 +210,13 @@ def make_coordinator(deps: Deps):
         status("Reading your request…", node="coordinator")
 
         decision: dict[str, Any] | None = None
+        caveats: list[str] = []
         if deps.settings.llm_available and text:
             decision = await complete_json(
                 CLASSIFY_SYSTEM,
                 f"Session state:\n{state_digest(state)}\n\nUser message:\n{text}",
                 settings=deps.settings,
+                on_fallback=llm_caveat(deps, caveats),
                 max_tokens=600,
             )
         if not decision or "intent" not in decision:
@@ -266,12 +268,15 @@ def make_coordinator(deps: Deps):
                     ANSWER_SYSTEM,
                     f"Session state:\n{state_digest(state)}\n\nUser message:\n{text}",
                     settings=deps.settings,
+                    on_fallback=llm_caveat(deps, caveats),
                     max_tokens=900,
                 )
             if not answer:
                 answer = describe_state(state)
             update["messages"] = [{"role": "assistant", "content": answer}]
             update["status"] = ""
+            if caveats:
+                update["warnings"] = caveats
             return Command(goto="__end__", update=update)
 
         goto = {
@@ -281,6 +286,8 @@ def make_coordinator(deps: Deps):
             "summarize": "interpreter",
         }[intent]
         update["status"] = f"Planning: {intent}"
+        if caveats:
+            update["warnings"] = caveats
         return Command(goto=goto, update=update)
 
     return coordinator

@@ -3,6 +3,7 @@ import ArtifactPane from "./artifacts/ArtifactPane";
 import ChatPane from "./chat/ChatPane";
 import { fetchHealth, fetchSession, streamChat } from "./lib/api";
 import type { AgentState, ChatMessage, Frame, TaskChip } from "./lib/types";
+import SettingsPanel from "./settings/SettingsPanel";
 
 const SESSION_KEY = "designagent.session";
 
@@ -23,6 +24,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [paneOpen, setPaneOpen] = useState(true);
   const [health, setHealth] = useState<Record<string, any>>({});
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const abort = useRef<AbortController | null>(null);
 
   // Restore the session on load, so a refresh keeps the conversation.
@@ -138,11 +140,25 @@ export default function App() {
             <span className="badge">round {state.round}</span>
           )}
           {health.llm === false && (
-            <span className="badge warn" title="Set ANTHROPIC_API_KEY for LLM reasoning">
+            <button
+              className="badge warn badge-button"
+              title="No API key: every node is using its rule-based path. Click to add one."
+              onClick={() => setSettingsOpen(true)}
+            >
               rule-based mode
-            </span>
+            </button>
           )}
-          {health.hpc && <span className="badge ok">HPC</span>}
+          {health.hpc ? (
+            <span className="badge ok">HPC</span>
+          ) : (
+            <button
+              className="badge badge-button"
+              title="No HPC endpoint: tasks marked hpc run their local equivalents. Click to configure one."
+              onClick={() => setSettingsOpen(true)}
+            >
+              local only
+            </button>
+          )}
         </span>
         <span className="actions">
           {hasArtifacts && !paneOpen && (
@@ -150,11 +166,21 @@ export default function App() {
               Show panel
             </button>
           )}
+          <button className="link" onClick={() => setSettingsOpen(true)}>
+            Settings
+          </button>
           <button className="link" onClick={newSession}>
             New session
           </button>
         </span>
       </header>
+
+      {settingsOpen && (
+        <SettingsPanel
+          onClose={() => setSettingsOpen(false)}
+          onChanged={() => void fetchHealth().then(setHealth)}
+        />
+      )}
 
       <main className="panes">
         <ChatPane

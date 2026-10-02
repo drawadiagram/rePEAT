@@ -7,6 +7,7 @@ test can build a graph against a temp data dir and fake interfaces.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,10 +25,38 @@ class Deps:
     tasks: TaskManager
     history: DesignHistory
     artifacts: ArtifactStore
+    # Why the last LLM call degraded to rules, for /api/health. Lives here rather
+    # than on the Runtime because nodes only ever see Deps.
+    last_llm_error: str = ""
 
     def campaign_id(self, state: dict) -> str:
         """One campaign per chat session, so history groups naturally."""
         return state.get("session_id") or "default"
+
+    def note_llm_fallback(self, reason: str) -> None:
+        """Record a fallback reason. Having no key at all is not an error."""
+        from ..llm import NO_KEY
+
+        self.last_llm_error = "" if reason == NO_KEY else reason
+
+
+def llm_caveat(deps: Deps, sink: list[str]) -> Callable[[str], None]:
+    """Collector for `llm.complete(on_fallback=...)`.
+
+    Records the reason for `/api/health` and, when something is actually
+    misconfigured, pushes a line onto `sink` for the node's `warnings` update —
+    which the interpreter renders as "Caveats from this run". Running with no key
+    is the documented offline mode and says nothing.
+    """
+
+    def record(reason: str) -> None:
+        from ..llm import NO_KEY
+
+        deps.note_llm_fallback(reason)
+        if reason != NO_KEY:
+            sink.append(f"Fell back to the rule-based path: {reason}")
+
+    return record
 
 
 def emit(event: dict) -> None:

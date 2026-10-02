@@ -269,8 +269,8 @@ So treat the science as a demo and the plumbing as the deliverable. The plumbing
   const rows = [
     ["Tasks return futures, never results", "Every interface's submit() places the work and returns a handle. Nothing in the graph awaits a task at submission time.", "tasks/base.py:146"],
     ["Task duration is not the interface's business", "The same handle covers a 40 ms REST call and a queued batch job. Only the capability flags differ.", "tasks/base.py:62"],
-    ["Status is a stream, not a return value", "Nodes emit progress over LangGraph's custom channel; the manager fans task events onto the same SSE stream.", "graph/deps.py · app.py:77"],
-    ["State holds references, not payloads", "Coordinates go to a content-addressed blob and travel as a path, because every checkpoint is serialized.", "orchestrator.py:252"],
+    ["Status is a stream, not a return value", "Nodes emit progress over LangGraph's custom channel; the manager fans task events onto the same SSE stream.", "graph/deps.py · app.py:118"],
+    ["State holds references, not payloads", "Coordinates go to a content-addressed blob and travel as a path, because every checkpoint is serialized.", "orchestrator.py:271"],
     ["Every layer has a floor", "No key, no endpoint, no graph DB: each degrades to something that still answers, and says so.", "runtime.py · analyst.py:155"],
   ];
   const cw = [3.45, 6.6, 2.28];
@@ -501,7 +501,7 @@ Two things in the rail. The rule that nodes only ever reach through Deps is what
   code(s, [
     'summary["structure_path"] = deps.history.write_blob(',
     '    structure, suffix=".pdb", prefix=summary["design_id"])',
-  ], M + 7.3, 3.15, 5.53, 0.6, { anchor: "orchestrator.py:252–256  ·  TRIMMED", fs: 10 });
+  ], M + 7.3, 3.15, 5.53, 0.6, { anchor: "orchestrator.py:271–275  ·  TRIMMED", fs: 10 });
   code(s, [
     'def test_structures_are_not_carried_in_state(...):',
     '    blob = json.dumps(jsonable(out), default=str)',
@@ -663,7 +663,7 @@ And the bottom right is not a contrived example. ESM Atlas genuinely dropped one
     '    future.set_exception(exc)',
     '    handle = TaskHandle(..., state=TaskState.FAILED,',
     '                        error=str(exc))',
-  ], M + 5.9, 4.05, 6.93, 1.5, { anchor: "tasks/manager.py:99–115  ·  TRIMMED", fs: 10.5 });
+  ], M + 5.9, 4.05, 6.93, 1.5, { anchor: "tasks/manager.py:111–127  ·  TRIMMED", fs: 10.5 });
 
   text(s, [
     { text: "The invariant: ", options: { bold: true, color: C.ink } },
@@ -717,7 +717,7 @@ The state enum normalizes across vocabularies, because ORBIT and PSI/J each have
     '    return integration.execution_wrappers.asyncflow(',
     '        body, flow_type=AsyncFlowType.FUNCTION_TASK,',
     '        backend="compute", retry=retry)',
-  ], M, 2.55, 6.1, 1.85, { anchor: "runtime.py:76–89  ·  TRIMMED", fs: 10 });
+  ], M, 2.55, 6.1, 1.85, { anchor: "runtime.py:204–217  ·  TRIMMED", fs: 10 });
 
   code(s, [
     'async def submit(self, spec: TaskSpec) -> TaskHandle:',
@@ -792,7 +792,7 @@ And the red block is the first of the findings. That is verbatim flowgentic. The
     '    if self._loop is None or self._loop.is_closed():',
     '        return',
     '    self._loop.call_soon_threadsafe(fn, *args)',
-  ], M, 5.05, 5.9, 0.95, { anchor: "tasks/hpc/orbit.py:261–265  ·  VERBATIM", fs: 10 });
+  ], M, 5.05, 5.9, 0.95, { anchor: "tasks/hpc/orbit.py:286–290  ·  VERBATIM", fs: 10 });
 
   s.addShape(pres.shapes.RECTANGLE, { x: M + 6.2, y: 1.5, w: 6.63, h: 0.38,
     fill: { color: C.fail }, line: { color: C.fail } });
@@ -809,14 +809,14 @@ And the red block is the first of the findings. That is verbatim flowgentic. The
     '    merged = {**info, **{k: v for k, v in data.items()',
     '                         if v not in (None, "")}}',
   ], M + 6.2, 1.97, 6.63, 1.55,
-    { anchor: "tasks/hpc/orbit.py:286–299  ·  TRIMMED", fs: 10, fill: "3A1F1C" });
+    { anchor: "tasks/hpc/orbit.py:311–324  ·  TRIMMED", fs: 10, fill: "3A1F1C" });
   code(s, [
     'if state is TaskState.FAILED and not error:',
     '    error = (f"exit code {exit_code}" if exit_code not in (None, 0)',
     '             else (data.get("stderr")',
     '                   or handle.log_tail[-500:] or "job failed"))',
   ], M + 6.2, 3.65, 6.63, 0.82,
-    { anchor: "tasks/hpc/orbit.py:353–357  ·  TRIMMED", fs: 10, fill: "3A1F1C" });
+    { anchor: "tasks/hpc/orbit.py:378–382  ·  TRIMMED", fs: 10, fill: "3A1F1C" });
   text(s, "A completed task's result came back empty until the re-fetch. A job that exited 3 " +
     "reported no reason at all — only the code — so FAILED always synthesises an explanation.",
     M + 6.2, 4.6, 6.63, 0.55, { fontSize: 11, color: C.fail });
@@ -1046,7 +1046,7 @@ The bottom line is a small thing I only noticed when building this deck: only ti
     ["ChemGraph not installed", "the task reports unavailable; nothing else changes", "chemgraph_available()"],
     ["ESM Atlas drops a request", "design survives sequence-only; round scores the rest", `really happened: ${CAMP}-r2-5`],
     ["Tier 1/2 write fails", "warn, rank in memory, tell the user in the reply", "test_lake_write_failure_does_not_lose_the_round"],
-    ["No SQLite checkpointer", "InMemorySaver, with a note on /api/health", "runtime.py:172"],
+    ["No SQLite checkpointer", "InMemorySaver, with a note on /api/health", "runtime.py:373"],
   ];
   const cw = [2.9, 5.0, 4.43];
   const tbl = [["when", "what happens", "evidence"].map(h => ({ text: h,
@@ -1124,7 +1124,7 @@ And the fourth row is the one I did not have to arrange. ESM Atlas dropped a req
     '    ...  yield JSON.parse(line.slice(6)) as Frame;',
     '  }',
     '}',
-  ], M, 3.05, 6.1, 2.1, { anchor: "frontend/src/lib/api.ts:30–49  ·  TRIMMED", fs: 10 });
+  ], M, 3.05, 6.1, 2.1, { anchor: "frontend/src/lib/api.ts:38–57  ·  TRIMMED", fs: 10 });
   text(s, "A chunk boundary can land mid-frame, so partial frames are held in a buffer until a " +
     "blank line. A malformed frame is skipped, never fatal.",
     M, 5.25, 6.1, 0.5, { fontSize: 11, color: C.muted, italic: true });

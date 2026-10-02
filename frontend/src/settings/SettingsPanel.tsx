@@ -1,0 +1,307 @@
+import { useCallback, useEffect, useState } from "react";
+import {
+  clearSettings,
+  fetchSettings,
+  saveSettings,
+  testSettings,
+} from "../lib/api";
+import type { ProbeResult, SettingsView } from "../lib/types";
+import { isSecret } from "../lib/types";
+
+/**
+ * Credentials for the running process.
+ *
+ * Two rules shape this component. A secret is never rendered: the server returns
+ * a masked hint, which goes in the placeholder, and an untouched field is left
+ * out of the request entirely rather than sent back as its own mask. And saving
+ * can recycle the worker pool, because a task body reads its key from the
+ * settings its process was given at fork — so the cost is stated before the
+ * click, not after.
+ */
+
+type Field = {
+  name: string;
+  label: string;
+  group: string;
+  secret?: boolean;
+  kind?: "text" | "bool" | "number";
+  hint?: string;
+};
+
+const FIELDS: Field[] = [
+  { name: "anthropic_api_key", label: "Anthropic API key", group: "llm", secret: true },
+  { name: "model", label: "Model", group: "llm" },
+  {
+    name: "fold_backend",
+    label: "Fold backend",
+    group: "fold",
+    hint: "esmatlas, local or hpc",
+  },
+
+  { name: "orbit_enabled", label: "Use remote HPC (Orbit)", group: "orbit", kind: "bool" },
+  { name: "orbit_broker_url", label: "Broker URL", group: "orbit" },
+  { name: "orbit_broker_token", label: "Broker token", group: "orbit", secret: true },
+  {
+    name: "orbit_broker_cert",
+    label: "Broker certificate",
+    group: "orbit",
+    hint: "path on the server, required for https/wss",
+  },
+  { name: "orbit_endpoint", label: "Endpoint", group: "orbit", hint: "name or substring" },
+  {
+    name: "orbit_rhapsody_backends",
+    label: "Rhapsody backends",
+    group: "orbit",
+    hint: "comma separated; empty uses the endpoint default",
+  },
+  {
+    name: "orbit_psij_executor",
+    label: "Scheduler",
+    group: "orbit",
+    hint: "local, slurm, pbspro…",
+  },
+  { name: "orbit_account", label: "Account", group: "orbit" },
+  { name: "orbit_queue", label: "Queue", group: "orbit" },
+  {
+    name: "orbit_job_duration_sec",
+    label: "Walltime (s)",
+    group: "orbit",
+    kind: "number",
+  },
+  {
+    name: "orbit_local_stack",
+    label: "Development broker on this machine",
+    group: "orbit",
+    kind: "bool",
+  },
+];
+
+const GROUPS: { id: string; title: string; note: string }[] = [
+  {
+    id: "llm",
+    title: "Language model",
+    note: "Without a key every node uses its rule-based path. Changing this restarts the worker pool.",
+  },
+  {
+    id: "orbit",
+    title: "Remote HPC",
+    note: "Applied without a restart: these are read only by the server process.",
+  },
+  { id: "fold", title: "Structure prediction", note: "" },
+];
+
+const PROBE_LABEL: Record<ProbeResult["state"], string> = {
+  ok: "works",
+  absent: "not configured",
+  rejected: "refused",
+  error: "unreachable",
+  skipped: "not checked here",
+};
+
+export default function SettingsPanel({
+  onClose,
+  onChanged,
+}: {
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [view, setView] = useState<SettingsView | null>(null);
+  const [draft, setDraft] = useState<Record<string, string | boolean | number>>({});
+  const [probes, setProbes] = useState<Record<string, ProbeResult>>({});
+  const [admin, setAdmin] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState<"" | "saving" | "testing">("");
+  const [needsForce, setNeedsForce] = useState(false);
+
+  const reload = useCallback(async () => {
+    const body = await fetchSettings();
+    setView(body);
+    setDraft({});
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const dirty = Object.keys(draft).length > 0;
+
+  function set(name: string, value: string | boolean | number) {
+    setDraft((previous) => ({ ...previous, [name]: value }));
+    setNeedsForce(false);
+  }
+
+  function currentValue(field: Field): string | boolean | number {
+    if (field.name in draft) return draft[field.name];
+    const entry = view?.credentials[field.group]?.[field.name];
+    if (!entry || isSecret(entry)) return field.kind === "bool" ? false : "";
+    return entry.value;
+  }
+
+  async function apply(force = false) {
+    setBusy("saving");
+    setMessage("");
+    const result = await saveSettings(draft, { force, admin: admin || undefined });
+    setBusy("");
+    if (result.status === 409) {
+      const body = result.body as { running?: string[] };
+      setNeedsForce(true);
+      setMessage(
+        `${body.running?.length ?? 0} task(s) are still running. Applying now abandons them.`,
+      );
+      return;
+    }
+    if (!result.ok) {
+      const body = result.body as { detail?: string };
+      setMessage(body.detail ?? `the server refused the change (${result.status})`);
+      return;
+    }
+    const body = result.body as {
+      restarted?: string[];
+      sessions_preserved?: boolean;
+    };
+    const restarted = body.restarted?.length ? body.restarted.join(", ") : "nothing";
+    const sessions =
+      body.sessions_preserved === false
+        ? " Conversations were in memory and are gone."
+        : "";
+    setMessage(`Applied. Restarted: ${restarted}.${sessions}`);
+    setNeedsForce(false);
+    await reload();
+    onChanged();
+  }
+
+  async function probe() {
+    setBusy("testing");
+    setMessage("");
+    setProbes(await testSettings(draft, admin || undefined));
+    setBusy("");
+  }
+
+  async function reset() {
+    setBusy("saving");
+    const ok = await clearSettings(admin || undefined);
+    setBusy("");
+    setMessage(ok ? "Back to the environment and .env." : "the server refused the reset");
+    await reload();
+    onChanged();
+  }
+
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div
+        className="sheet"
+        role="dialog"
+        aria-label="Settings"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="sheet-head">
+          <strong>Credentials</strong>
+          <button className="link" onClick={onClose}>
+            Close
+          </button>
+        </header>
+
+        <p className="muted sheet-intro">
+          Values here live in this server process only. They are not written to disk —
+          put them in <code>.env</code> to survive a restart.
+        </p>
+
+        {GROUPS.map((group) => (
+          <section key={group.id} className="sheet-group">
+            <h3>
+              {group.title}
+              {probes[group.id] && (
+                <span className={`badge probe-${probes[group.id].state}`}>
+                  {PROBE_LABEL[probes[group.id].state]}
+                </span>
+              )}
+            </h3>
+            {group.note && <p className="muted">{group.note}</p>}
+            {probes[group.id]?.detail && (
+              <p className="muted probe-detail">{probes[group.id].detail}</p>
+            )}
+
+            {FIELDS.filter((field) => field.group === group.id).map((field) => {
+              const entry = view?.credentials[field.group]?.[field.name];
+              const source = entry?.source ?? "default";
+              const lastError = entry?.last_error;
+              return (
+                <label key={field.name} className="sheet-row">
+                  <span className="sheet-label">
+                    {field.label}
+                    {source === "override" && <em className="tag">set here</em>}
+                    {source === "env" && <em className="tag">from .env</em>}
+                  </span>
+                  {field.kind === "bool" ? (
+                    <input
+                      type="checkbox"
+                      checked={Boolean(currentValue(field))}
+                      onChange={(event) => set(field.name, event.target.checked)}
+                    />
+                  ) : (
+                    <input
+                      type={field.secret ? "password" : "text"}
+                      inputMode={field.kind === "number" ? "numeric" : undefined}
+                      value={
+                        field.name in draft ? String(draft[field.name]) : field.secret ? "" : String(currentValue(field))
+                      }
+                      placeholder={
+                        entry && isSecret(entry) && entry.present
+                          ? entry.hint
+                          : field.hint ?? ""
+                      }
+                      onChange={(event) =>
+                        set(
+                          field.name,
+                          field.kind === "number"
+                            ? Number(event.target.value || 0)
+                            : event.target.value,
+                        )
+                      }
+                    />
+                  )}
+                  {lastError && <span className="sheet-error">{lastError}</span>}
+                </label>
+              );
+            })}
+          </section>
+        ))}
+
+        <section className="sheet-group">
+          <label className="sheet-row">
+            <span className="sheet-label">Admin token</span>
+            <input
+              type="password"
+              value={admin}
+              placeholder="only when the server is not on loopback"
+              onChange={(event) => setAdmin(event.target.value)}
+            />
+          </label>
+        </section>
+
+        {message && <p className="sheet-message">{message}</p>}
+
+        <footer className="sheet-foot">
+          <button className="link" onClick={reset} disabled={busy !== ""}>
+            Reset to .env
+          </button>
+          <span className="sheet-spacer" />
+          <button className="link" onClick={probe} disabled={busy !== ""}>
+            {busy === "testing" ? "Testing…" : "Test"}
+          </button>
+          <button
+            className="primary"
+            onClick={() => apply(needsForce)}
+            disabled={busy !== "" || !dirty}
+          >
+            {busy === "saving"
+              ? "Applying…"
+              : needsForce
+                ? "Apply anyway"
+                : "Apply"}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}

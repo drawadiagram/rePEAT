@@ -426,3 +426,116 @@ body {
   .artifacts { flex: 1 1 auto; min-height: 50vh; }
   .messages, .composer-wrap { padding-left: 16px; padding-right: 16px; }
 }
+
+/* --- settings sheet --- */
+.badge-button {
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.badge-button:hover { border-color: currentColor; }
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 6vh 16px;
+  z-index: 20;
+  overflow-y: auto;
+}
+.sheet {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: min(560px, 100%);
+  padding: 18px 20px 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
+}
+.sheet-head { display: flex; align-items: baseline; gap: 12px; }
+.sheet-head strong { flex: 1; font-size: 16px; }
+.sheet-intro { margin: 6px 0 14px; }
+.sheet-intro code { font-family: var(--mono); font-size: 13px; }
+
+.sheet-group { border-top: 1px solid var(--border); padding: 12px 0 4px; }
+.sheet-group h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sheet-group p.muted { margin: 0 0 10px; font-size: 13px; }
+.probe-detail { font-family: var(--mono); font-size: 12px; }
+.probe-ok { background: var(--ok-soft); color: var(--ok); }
+.probe-rejected, .probe-error { background: var(--fail-soft); color: var(--fail); }
+.probe-absent, .probe-skipped { background: var(--surface-2); color: var(--muted); }
+
+.sheet-row {
+  display: grid;
+  grid-template-columns: 11rem 1fr;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.sheet-label { font-size: 14px; display: flex; gap: 6px; align-items: baseline; }
+.sheet-label .tag {
+  font-size: 11px;
+  font-style: normal;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+.sheet-row input[type="text"],
+.sheet-row input[type="password"] {
+  font: inherit;
+  font-size: 14px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  width: 100%;
+}
+.sheet-row input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.sheet-row input[type="checkbox"] { justify-self: start; width: 16px; height: 16px; }
+.sheet-error {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--fail);
+  font-family: var(--mono);
+}
+.sheet-message {
+  border-top: 1px solid var(--border);
+  margin: 10px 0 0;
+  padding-top: 10px;
+  font-size: 13px;
+  color: var(--accent);
+}
+.sheet-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+.sheet-spacer { flex: 1; }
+.primary {
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+  cursor: pointer;
+}
+.primary:disabled { opacity: 0.45; cursor: default; }

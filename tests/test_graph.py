@@ -12,103 +12,9 @@ from designagent.graph.nodes.coordinator import classify_rules, describe_state
 from designagent.graph.state import merge_artifacts, merge_worklist, new_state
 from designagent.tasks.registry import CATALOG, TaskDef
 from langgraph.checkpoint.memory import InMemorySaver
+from pydantic import SecretStr
 
-# --- a tiny fake protein world --------------------------------------------
-
-REF_SEQ = "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"
-PDB_TEXT = "\n".join(
-    f"ATOM  {i:5d}  CA  ALA A{i:4d}    "
-    f"{i:8.3f}{0.0:8.3f}{0.0:8.3f}  1.00{85.0:6.2f}           C"
-    for i in range(1, 21)
-)
-
-
-@pytest.fixture
-def stub_tools(monkeypatch):
-    """Replace every external tool body with a deterministic stub."""
-    calls: list[str] = []
-
-    async def pdb_lookup(**kw):
-        calls.append("pdb_lookup")
-        if not (kw.get("pdb_id") or kw.get("query")):
-            return {"error": "no match"}
-        return {
-            "pdb_id": "1UBQ",
-            "name": "Ubiquitin",
-            "sequence": REF_SEQ,
-            "length": len(REF_SEQ),
-            "organism": "Homo sapiens",
-            "function": "UBIQUITIN",
-            "uniprot_id": "P0CG48",
-            "chains": [{"chain_id": "A", "length": len(REF_SEQ)}],
-            "ligands": [],
-        }
-
-    async def uniprot_lookup(**kw):
-        calls.append("uniprot_lookup")
-        return {
-            "uniprot_id": "P0CG48",
-            "name": "Polyubiquitin-B",
-            "sequence": REF_SEQ,
-            "length": len(REF_SEQ),
-            "organism": "Homo sapiens",
-            "function": "Covalent attachment to substrates.",
-            "features": [{"type": "Active site", "start": 48, "end": 48, "description": ""}],
-            "pdb_ids": ["1UBQ"],
-        }
-
-    async def literature_lookup(**kw):
-        calls.append("literature_lookup")
-        return {
-            "query": "stub",
-            "refs": [
-                {
-                    "id": "PMC1",
-                    "title": "Stabilizing ubiquitin",
-                    "year": "2024",
-                    "doi": "10.1/x",
-                    "abstract": "T55V raised Tm.",
-                    "relevance": "thermostability",
-                    "mutations": ["T55V"],
-                }
-            ],
-            "n_refs": 1,
-            "mutations_mentioned": ["T55V"],
-        }
-
-    async def pdb_structure(**kw):
-        calls.append("pdb_structure")
-        return {"pdb_id": "1UBQ", "format": "pdb", "text": PDB_TEXT, "bytes": len(PDB_TEXT)}
-
-    async def fold_sequence(sequence="", design_id="", **kw):
-        calls.append("fold_sequence")
-        # pLDDT rises with the number of mutations, so round 1 improves.
-        score = 70.0 + 5.0 * sum(1 for a, b in zip(REF_SEQ, sequence) if a != b)
-        return {
-            "structure": PDB_TEXT,
-            "format": "pdb",
-            "backend": "stub",
-            "sequence": sequence,
-            "design_id": design_id,
-            "metrics": {"plddt": min(score, 99.0)},
-            "length": len(sequence),
-        }
-
-    originals = {}
-    for name, body in (
-        ("pdb_lookup", pdb_lookup),
-        ("uniprot_lookup", uniprot_lookup),
-        ("literature_lookup", literature_lookup),
-        ("pdb_structure", pdb_structure),
-        ("fold_sequence", fold_sequence),
-    ):
-        originals[name] = CATALOG[name]
-        CATALOG[name] = TaskDef(
-            name, body, originals[name].interface, originals[name].description,
-            originals[name].produces,
-        )
-    yield calls
-    CATALOG.update(originals)
+from tests.conftest import REF_SEQ
 
 
 @pytest.fixture
@@ -159,47 +65,50 @@ def test_merge_worklist_upserts_status():
 # --- coordinator classification -------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "text,expected",
-    [
-        ("hello there", "chat"),
-        ("what is the lead design?", "chat"),
-        ("load 1UBQ", "initialize"),
-        ("redesign 1UBQ for thermostability", "initialize"),
-        ("write me a report", "summarize"),
-        ("which design scored best?", "chat"),
-        ("how does pLDDT work?", "chat"),
-        ("tell me about the ensemble", "chat"),
-        ("summarize the session", "summarize"),
-    ],
-)
+#: Phrasings and the intent they must produce with nothing loaded yet. Named so
+#: the `llm` tier can replay the same table through CLASSIFY_SYSTEM and report
+#: where the two classifiers disagree — see tests/test_llm_live.py.
+CASES_WITHOUT_REFERENCE = [
+    ("hello there", "chat"),
+    ("what is the lead design?", "chat"),
+    ("load 1UBQ", "initialize"),
+    ("redesign 1UBQ for thermostability", "initialize"),
+    ("write me a report", "summarize"),
+    ("which design scored best?", "chat"),
+    ("how does pLDDT work?", "chat"),
+    ("tell me about the ensemble", "chat"),
+    ("summarize the session", "summarize"),
+]
+
+#: The same, with a reference design in state.
+CASES_WITH_REFERENCE = [
+    ("make it more stable", "design"),
+    ("improve solubility", "design"),
+    ("propose some variants", "design"),
+    ("what mutations did you try?", "chat"),
+    ("is the lead design better?", "chat"),
+    ("can you redesign it for stability", "design"),
+    ("show me the structure", "visualize"),
+    ("highlight the active site", "visualize"),
+    # Phrasings that used to fall through to chat.
+    ("label the active site residues in the visualization", "visualize"),
+    ("add labels to the catalytic residues", "visualize"),
+    ("zoom in on residue 147", "visualize"),
+    ("rotate it and show the surface", "visualize"),
+    ("run another round", "design"),
+    ("iterate on the lead", "design"),
+    # ...without swallowing the design request that mentions a residue.
+    ("mutate residue 42 to valine", "design"),
+    ("what happened in that run?", "chat"),
+]
+
+
+@pytest.mark.parametrize("text,expected", CASES_WITHOUT_REFERENCE)
 def test_classify_rules_without_reference(text, expected):
     assert classify_rules(text, new_state("s"))["intent"] == expected
 
 
-@pytest.mark.parametrize(
-    "text,expected",
-    [
-        ("make it more stable", "design"),
-        ("improve solubility", "design"),
-        ("propose some variants", "design"),
-        ("what mutations did you try?", "chat"),
-        ("is the lead design better?", "chat"),
-        ("can you redesign it for stability", "design"),
-        ("show me the structure", "visualize"),
-        ("highlight the active site", "visualize"),
-        # Phrasings that used to fall through to chat.
-        ("label the active site residues in the visualization", "visualize"),
-        ("add labels to the catalytic residues", "visualize"),
-        ("zoom in on residue 147", "visualize"),
-        ("rotate it and show the surface", "visualize"),
-        ("run another round", "design"),
-        ("iterate on the lead", "design"),
-        # ...without swallowing the design request that mentions a residue.
-        ("mutate residue 42 to valine", "design"),
-        ("what happened in that run?", "chat"),
-    ],
-)
+@pytest.mark.parametrize("text,expected", CASES_WITH_REFERENCE)
 def test_classify_rules_questions_versus_requests(text, expected):
     state = {**new_state("s"), "reference_design": {"sequence": REF_SEQ}}
     assert classify_rules(text, state)["intent"] == expected
@@ -434,3 +343,39 @@ async def test_structures_are_not_carried_in_state(app, stub_tools, deps):
     )
     assert "ATOM  " not in blob
     assert out.get("pending_results") in (None, {})
+
+
+async def test_a_rejected_key_says_so_instead_of_silently_using_rules(
+    app, stub_tools, deps, monkeypatch
+):
+    """A configured key that fails must not look like ordinary offline mode.
+
+    Without this, the only difference between "no key" and "the key you just
+    pasted is wrong" is a line in the server log.
+    """
+    from designagent import llm as llm_module
+
+    deps.settings = deps.settings.model_copy(
+        update={"anthropic_api_key": SecretStr("sk-ant-wrong-0123456789")}
+    )
+
+    async def rejected(*args, **kwargs):
+        raise RuntimeError("authentication_error: invalid x-api-key")
+
+    monkeypatch.setattr(llm_module, "build_llm", lambda *a, **k: _Unusable(rejected))
+
+    out = await _send(app, "redesign 1UBQ for stability")
+
+    assert any("rule-based path" in w for w in out["warnings"])
+    assert "Caveats from this run" in out["messages"][-1].content
+    assert "the API key was rejected" in deps.last_llm_error
+    # The run still produced its work: degradation, not failure.
+    assert out["design_summary"]
+    assert out["summary_source"] == "rules"
+
+
+class _Unusable:
+    """A chat model stand-in whose every call raises."""
+
+    def __init__(self, ainvoke):
+        self.ainvoke = ainvoke

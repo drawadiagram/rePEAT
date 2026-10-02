@@ -229,7 +229,25 @@ def test_to_psij_spec_moves_scheduler_fields_into_attributes():
     assert spec["arguments"] == ["--num_seq_per_target", "8"]
     assert spec["attributes"]["duration"] == "900"
     assert spec["attributes"]["queue_name"] == "debug"
-    assert spec["resources"]["gpus"] == 1
+    # Renamed to PSI/J's own vocabulary. Forwarding our names verbatim made the
+    # endpoint answer HTTP 500 for every batch job: ResourceSpecV1 rejects an
+    # unexpected keyword rather than ignoring it.
+    assert spec["resources"] == {"node_count": 1, "gpu_cores_per_process": 1}
+
+
+def test_to_psij_spec_renames_every_resource_field():
+    spec = to_psij_spec(
+        {
+            "executable": "/bin/true",
+            "resources": {"node_count": 2, "processes": 8, "processes_per_node": 4, "gpus": 1},
+        }
+    )
+    assert spec["resources"] == {
+        "node_count": 2,
+        "process_count": 8,
+        "processes_per_node": 4,
+        "gpu_cores_per_process": 1,
+    }
 
 
 def test_to_psij_spec_defaults_are_auto_discoverable():

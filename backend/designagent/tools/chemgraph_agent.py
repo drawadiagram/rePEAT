@@ -81,7 +81,10 @@ async def run_chemgraph(
     log_dir = settings.data_dir / "chemgraph"
     log_dir.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("CHEMGRAPH_LOG_DIR", str(log_dir))
-    os.environ.setdefault("ANTHROPIC_API_KEY", settings.anthropic_api_key)
+    # Assigned, not setdefault: ChemGraph reads the key from the environment, and
+    # a worker's env can carry an empty ANTHROPIC_API_KEY from the parent while
+    # `settings` holds a key supplied at runtime. Settings is authoritative.
+    os.environ["ANTHROPIC_API_KEY"] = settings.llm_key
 
     before = set(log_dir.glob("*"))
     try:

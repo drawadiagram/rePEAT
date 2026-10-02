@@ -26,14 +26,24 @@ with no fallback once it finds a file. Run everything from the repo root.
 
 ```bash
 .venv/bin/python -m designagent --reload        # backend on :8000
+.venv/bin/python -m designagent --check-config  # effective config, secrets masked
+.venv/bin/python -m designagent --check-config --probe   # ...and try each credential
 cd frontend && npm run dev                      # Vite on :5173, proxies /api
 cd frontend && npm run build                    # tsc -b && vite build
 
-.venv/bin/python -m pytest -q                   # 93 offline tests, no network
+.venv/bin/python -m pytest -q                   # 114 offline tests, no network
 .venv/bin/python -m pytest -q -m live           # 6 live tests; starts a real broker
+.venv/bin/python -m pytest -q -m remote         # 5 tests against a real HPC endpoint
+.venv/bin/python -m pytest -q -m llm            # 4 tests against a real API key
 .venv/bin/python -m pytest tests/test_graph.py::test_design_loop_produces_lead_ensemble_and_artifacts -q
 .venv/bin/ruff check backend tests              # E/F/I, line-length 100
 ```
+
+`remote` and `llm` are the validation tiers: each is excluded separately in
+`addopts`, so `-m live` cannot pull in one that needs an allocation or spends
+money. `remote` rehearses against `DESIGNAGENT_ORBIT_LOCAL=true` and otherwise
+reads a real broker from the environment; `llm` needs `ANTHROPIC_API_KEY` and is
+the only thing that measures the LLM classifier and the LLM summary.
 
 **The lint is clean and should stay that way** — `E,F,I` at line-length 100, pinned in
 `pyproject.toml` so the rule set does not drift with the ruff version. Two places not to "fix": the
@@ -90,6 +100,25 @@ every session answered "No reference design is loaded yet" and re-ran the initia
 `tests/test_graph.py::test_state_survives_into_the_next_turn`, and `_send` in that file deliberately
 mirrors `app.py` rather than threading state by hand, because threading it is what hid the bug.
 
+**A pool worker is *handed* its `Settings`; it does not derive them.** `runtime.py` passes
+`install_settings` as the `ProcessPoolExecutor` initializer, because task bodies call
+`get_settings()` themselves (`tools/http.py`, `tools/esmfold.py`, and `llm.build_llm` reached from
+`tools/molviz_agent.py`) and cache the answer for the worker's lifetime. The consequence is in
+`runtime.needs_rebuild`: changing anything a worker reads — the API key above all — needs a **new
+pool**, and a new pool needs a new flowgentic integration and compiled graph, so that case rebuilds
+the whole runtime. Orbit credentials are read only in the server process, so they are applied in
+place by `Runtime.reconfigure`. `config.adopt` is for that in-place case and `install_settings` for a
+fresh process: the first keeps the override bookkeeping, the second resets it.
+
+**A secret is `SecretStr` and is rendered only by `config.mask`.** No response body carries a value —
+`config.describe` emits `{present, source, hint}` — and a `logging.Filter` in `app.lifespan` scrubs
+live secret values out of records, because the text that could contain one is a provider's exception,
+not ours. `llm.complete(on_fallback=...)` is what separates "no key" from "key rejected": nodes hand
+it `deps.llm_caveat`, which records the reason for `/api/health` and pushes a line onto the `warnings`
+channel so a degraded turn says so in its reply instead of looking normal. Do not add a permissive
+CORS policy: the settings-write routes are open on loopback precisely because no CORS middleware
+exists, so a cross-origin JSON `PUT` dies at the preflight.
+
 **Routing is `Command(goto=..., update=...)` from the node body**, so the routing decision and the
 state write are one atomic return. `build.py` declares `destinations` per node for validation; the
 only static edge is `START → coordinator`.
@@ -127,6 +156,15 @@ field; a bad generation degrades to a plain cartoon.
 With no HPC endpoint attached, `proteinmpnn` falls back to a heuristic proposer that labels its own
 output `"note": "heuristic proposals, not ProteinMPNN samples"`. Keep that label honest.
 
+**An `hpc` spec must carry a `job_spec`, or the submission is `/bin/true`.** `OrbitInterface._submit_job`
+reads `params["job_spec"]`, and `to_psij_spec({})` defaults the executable; the orchestrator fills it
+from `mpnn_job_spec`/`fold_job_spec` via `_job_params`, which also supplies the executor, account and
+queue from settings. Two traps found by running it: PSI/J names its resource fields differently from
+us (`processes` → `process_count`, `gpus` → `gpu_cores_per_process`) and answers **HTTP 500** on an
+unexpected one, which `PSIJ_RESOURCE_KEYS` now maps; and `task_timeout_sec` (900 s) is shorter than a
+job's own walltime, so `_batch_timeout` widens it for `kind="job"` — otherwise a queued job is failed
+before the scheduler starts it.
+
 ### Working around the middleware
 
 Three flowgentic behaviours are worked around at the call site, each commented there:
@@ -153,7 +191,7 @@ reproduce.
 `slides/` holds a code-walk deck built from real data. If you change backend code that a slide cites:
 
 ```bash
-.venv/bin/python slides/check_anchors.py        # 36 cited line numbers, re-derived
+.venv/bin/python slides/check_anchors.py        # 39 cited line numbers, re-derived
 .venv/bin/python slides/run_model.py            # regenerate run.json from data/lake
 .venv/bin/python slides/make_script.py          # regenerate DECK_SCRIPT.md from the deck's notes
 NODE_PATH=<dir with pptxgenjs> node slides/build_deck.js

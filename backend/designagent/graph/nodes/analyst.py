@@ -228,6 +228,11 @@ def make_analyst(deps: Deps):
         if visualization:
             update["molecular_visualization"] = visualization["spec"]
             update["artifacts"] = [visualization["artifact"]]
+            if visualization.get("llm_error"):
+                update["warnings"] = [
+                    *update.get("warnings", []),
+                    f"The view was built from rules: {visualization['llm_error']}",
+                ]
 
         status(update["status"], node="analyst")
 
@@ -305,7 +310,12 @@ async def _make_visualization(
         meta={"caption": spec.get("caption", "")},
     )
     spec = {**spec, "artifact_id": artifact["id"]}
-    return {"spec": spec, "artifact": artifact}
+    # The generator runs in a pool worker, so a rejected key surfaces here rather
+    # than through the node's own `on_fallback`.
+    llm_error = str(result.get("llm_error") or "")
+    if llm_error:
+        deps.note_llm_fallback(llm_error)
+    return {"spec": spec, "artifact": artifact, "llm_error": llm_error}
 
 
 async def _visualize_only(

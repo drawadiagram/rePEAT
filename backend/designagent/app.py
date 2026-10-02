@@ -17,15 +17,27 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from hmac import compare_digest
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .config import get_settings
-from .runtime import Runtime, build_runtime
+from .config import (
+    Settings,
+    apply_overrides,
+    clear_overrides,
+    describe,
+    get_settings,
+    install_settings,
+    overrides,
+    secret_values,
+)
+from .preflight import probe_all
+from .runtime import Runtime, build_runtime, needs_rebuild
 
 log = logging.getLogger(__name__)
 
@@ -51,11 +63,40 @@ class ChatRequest(BaseModel):
     session_id: str = "default"
 
 
+class _ScrubSecrets(logging.Filter):
+    """Replace live secret values anywhere in a log record.
+
+    Nothing in this codebase logs a key deliberately. The risk is text we did not
+    write: a provider exception can quote the request it rejected, and a
+    subprocess can echo its own argv. The filter is read through
+    `config.secret_values()` on every record, so it covers a key supplied at
+    runtime as well as one from the environment.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        secrets = secret_values()
+        if not secrets:
+            return True
+        try:
+            text = record.getMessage()
+        except Exception:
+            return True
+        scrubbed = text
+        for value in secrets:
+            scrubbed = scrubbed.replace(value, "[redacted]")
+        if scrubbed != text:
+            record.msg = scrubbed
+            record.args = ()
+        return True
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(_ScrubSecrets())
     runtime = await build_runtime(get_settings())
     app.state.runtime = runtime
     try:
@@ -313,6 +354,203 @@ async def cancel_task(request: Request, task_id: str) -> JSONResponse:
     return JSONResponse({"canceled": True})
 
 
+# --- settings -------------------------------------------------------------
+
+
+class SettingsUpdate(BaseModel):
+    """A sparse update. `None` means "leave alone"; `""` means "clear"."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    anthropic_api_key: str | None = None
+    model: str | None = None
+    fold_backend: Literal["esmatlas", "local", "hpc"] | None = None
+
+    orbit_enabled: bool | None = None
+    orbit_broker_url: str | None = None
+    orbit_broker_token: str | None = None
+    orbit_broker_cert: str | None = None
+    orbit_endpoint: str | None = None
+    orbit_local_stack: bool | None = None
+    orbit_rhapsody_backends: str | None = None
+    orbit_psij_executor: str | None = None
+    orbit_account: str | None = None
+    orbit_queue: str | None = None
+    orbit_job_duration_sec: int | None = None
+
+    globus_enabled: bool | None = None
+    globus_endpoint_id: str | None = None
+
+    # Apply even though tasks are running, accepting that they are abandoned.
+    force: bool = False
+
+    def values(self) -> dict[str, Any]:
+        data = self.model_dump(exclude={"force"})
+        return {name: value for name, value in data.items() if value is not None}
+
+
+def _settings_view(runtime: Runtime) -> dict[str, Any]:
+    """What the UI may see: values for plain fields, hints for secrets."""
+    shown = describe(runtime.settings)
+    shown["llm"]["anthropic_api_key"]["last_error"] = runtime.llm_error
+    shown["orbit"]["orbit_broker_url"]["last_error"] = runtime.orbit_error
+    return {
+        "credentials": shown,
+        "overrides": sorted(overrides()),
+        "hpc_available": runtime.manager.hpc_available,
+        "llm_available": runtime.settings.llm_available,
+        "persistent_sessions": runtime.persistent_checkpoints,
+    }
+
+
+def _authorize_write(request: Request, runtime: Runtime) -> None:
+    """Gate the routes that accept secrets.
+
+    Loopback with no token configured is the development default and stays open:
+    the server is reachable only from this machine, and a cross-origin `PUT` with
+    a JSON content type is stopped by the browser's preflight, since this app
+    installs no CORS middleware. **Do not add a permissive CORS policy** — it
+    would turn that into a real hole. Setting `DESIGNAGENT_ADMIN_TOKEN` requires
+    the header even on loopback, and binding anywhere else requires one.
+    """
+    settings = runtime.settings
+    expected = settings.admin_secret
+    if not expected:
+        if settings.bound_to_loopback:
+            return
+        raise HTTPException(
+            403,
+            "this server is not bound to loopback: set DESIGNAGENT_ADMIN_TOKEN "
+            "to allow settings changes",
+        )
+    supplied = request.headers.get("x-designagent-admin", "")
+    if not compare_digest(supplied, expected):
+        raise HTTPException(403, "X-Designagent-Admin does not match")
+
+
+#: Task states that mean work would be abandoned by a rebuild. `TaskState.terminal`
+#: covers the other side, but a snapshot is plain JSON by then.
+LIVE_TASK_STATES = ("PENDING", "PROVISIONING", "QUEUED", "RUNNING")
+
+
+def _running_tasks(runtime: Runtime) -> list[str]:
+    return [
+        task["id"]
+        for task in runtime.manager.snapshot()
+        if str(task.get("state")) in LIVE_TASK_STATES
+    ]
+
+
+@app.get("/api/settings")
+async def read_settings(request: Request) -> JSONResponse:
+    return JSONResponse(_settings_view(_runtime(request)))
+
+
+@app.put("/api/settings")
+async def write_settings(request: Request, body: SettingsUpdate) -> JSONResponse:
+    """Apply settings to the running process. Overrides are not persisted.
+
+    A change the pool workers can see needs a new pool, and a new pool needs a new
+    flowgentic integration and compiled graph, so that case rebuilds the runtime.
+    Conversations survive it when checkpoints are on SQLite, which is why the
+    response says whether they are.
+    """
+    runtime = _runtime(request)
+    _authorize_write(request, runtime)
+    values = body.values()
+    if not values:
+        return JSONResponse(_settings_view(runtime))
+
+    busy = _running_tasks(runtime)
+    if busy and not body.force:
+        return JSONResponse(
+            {
+                "applied": False,
+                "reason": "tasks are still running; retry with force=true to "
+                "apply anyway and abandon them",
+                "running": busy,
+            },
+            status_code=409,
+        )
+
+    previous = runtime.settings
+    try:
+        candidate = apply_overrides(values)
+    except ValidationError as exc:
+        raise HTTPException(422, f"invalid settings: {exc.error_count()} problem(s)") from exc
+
+    if needs_rebuild(previous, candidate):
+        runtime = await _rebuild(request.app, candidate, previous)
+        restarted = ["pool", "graph"]
+        if any(name.startswith(("orbit_", "globus_")) for name in values):
+            restarted.append("orbit")
+    else:
+        restarted = await runtime.reconfigure(candidate)
+
+    return JSONResponse(
+        {
+            "applied": True,
+            "restarted": restarted,
+            "sessions_preserved": runtime.persistent_checkpoints,
+            **_settings_view(runtime),
+        }
+    )
+
+
+@app.delete("/api/settings")
+async def reset_settings(request: Request) -> JSONResponse:
+    """Drop every override, returning to what the environment and .env say."""
+    runtime = _runtime(request)
+    _authorize_write(request, runtime)
+    previous = runtime.settings
+    candidate = clear_overrides()
+    if needs_rebuild(previous, candidate):
+        runtime = await _rebuild(request.app, candidate, previous)
+        restarted = ["pool", "graph", "orbit"]
+    else:
+        restarted = await runtime.reconfigure(candidate)
+    return JSONResponse({"applied": True, "restarted": restarted, **_settings_view(runtime)})
+
+
+@app.post("/api/settings/test")
+async def test_settings(request: Request, body: SettingsUpdate) -> JSONResponse:
+    """Validate credentials without storing them.
+
+    The candidate values are layered onto the current settings in a throwaway
+    copy, so a key that turns out to be wrong never becomes the one this process
+    is using.
+    """
+    runtime = _runtime(request)
+    _authorize_write(request, runtime)
+    candidate = runtime.settings.model_copy(update=_coerce(body.values()))
+    return JSONResponse({"probes": await probe_all(candidate)})
+
+
+def _coerce(values: dict[str, Any]) -> dict[str, Any]:
+    """Validate loose JSON into field types without installing anything."""
+    probe = Settings(**values)
+    return {name: getattr(probe, name) for name in values}
+
+
+async def _rebuild(app: FastAPI, candidate: Settings, previous: Settings) -> Runtime:
+    """Replace the whole runtime, falling back to the previous settings.
+
+    The old one is closed first: Kuzu holds an exclusive file lock, so two
+    runtimes cannot overlap on one data directory.
+    """
+    old = app.state.runtime
+    await old.close()
+    try:
+        runtime = await build_runtime(candidate)
+    except Exception as exc:
+        log.exception("rebuilding with the new settings failed; reverting")
+        install_settings(previous)
+        app.state.runtime = await build_runtime(previous)
+        raise HTTPException(500, f"those settings could not be applied: {exc}") from exc
+    app.state.runtime = runtime
+    return runtime
+
+
 # --- health ---------------------------------------------------------------
 
 
@@ -327,6 +565,8 @@ async def health(request: Request) -> JSONResponse:
             "hpc": runtime.manager.hpc_available,
             "flowgentic": runtime.integration is not None,
             "fold_backend": runtime.settings.fold_backend,
+            # Presence, source and last error per credential — never a value.
+            "credentials": _settings_view(runtime)["credentials"],
             "interfaces": {
                 name: {
                     "cancel": iface.capabilities.supports_cancel,
@@ -336,7 +576,7 @@ async def health(request: Request) -> JSONResponse:
                 }
                 for name, iface in runtime.manager.interfaces.items()
             },
-            "notes": runtime.notes,
+            "notes": runtime.live_notes(),
         }
     )
 

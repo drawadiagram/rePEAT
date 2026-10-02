@@ -83,6 +83,48 @@ export interface TaskChip {
   log_tail?: string;
 }
 
+/** A secret, as the server is willing to describe it: never the value. */
+export interface SecretField {
+  present: boolean;
+  hint: string;
+  source: "default" | "env" | "override";
+  last_error?: string;
+}
+
+export interface PlainField {
+  value: string | number | boolean;
+  source: "default" | "env" | "override";
+  last_error?: string;
+}
+
+export type CredentialGroup = Record<string, SecretField | PlainField>;
+
+export interface SettingsView {
+  credentials: Record<string, CredentialGroup>;
+  overrides: string[];
+  hpc_available: boolean;
+  llm_available: boolean;
+  persistent_sessions: boolean;
+}
+
+export interface SettingsApplied extends SettingsView {
+  applied: boolean;
+  restarted?: string[];
+  sessions_preserved?: boolean;
+  /** Present instead of `applied` when tasks are still running. */
+  reason?: string;
+  running?: string[];
+}
+
+export interface ProbeResult {
+  state: "ok" | "absent" | "rejected" | "error" | "skipped";
+  detail: string;
+}
+
+export function isSecret(field: SecretField | PlainField): field is SecretField {
+  return "present" in field;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;

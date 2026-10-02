@@ -176,6 +176,11 @@ class DesignState(TypedDict, total=False):
     molecular_visualization: Annotated[MolVisualization, replace]
     artifacts: Annotated[list[ArtifactRef], merge_artifacts]
     design_summary: Annotated[str, replace]
+    # "llm" or "rules": which path wrote `design_summary`. The reply reads the
+    # same either way, so without this there is no way to tell from the outside
+    # whether a configured key was actually used — which is what the `llm` test
+    # tier measures.
+    summary_source: Annotated[str, replace]
 
     # control
     intent: Annotated[Intent, replace]
@@ -234,6 +239,7 @@ def new_state(session_id: str) -> DesignState:
         molecular_visualization={},
         artifacts=[],
         design_summary="",
+        summary_source="",
         intent="chat",
         round=0,
         session_id=session_id,

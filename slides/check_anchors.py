@@ -30,28 +30,28 @@ ANCHORS: list[tuple[str, int, str]] = [
     ("backend/designagent/graph/state.py", 168, "class DesignState"),
     ("backend/designagent/graph/state.py", 117, "def merge_artifacts"),
     # S7 — the orchestrator's blob write
-    ("backend/designagent/graph/nodes/orchestrator.py", 252,
+    ("backend/designagent/graph/nodes/orchestrator.py", 271,
      'summary["structure_path"] = deps.history.write_blob('),
-    ("backend/designagent/graph/nodes/orchestrator.py", 274, "return Command("),
+    ("backend/designagent/graph/nodes/orchestrator.py", 293, "return Command("),
     # S8 — the task contract
     ("backend/designagent/tasks/base.py", 22, "class TaskState"),
     ("backend/designagent/tasks/base.py", 62, "@dataclass(frozen=True)"),
     ("backend/designagent/tasks/base.py", 92, "@dataclass"),
     ("backend/designagent/tasks/base.py", 135, "class TaskInterface(ABC):"),
     ("backend/designagent/tasks/manager.py", 75, "def interface_for"),
-    ("backend/designagent/tasks/manager.py", 99, "try:"),
+    ("backend/designagent/tasks/manager.py", 111, "try:"),
     # S9 — the substrate
-    ("backend/designagent/runtime.py", 76, "retry = RetryConfig("),
+    ("backend/designagent/runtime.py", 204, "retry = RetryConfig("),
     ("backend/designagent/tasks/local.py", 58, "async def submit"),
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 73,
      "# Try to include aiohttp timeouts if present"),
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 23,
      "max_attempts: int = Field("),
     # S10 — Orbit
-    ("backend/designagent/tasks/hpc/orbit.py", 261, "def _dispatch"),
-    ("backend/designagent/tasks/hpc/orbit.py", 286,
+    ("backend/designagent/tasks/hpc/orbit.py", 286, "def _dispatch"),
+    ("backend/designagent/tasks/hpc/orbit.py", 311,
      "# The terminal event carries state and exit_code but not"),
-    ("backend/designagent/tasks/hpc/orbit.py", 353,
+    ("backend/designagent/tasks/hpc/orbit.py", 378,
      "if state is TaskState.FAILED and not error:"),
     ("backend/designagent/tasks/hpc/base.py", 78, "async def drain_logs"),
     # S11 — Globus
@@ -65,11 +65,11 @@ ANCHORS: list[tuple[str, int, str]] = [
     # S14 — degradation
     ("backend/designagent/graph/nodes/analyst.py", 155,
      "# A storage failure must not lose"),
-    ("backend/designagent/graph/nodes/analyst.py", 374, "def _rank_in_memory"),
+    ("backend/designagent/graph/nodes/analyst.py", 384, "def _rank_in_memory"),
     # S15 — the frontend
-    ("frontend/src/lib/api.ts", 30, 'let buffer = "";'),
+    ("frontend/src/lib/api.ts", 38, 'let buffer = "";'),
     # S17 / B1 — the wrap_nodes deviation
-    ("backend/designagent/config.py", 37,
+    ("backend/designagent/config.py", 65,
      "# Route node bodies through flowgentic's EXECUTION_BLOCK"),
     ("backend/designagent/graph/build.py", 51, "def wrap_node"),
     # B2 — the local Orbit stack
@@ -77,12 +77,18 @@ ANCHORS: list[tuple[str, int, str]] = [
     # Cited in slide body text rather than in a code block's anchor label. These
     # were untracked until an edit to app.py shifted one of them by a line, which
     # nothing caught — a citation is a citation wherever it appears on the slide.
-    ("backend/designagent/app.py", 77, "def _frame"),
+    ("backend/designagent/app.py", 118, "def _frame"),
     ("backend/designagent/tasks/base.py", 146, "async def submit"),
-    ("backend/designagent/runtime.py", 172, 'notes.append(f"Using in-memory checkpoints'),
+    ("backend/designagent/runtime.py", 373, 'notes.append(f"Using in-memory checkpoints'),
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 71, "except Exception:"),
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 75,
      "import aiohttp"),
+    # Found by scanning the deck for every `file:line` it prints, rather than by
+    # trusting this table: these three were cited in CODE_FOR_DECK.md with no
+    # anchor here, so they drifted silently when runtime.py and orbit.py grew.
+    ("backend/designagent/runtime.py", 179, "async def _make_backend"),
+    ("backend/designagent/runtime.py", 208, "retryable_exceptions=(ConnectionError, OSError),"),
+    ("backend/designagent/tasks/hpc/orbit.py", 303, "def _apply_task_status"),
 ]
 
 
