@@ -2,7 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ArtifactPane from "./artifacts/ArtifactPane";
 import ChatPane from "./chat/ChatPane";
 import { fetchHealth, fetchSession, streamChat } from "./lib/api";
-import type { AgentState, ChatMessage, Frame, TaskChip } from "./lib/types";
+import type {
+  AgentState,
+  ChatMessage,
+  Frame,
+  StatusLine,
+  TaskChip,
+  TraceEntry,
+} from "./lib/types";
 import SettingsPanel from "./settings/SettingsPanel";
 
 const SESSION_KEY = "designagent.session";
@@ -19,7 +26,7 @@ export default function App() {
   const [sessionId, setSessionId] = useState(initialSession);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [state, setState] = useState<AgentState>({});
-  const [statuses, setStatuses] = useState<string[]>([]);
+  const [statuses, setStatuses] = useState<StatusLine[]>([]);
   const [tasks, setTasks] = useState<Record<string, TaskChip>>({});
   const [busy, setBusy] = useState(false);
   const [paneOpen, setPaneOpen] = useState(true);
@@ -55,13 +62,18 @@ export default function App() {
       const controller = new AbortController();
       abort.current = controller;
 
+      // Mirrors of what the turn emitted, kept outside React state so the
+      // `finally` below can attach them without racing a re-render.
+      const turnStatuses: StatusLine[] = [];
+      let turnTrace: TraceEntry[] = [];
+
       // Tokens accumulate into a single streaming assistant bubble.
       let streamingIndex: number | null = null;
-      const appendToken = (chunk: string) => {
+      const appendToken = (chunk: string, node?: string) => {
         setMessages((prev) => {
           const next = [...prev];
           if (streamingIndex === null || !next[streamingIndex]?.streaming) {
-            next.push({ role: "assistant", content: chunk, streaming: true });
+            next.push({ role: "assistant", content: chunk, streaming: true, node });
             streamingIndex = next.length - 1;
           } else {
             next[streamingIndex] = {
@@ -75,6 +87,11 @@ export default function App() {
 
       try {
         for await (const frame of streamChat(text, sessionId, controller.signal)) {
+          if (frame.type === "status") {
+            turnStatuses.push({ text: frame.text, node: frame.node });
+          } else if (frame.type === "state" && frame.state.trace) {
+            turnTrace = frame.state.trace;
+          }
           handleFrame(frame, {
             appendToken,
             setMessages,
@@ -93,10 +110,21 @@ export default function App() {
           ]);
         }
       } finally {
-        // Settle the streaming bubble.
-        setMessages((prev) =>
-          prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
-        );
+        // Settle the streaming bubble, and hand this turn's trail and node path
+        // to the reply it explains. They used to be cleared here, which is why a
+        // finished turn could not say how it got there.
+        setMessages((prev) => {
+          const next = prev.map((m) =>
+            m.streaming ? { ...m, streaming: false } : m,
+          );
+          for (let i = next.length - 1; i >= 0; i -= 1) {
+            if (next[i].role === "assistant") {
+              next[i] = { ...next[i], statuses: turnStatuses, trace: turnTrace };
+              break;
+            }
+          }
+          return next;
+        });
         setBusy(false);
         setStatuses([]);
         abort.current = null;
@@ -203,31 +231,48 @@ export default function App() {
 function handleFrame(
   frame: Frame,
   sinks: {
-    appendToken: (chunk: string) => void;
+    appendToken: (chunk: string, node?: string) => void;
     setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
     setState: React.Dispatch<React.SetStateAction<AgentState>>;
-    setStatuses: React.Dispatch<React.SetStateAction<string[]>>;
+    setStatuses: React.Dispatch<React.SetStateAction<StatusLine[]>>;
     setTasks: React.Dispatch<React.SetStateAction<Record<string, TaskChip>>>;
     openPane: () => void;
   },
 ) {
   switch (frame.type) {
     case "token":
-      sinks.appendToken(frame.text);
+      sinks.appendToken(frame.text, frame.node);
       break;
 
     case "message":
-      // Without an LLM the reply arrives whole rather than as tokens.
+      // Without an LLM the reply arrives whole rather than as tokens. `node` and
+      // `source` say which code wrote it; they are what the disclosure shows.
       sinks.setMessages((prev) => {
         const last = prev[prev.length - 1];
-        if (last?.role === "assistant" && last.content === frame.text) return prev;
-        return [...prev, { role: "assistant", content: frame.text }];
+        if (last?.role === "assistant" && last.content === frame.text) {
+          const next = [...prev];
+          next[next.length - 1] = { ...last, node: frame.node, source: frame.source };
+          return next;
+        }
+        return [
+          ...prev,
+          {
+            role: "assistant",
+            content: frame.text,
+            node: frame.node,
+            source: frame.source,
+          },
+        ];
       });
       break;
 
     case "status":
+      // `node` arrives on this frame and used to be dropped here, which left
+      // the progress trail unattributed and then discarded it at end of turn.
       sinks.setStatuses((prev) =>
-        prev[prev.length - 1] === frame.text ? prev : [...prev, frame.text],
+        prev[prev.length - 1]?.text === frame.text
+          ? prev
+          : [...prev, { text: frame.text, node: frame.node }],
       );
       break;
 

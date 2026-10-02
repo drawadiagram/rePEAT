@@ -129,6 +129,14 @@ class TaskManager:
         self._handles[handle.id] = handle
         handle.meta.setdefault("session_id", session_id)
         handle.meta.setdefault("campaign_id", campaign_id)
+        # Read from the context the node wrapper set rather than threading
+        # `node=` through every run_many call site. Empty outside a graph run,
+        # which is how the task tests call this. Imported here, not at module
+        # level: `graph.deps` imports this module, and a local import keeps that
+        # one-way even if trace.py ever grows a package import of its own.
+        from ..graph.trace import current_node
+
+        handle.meta.setdefault("node", current_node.get())
 
         if self.history and campaign_id:
             try:
@@ -211,6 +219,9 @@ class TaskManager:
                 handle.state = TaskState.DONE
                 record = self._record(handle, result, "")
 
+            # One place, after every branch: `elapsed` must stop here or it keeps
+            # counting for as long as the session is open.
+            handle.mark_finished()
             await self._emit(
                 session_id,
                 {"type": "task", "event": "finished", **handle.snapshot()},

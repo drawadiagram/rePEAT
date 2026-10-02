@@ -18,10 +18,13 @@ own node execution and can live without custom-event streaming.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Callable
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command
 
+from . import trace as trace_mod
 from .deps import Deps
 from .nodes.analyst import make_analyst
 from .nodes.coordinator import make_coordinator
@@ -66,6 +69,49 @@ def wrap_node(integration: Any, fn: Callable) -> Callable:
         return fn
 
 
+def traced(name: str, fn: Callable) -> Callable:
+    """Time a node and append its record to the turn's trace.
+
+    The record goes into the node's own state update rather than a module-level
+    accumulator, because several chat sessions share this process and a global
+    would interleave their turns (see graph/trace.py). `current_node` is set for
+    the duration so that code called *by* the node — `TaskManager.submit` — can
+    record who submitted a task without a signature change.
+    """
+
+    async def run(state: DesignState) -> Any:
+        token = trace_mod.current_node.set(name)
+        started = time.perf_counter()
+        try:
+            result = await fn(state)
+        finally:
+            trace_mod.current_node.reset(token)
+        ms = int((time.perf_counter() - started) * 1000)
+
+        if isinstance(result, Command):
+            update = dict(result.update or {})
+            record = trace_mod.entry(name, ms, update, result.goto)
+            update["trace"] = trace_mod.extend(state.get("trace"), record)
+            # Rebuilt rather than mutated, and every field carried over: a
+            # Command this wrapper silently dropped a field from would be a
+            # routing bug, not a tracing one.
+            return Command(
+                goto=result.goto,
+                update=update,
+                graph=result.graph,
+                resume=result.resume,
+            )
+        if isinstance(result, dict):
+            # No node returns a bare dict today; tolerated so an added node
+            # cannot silently fall out of the trace.
+            record = trace_mod.entry(name, ms, result, None)
+            return {**result, "trace": trace_mod.extend(state.get("trace"), record)}
+        log.warning("node %s returned %s; not traced", name, type(result).__name__)
+        return result
+
+    return run
+
+
 def build_graph(
     deps: Deps,
     *,
@@ -107,7 +153,9 @@ def build_graph(
     for name, factory in factories.items():
         builder.add_node(
             name,
-            wrap_node(integration, factory(deps)),
+            # Traced inside the flowgentic wrapper, so the timing is the node
+            # body's own and not the scheduler's.
+            wrap_node(integration, traced(name, factory(deps))),
             destinations=destinations[name],
         )
 

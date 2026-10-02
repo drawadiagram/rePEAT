@@ -24,20 +24,20 @@ ROOT = Path(__file__).resolve().parent.parent
 # (path, line, expected first line) — keep in sync with CODE_FOR_DECK.md.
 ANCHORS: list[tuple[str, int, str]] = [
     # S4 — the loop
-    ("backend/designagent/graph/build.py", 99, "destinations = {"),
+    ("backend/designagent/graph/build.py", 145, "destinations = {"),
     ("backend/designagent/graph/nodes/coordinator.py", 93, "def classify_rules"),
     # S6 — state
-    ("backend/designagent/graph/state.py", 168, "class DesignState"),
+    ("backend/designagent/graph/state.py", 169, "class DesignState"),
     ("backend/designagent/graph/state.py", 117, "def merge_artifacts"),
     # S7 — the orchestrator's blob write
-    ("backend/designagent/graph/nodes/orchestrator.py", 271,
+    ("backend/designagent/graph/nodes/orchestrator.py", 272,
      'summary["structure_path"] = deps.history.write_blob('),
-    ("backend/designagent/graph/nodes/orchestrator.py", 293, "return Command("),
+    ("backend/designagent/graph/nodes/orchestrator.py", 294, "return Command("),
     # S8 — the task contract
     ("backend/designagent/tasks/base.py", 22, "class TaskState"),
     ("backend/designagent/tasks/base.py", 62, "@dataclass(frozen=True)"),
     ("backend/designagent/tasks/base.py", 92, "@dataclass"),
-    ("backend/designagent/tasks/base.py", 135, "class TaskInterface(ABC):"),
+    ("backend/designagent/tasks/base.py", 148, "class TaskInterface(ABC):"),
     ("backend/designagent/tasks/manager.py", 75, "def interface_for"),
     ("backend/designagent/tasks/manager.py", 111, "try:"),
     # S9 — the substrate
@@ -53,7 +53,7 @@ ANCHORS: list[tuple[str, int, str]] = [
      "# The terminal event carries state and exit_code but not"),
     ("backend/designagent/tasks/hpc/orbit.py", 378,
      "if state is TaskState.FAILED and not error:"),
-    ("backend/designagent/tasks/hpc/base.py", 78, "async def drain_logs"),
+    ("backend/designagent/tasks/hpc/base.py", 80, "async def drain_logs"),
     # S11 — Globus
     ("backend/designagent/tasks/hpc/globus.py", 31, "capabilities = Capabilities("),
     ("backend/designagent/tasks/hpc/globus.py", 90, "def _submit_shell"),
@@ -65,20 +65,20 @@ ANCHORS: list[tuple[str, int, str]] = [
     # S14 — degradation
     ("backend/designagent/graph/nodes/analyst.py", 155,
      "# A storage failure must not lose"),
-    ("backend/designagent/graph/nodes/analyst.py", 384, "def _rank_in_memory"),
+    ("backend/designagent/graph/nodes/analyst.py", 394, "def _rank_in_memory"),
     # S15 — the frontend
     ("frontend/src/lib/api.ts", 38, 'let buffer = "";'),
     # S17 / B1 — the wrap_nodes deviation
     ("backend/designagent/config.py", 65,
      "# Route node bodies through flowgentic's EXECUTION_BLOCK"),
-    ("backend/designagent/graph/build.py", 51, "def wrap_node"),
+    ("backend/designagent/graph/build.py", 54, "def wrap_node"),
     # B2 — the local Orbit stack
     ("backend/designagent/tasks/hpc/local_orbit.py", 193, "async def _wait_for_endpoint"),
     # Cited in slide body text rather than in a code block's anchor label. These
     # were untracked until an edit to app.py shifted one of them by a line, which
     # nothing caught — a citation is a citation wherever it appears on the slide.
-    ("backend/designagent/app.py", 118, "def _frame"),
-    ("backend/designagent/tasks/base.py", 146, "async def submit"),
+    ("backend/designagent/app.py", 124, "def _frame"),
+    ("backend/designagent/tasks/base.py", 159, "async def submit"),
     ("backend/designagent/runtime.py", 373, 'notes.append(f"Using in-memory checkpoints'),
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 71, "except Exception:"),
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 75,

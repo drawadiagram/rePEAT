@@ -65,6 +65,8 @@ class RemoteWorkflowInterface(TaskInterface):
         handle.state = state
         if error:
             handle.error = error
+        if state.terminal:
+            handle.mark_finished()
         if handle.future.done():
             return
         if state is TaskState.DONE:

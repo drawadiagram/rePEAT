@@ -27,11 +27,25 @@ log = logging.getLogger(__name__)
 # worth a caveat in the reply; the rest mean something is misconfigured.
 NO_KEY = "no-key"
 
+# LangGraph's own marker for "do not surface this message on the messages stream"
+# (langgraph/pregel/_messages.py). The only way to tell an internal call from a
+# user-facing one once it reaches app.py.
+NOSTREAM_TAG = "langsmith:nostream"
+
 Fallback = Callable[[str], None]
 
 
-def build_llm(settings: Settings | None = None, **kwargs: Any):
-    """Return a ChatAnthropic, or None when no key is configured."""
+def build_llm(settings: Settings | None = None, *, stream: bool = False, **kwargs: Any):
+    """Return a ChatAnthropic, or None when no key is configured.
+
+    `stream=False` tags the call `langsmith:nostream`, which is what keeps it out
+    of the chat. LangGraph's "messages" stream mode emits a whole message on
+    `on_llm_end` whether or not the model streamed, and `app.py` forwards those as
+    `token` frames that the browser appends to the assistant's bubble — so without
+    the tag the intent classifier's JSON and the round planner's JSON are shown to
+    the user as if they were the reply. Only the two user-facing calls (the chat
+    answer and the session summary) pass `stream=True`.
+    """
     settings = settings or get_settings()
     if not settings.llm_available:
         return None
@@ -42,6 +56,9 @@ def build_llm(settings: Settings | None = None, **kwargs: Any):
         "api_key": settings.llm_key,
         "max_tokens": kwargs.pop("max_tokens", settings.max_tokens),
     }
+    if not stream:
+        tags = list(kwargs.pop("tags", []) or [])
+        options["tags"] = [*tags, NOSTREAM_TAG]
     # Only sent when a caller asks for it. This used to default to 0.0, which the
     # current models reject outright — "`temperature` is not supported for
     # claude-sonnet-5-5 at non-default values" — so *every* LLM call failed and
@@ -59,10 +76,16 @@ async def complete(
     *,
     settings: Settings | None = None,
     on_fallback: Fallback | None = None,
+    stream: bool = False,
     **kwargs: Any,
 ) -> str | None:
-    """One-shot completion. Returns None if no LLM is available or it errors."""
-    llm = build_llm(settings, **kwargs)
+    """One-shot completion. Returns None if no LLM is available or it errors.
+
+    `stream` decides whether the text reaches the chat as it is produced; it
+    defaults to False so a new call site cannot leak internal JSON into the
+    conversation by omission.
+    """
+    llm = build_llm(settings, stream=stream, **kwargs)
     if llm is None:
         if on_fallback:
             on_fallback(NO_KEY)

@@ -71,5 +71,5 @@ ok "graph builds"
 
 printf '\n  Environment is good.\n'
 printf '    .venv/bin/python -m designagent --reload   # :8000\n'
-printf '    .venv/bin/python -m pytest -q              # 114 offline tests\n'
+printf '    .venv/bin/python -m pytest -q              # 124 offline tests\n'
 printf '    .venv/bin/python -m pytest -q -m live      # 6 tests, starts a real broker\n\n'

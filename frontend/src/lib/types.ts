@@ -59,6 +59,22 @@ export interface ReferenceDesign {
   literature?: { title?: string; year?: string; doi?: string; relevance?: string }[];
 }
 
+/** One node's contribution to a turn: counters and names, never payloads. */
+export interface TraceEntry {
+  node: string;
+  ms: number;
+  goto?: string;
+  intent?: string;
+  round?: number;
+  reply_source?: string;
+  status?: string;
+  n_messages?: number;
+  n_warnings?: number;
+  n_artifacts?: number;
+  n_ensemble?: number;
+  n_worklist?: number;
+}
+
 export interface AgentState {
   reference_design?: ReferenceDesign;
   key_metric?: KeyMetric;
@@ -70,6 +86,10 @@ export interface AgentState {
   round?: number;
   intent?: string;
   status?: string;
+  /** Which node and function authored the last reply, e.g. "interpreter:llm". */
+  reply_source?: string;
+  /** This turn's node path. Reset every turn, server-side. */
+  trace?: TraceEntry[];
 }
 
 export interface TaskChip {
@@ -125,16 +145,29 @@ export function isSecret(field: SecretField | PlainField): field is SecretField 
   return "present" in field;
 }
 
+/** A progress line with the node that emitted it. */
+export interface StatusLine {
+  text: string;
+  node?: string;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   streaming?: boolean;
+  /** The node that authored it, and the function inside that node. */
+  node?: string;
+  source?: string;
+  /** Kept with the message so a finished turn can still explain itself: the
+   *  progress lines it emitted and the path it took. */
+  statuses?: StatusLine[];
+  trace?: TraceEntry[];
 }
 
 /** One SSE frame from POST /api/chat. */
 export type Frame =
-  | { type: "token"; text: string }
-  | { type: "message"; text: string }
+  | { type: "token"; text: string; node?: string }
+  | { type: "message"; text: string; node?: string; source?: string }
   | { type: "status"; text: string; node?: string }
   | ({ type: "task"; event: string } & Partial<TaskChip> & { text?: string })
   | { type: "state"; node: string; state: AgentState }

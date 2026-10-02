@@ -104,7 +104,7 @@ async def test_the_interpreter_writes_the_summary_itself(llm_settings, deps, stu
         config={"configurable": {"thread_id": "llm-tier"}},
     )
 
-    assert out["summary_source"] == "llm", (
+    assert out["reply_source"] == "interpreter:llm", (
         "the key is configured but the summary came from the rules; "
         f"last error: {deps.last_llm_error!r}"
     )

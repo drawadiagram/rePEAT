@@ -162,6 +162,7 @@ def merge_warnings(left: list[str] | None, right: list[str] | None) -> list[str]
     return out[-20:]
 
 
+
 # --- the state -------------------------------------------------------------
 
 
@@ -176,11 +177,12 @@ class DesignState(TypedDict, total=False):
     molecular_visualization: Annotated[MolVisualization, replace]
     artifacts: Annotated[list[ArtifactRef], merge_artifacts]
     design_summary: Annotated[str, replace]
-    # "llm" or "rules": which path wrote `design_summary`. The reply reads the
-    # same either way, so without this there is no way to tell from the outside
-    # whether a configured key was actually used — which is what the `llm` test
-    # tier measures.
-    summary_source: Annotated[str, replace]
+    # Which node and which function authored the last assistant message, e.g.
+    # "interpreter:_rule_based_summary" or "coordinator:llm". The reply reads the
+    # same whichever path produced it, so without this there is no way to tell
+    # from the outside whether a configured key was used, or to find the code
+    # that wrote a given sentence. Grep the value.
+    reply_source: Annotated[str, replace]
 
     # control
     intent: Annotated[Intent, replace]
@@ -199,6 +201,13 @@ class DesignState(TypedDict, total=False):
     # Raw task records passed from the orchestrator to the analyst for one
     # round. Cleared once the analyst has consumed them.
     pending_results: Annotated[dict[str, Any], replace]
+    # This turn's node path. `replace`, not an accumulating reducer, even though
+    # it grows: an accumulator cannot be reset, because `[*saved, *[]]` keeps the
+    # saved entries, and this must start empty every turn. The wrapper in
+    # `build.py` appends to what it reads instead, which is correct only because
+    # nodes run one at a time here — a fan-out node would need the reducer back,
+    # plus a reset sentinel. See graph/trace.py.
+    trace: Annotated[list[dict], replace]
 
 
 def last_user_text(state: DesignState) -> str:
@@ -239,7 +248,7 @@ def new_state(session_id: str) -> DesignState:
         molecular_visualization={},
         artifacts=[],
         design_summary="",
-        summary_source="",
+        reply_source="",
         intent="chat",
         round=0,
         session_id=session_id,
@@ -249,4 +258,5 @@ def new_state(session_id: str) -> DesignState:
         requested_mutations=[],
         pending_results={},
         warnings=[],
+        trace=[],
     )

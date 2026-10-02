@@ -155,3 +155,31 @@ def test_cancelling_a_finished_task_explains_itself(client, stub_tools):
 
 def test_cancelling_unknown_task_is_404(client):
     assert client.post("/api/tasks/nope/cancel").status_code == 404
+
+
+def test_a_message_frame_names_the_code_that_wrote_it(client, stub_tools):
+    """The question this answers: which node produced this sentence?"""
+    response = client.post(
+        "/api/chat", json={"message": "load PDB 1UBQ", "session_id": "attrib"}
+    )
+    messages = [f for f in _frames(response) if f["type"] == "message"]
+    assert messages, "no reply frame"
+    assert messages[-1]["node"] == "initializer"
+    assert messages[-1]["source"] == "initializer:summary_line"
+
+
+def test_the_turn_trace_reaches_the_client_and_survives_a_reload(client, stub_tools):
+    frames = _frames(
+        client.post(
+            "/api/chat", json={"message": "load PDB 1UBQ", "session_id": "tracer"}
+        )
+    )
+    states = [f for f in frames if f["type"] == "state"]
+    assert any("trace" in f["state"] for f in states)
+
+    # And after a reload, which is where the status trail used to be lost.
+    body = client.get("/api/sessions/tracer").json()
+    trace = body["state"]["trace"]
+    assert [e["node"] for e in trace] == ["coordinator", "initializer"]
+    assert trace[-1]["reply_source"] == "initializer:summary_line"
+    assert body["state"]["reply_source"] == "initializer:summary_line"

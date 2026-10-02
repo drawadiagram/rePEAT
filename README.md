@@ -185,10 +185,32 @@ dropped. Tasks still go through flowgentic to the process pool, which is where
 the parallelism matters. Set `DESIGNAGENT_WRAP_NODES=true` to opt back in and
 lose custom-event streaming.
 
+## Observability
+
+A turn says how it was made. Each node that authors text declares which function wrote it, so a reply
+carries its author rather than just its content:
+
+```
+turn s-7fa2: coordinator(0ms) → initializer(2871ms) → orchestrator(967ms) → analyst(540ms)
+             → orchestrator(932ms) → analyst(309ms) → interpreter(177ms)
+             = 5796ms · reply by interpreter:_rule_based_summary
+```
+
+The same record reaches the browser on the `state` frames and is kept with the message, so the
+collapsible **how this answer was made** under a reply still works after the next turn and after a
+reload. `message` and `token` frames carry the node that produced them; `GET /api/sessions/{id}`
+returns `reply_source` and `trace` for the last turn. `reply_source` values are grep-able —
+`interpreter:_rule_based_summary` is a function name — and `CLAUDE.md` tabulates which function writes
+which sentence.
+
+The trace is counters and node names only, never payloads, and is reset every turn so the checkpoint
+holds one turn's worth. Tasks record the node that submitted them, and a finished task's `elapsed`
+is its duration rather than its age.
+
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q            # 114 tests, offline; stubs replace every tool
+.venv/bin/python -m pytest -q            # 124 tests, offline; stubs replace every tool
 .venv/bin/python -m pytest -q -m live    # 6 tests; starts a real Orbit broker + endpoint
 .venv/bin/python -m pytest -q -m remote  # 5 tests; submits to a real HPC endpoint
 .venv/bin/python -m pytest -q -m llm     # 4 tests; calls Anthropic with a real key

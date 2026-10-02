@@ -31,7 +31,7 @@ with no fallback once it finds a file. Run everything from the repo root.
 cd frontend && npm run dev                      # Vite on :5173, proxies /api
 cd frontend && npm run build                    # tsc -b && vite build
 
-.venv/bin/python -m pytest -q                   # 114 offline tests, no network
+.venv/bin/python -m pytest -q                   # 124 offline tests, no network
 .venv/bin/python -m pytest -q -m live           # 6 live tests; starts a real broker
 .venv/bin/python -m pytest -q -m remote         # 5 tests against a real HPC endpoint
 .venv/bin/python -m pytest -q -m llm            # 4 tests against a real API key
@@ -78,7 +78,7 @@ browser ─SSE─ app.py ── graph/build.py ── nodes ── Deps ── T
 
 **Nodes reach the outside only through `Deps`** (`graph/deps.py`: settings, tasks, history,
 artifacts). Never import a store or an interface into a node. This is convention, not an enforced
-check, and it is the only reason 93 tests run with no network, no process pool and no endpoint — the
+check, and it is the only reason 124 tests run with no network, no process pool and no endpoint — the
 suite hands nodes an in-process `TaskManager` and a `tmp_path` lake.
 
 **Every interface's `submit()` returns immediately with a handle whose `future` resolves later.**
@@ -118,6 +118,26 @@ it `deps.llm_caveat`, which records the reason for `/api/health` and pushes a li
 channel so a degraded turn says so in its reply instead of looking normal. Do not add a permissive
 CORS policy: the settings-write routes are open on loopback precisely because no CORS middleware
 exists, so a cross-origin JSON `PUT` dies at the preflight.
+
+**Every user-visible sentence is attributable.** A node that authors text puts `reply_source` in its
+update — `interpreter:_rule_based_summary`, `coordinator:llm`, `initializer:summary_line` — and the
+value is grep-able straight to the function. `app.py` puts it, and the node, on the `message` frame;
+the `traced()` wrapper in `build.py` records it per node in the `trace` channel. Without this a reply
+reads the same whether a rule or a model wrote it, and the only way to find the code was to grep for
+the sentence. The prose map below says which function writes what.
+
+**The trace is turn-scoped and `replace`, not accumulating.** `graph/trace.py` explains why it lives
+in state (several sessions share the process, so a module-level accumulator would interleave them) and
+why the channel cannot use an appending reducer: `[*saved, *[]]` is `saved`, so the per-turn reset in
+`app.py`'s payload would not reset anything. The wrapper appends to the list it read instead, which is
+correct only because nodes run one at a time — a fan-out node would need a reducer and a reset
+sentinel. Entries hold counters and names, never payloads.
+
+**Only prose may stream to the chat.** `llm.complete(stream=True)` is opt-in and only the two
+user-facing calls pass it; everything else is tagged `langsmith:nostream`. LangGraph's messages stream
+emits a whole message on `on_llm_end` whether or not the model streamed, so an untagged call puts the
+intent classifier's JSON and the round planner's JSON into the assistant's bubble. Invisible without
+a key, which is why it survived this long.
 
 **Routing is `Command(goto=..., update=...)` from the node body**, so the routing decision and the
 state write are one atomic return. `build.py` declares `destinations` per node for validation; the
@@ -179,6 +199,26 @@ a listener thread (hopped with `call_soon_threadsafe`). Its terminal task event 
 `_finish_task_enriched` re-fetches; a FAILED job carries only an exit code, so the reason is
 synthesized. `tasks/hpc/local_orbit.py` stands up a real broker + endpoint for tests — note that
 `--no-auth` disables ingress auth only, and the broker still requires a cert and key.
+
+## Who writes the text the user reads
+
+Needed often enough to write down. With no key every one of these is the rule-based path; the
+`reply_source` column is what a running session reports, and `how this answer was made` in the UI
+shows it under the reply.
+
+| Text | Written by | `reply_source` |
+| --- | --- | --- |
+| `Loaded 1OIL — … Found 5 relevant paper(s).` | inline, `nodes/initializer.py` | `initializer:summary_line` |
+| `I could not identify a protein target from that.` | inline, `nodes/initializer.py` | `initializer:no_target` |
+| `I have no sequence to redesign yet.` | inline, `nodes/orchestrator.py` | `orchestrator:no_sequence` |
+| `Round 1: …` progress line | `_round_line` (`nodes/analyst.py`) | — (a status, not a reply) |
+| a round's task-failure note | `_failure_note` (`nodes/orchestrator.py`) | — (a status) |
+| `There is nothing loaded to display yet.` / `I could not build that view.` | inline, `nodes/analyst.py` | `analyst:nothing_loaded` / `analyst:no_view` |
+| `PDB 1OIL; functional residues in blue` | `_caption` (`tools/molviz_agent.py`), **in a pool worker** | `analyst:molviz:_caption` |
+| the session summary | `_rule_based_summary` (`nodes/interpreter.py`) or the LLM | `interpreter:_rule_based_summary` / `interpreter:llm` |
+| the `Caveats from this run` block | inline, `nodes/interpreter.py`; appended to the summary | — (part of the same message) |
+| a chat answer | `describe_state` (`nodes/coordinator.py`) or the LLM | `coordinator:describe_state` / `coordinator:llm` |
+| the markdown/docx artifact | `summary_markdown` / `summary_docx` (`artifacts/render.py`) | — (an artifact) |
 
 ## Backlog
 

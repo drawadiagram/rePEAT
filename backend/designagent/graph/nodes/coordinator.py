@@ -269,10 +269,16 @@ def make_coordinator(deps: Deps):
                     f"Session state:\n{state_digest(state)}\n\nUser message:\n{text}",
                     settings=deps.settings,
                     on_fallback=llm_caveat(deps, caveats),
+                    # Prose for the user, so it may stream into the chat. The
+                    # classifier above deliberately does not.
+                    stream=True,
                     max_tokens=900,
                 )
-            if not answer:
+            if answer:
+                update["reply_source"] = "coordinator:llm"
+            else:
                 answer = describe_state(state)
+                update["reply_source"] = "coordinator:describe_state"
             update["messages"] = [{"role": "assistant", "content": answer}]
             update["status"] = ""
             if caveats:

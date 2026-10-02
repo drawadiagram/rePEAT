@@ -267,10 +267,10 @@ So treat the science as a demo and the plumbing as the deliverable. The plumbing
   ], M + 0.25, 1.72, 11.8, 0.6, { fontSize: 17, valign: "middle" });
 
   const rows = [
-    ["Tasks return futures, never results", "Every interface's submit() places the work and returns a handle. Nothing in the graph awaits a task at submission time.", "tasks/base.py:146"],
+    ["Tasks return futures, never results", "Every interface's submit() places the work and returns a handle. Nothing in the graph awaits a task at submission time.", "tasks/base.py:159"],
     ["Task duration is not the interface's business", "The same handle covers a 40 ms REST call and a queued batch job. Only the capability flags differ.", "tasks/base.py:62"],
-    ["Status is a stream, not a return value", "Nodes emit progress over LangGraph's custom channel; the manager fans task events onto the same SSE stream.", "graph/deps.py · app.py:118"],
-    ["State holds references, not payloads", "Coordinates go to a content-addressed blob and travel as a path, because every checkpoint is serialized.", "orchestrator.py:271"],
+    ["Status is a stream, not a return value", "Nodes emit progress over LangGraph's custom channel; the manager fans task events onto the same SSE stream.", "graph/deps.py · app.py:124"],
+    ["State holds references, not payloads", "Coordinates go to a content-addressed blob and travel as a path, because every checkpoint is serialized.", "orchestrator.py:272"],
     ["Every layer has a floor", "No key, no endpoint, no graph DB: each degrades to something that still answers, and says so.", "runtime.py · analyst.py:155"],
   ];
   const cw = [3.45, 6.6, 2.28];
@@ -358,7 +358,7 @@ The honest flip side is at the bottom: if the agent were allowed to block, you w
     '  "interpreter":  (END,),',
     '}',
     'builder.add_edge(START, "coordinator")   # the only static edge',
-  ], M, 5.5, 7.4, 1.45, { anchor: "graph/build.py:99–114  ·  VERBATIM" });
+  ], M, 5.5, 7.4, 1.45, { anchor: "graph/build.py:145–162  ·  VERBATIM" });
 
   card(s, M + 7.7, 5.5, 5.13, 1.45, "Why no conditional edges", [
     "A node returns Command(goto=…, update=…): the decision and the state write are one atomic return.",
@@ -479,7 +479,7 @@ Two things in the rail. The rule that nodes only ever reach through Deps is what
     '    intent · round · session_id · goal · status',
     '    warnings:        Annotated[list[str], merge_warnings]',
     '    target_hints · requested_mutations · pending_results',
-  ], M, 1.55, 7.0, 2.55, { anchor: "graph/state.py:168–196  ·  TRIMMED", fs: 10 });
+  ], M, 1.55, 7.0, 2.55, { anchor: "graph/state.py:169–198  ·  TRIMMED", fs: 10 });
 
   card(s, M, 4.25, 7.0, 1.3, "Four reducers, each for a reason", [
     "merge_artifacts — append, dedupe by id, last write wins: the analyst replaces a viz each round.",
@@ -501,7 +501,7 @@ Two things in the rail. The rule that nodes only ever reach through Deps is what
   code(s, [
     'summary["structure_path"] = deps.history.write_blob(',
     '    structure, suffix=".pdb", prefix=summary["design_id"])',
-  ], M + 7.3, 3.15, 5.53, 0.6, { anchor: "orchestrator.py:271–275  ·  TRIMMED", fs: 10 });
+  ], M + 7.3, 3.15, 5.53, 0.6, { anchor: "orchestrator.py:272–276  ·  TRIMMED", fs: 10 });
   code(s, [
     'def test_structures_are_not_carried_in_state(...):',
     '    blob = json.dumps(jsonable(out), default=str)',
@@ -619,7 +619,7 @@ And the bottom right is not a contrived example. ESM Atlas genuinely dropped one
     '    async def result(self, handle)  -> Any',
     '    async def cancel(self, handle)  -> bool',
     '    async def close(self)           -> None',
-  ], M, 1.55, 5.5, 2.1, { anchor: "tasks/base.py:135–173  ·  TRIMMED", fs: 10.5 });
+  ], M, 1.55, 5.5, 2.1, { anchor: "tasks/base.py:148–186  ·  TRIMMED", fs: 10.5 });
 
   code(s, [
     '@dataclass(frozen=True)',
@@ -1357,7 +1357,7 @@ So: is EXECUTION_BLOCK meant to preserve the caller's context? If it is, that is
     '        fn, flow_type=AsyncFlowType.EXECUTION_BLOCK, retry=node_retry_config())',
     '',
     '# build_graph(): integration is set to None unless settings.wrap_nodes',
-  ], M, 4.45, 7.6, 1.5, { anchor: "graph/build.py:38–87  ·  TRIMMED", fs: 10 });
+  ], M, 4.45, 7.6, 1.5, { anchor: "graph/build.py:41–133  ·  TRIMMED", fs: 10 });
 
   card(s, M + 7.9, 4.45, 4.93, 1.5, "What ships", [
     "wrap_nodes=False, the code path kept and documented.",

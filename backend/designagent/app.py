@@ -36,6 +36,7 @@ from .config import (
     overrides,
     secret_values,
 )
+from .graph.trace import summarize
 from .preflight import probe_all
 from .runtime import Runtime, build_runtime, needs_rebuild
 
@@ -55,6 +56,11 @@ UI_STATE_KEYS = (
     "intent",
     "status",
     "warnings",
+    # Which code wrote the last reply, and this turn's node path. Both are how a
+    # finished turn is explained after the fact; without them the UI can show
+    # what the agent said but not how it got there.
+    "reply_source",
+    "trace",
 )
 
 
@@ -138,6 +144,11 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
 
         runtime.manager.subscribe(session_id, sink)
 
+        # This turn's node records, collected off the `updates` stream so the
+        # turn can be logged as one line when it closes. The authoritative copy
+        # is the `trace` state channel; this is a local mirror.
+        trace: list[dict] = []
+
         async def run_graph() -> None:
             config = {
                 "configurable": {"thread_id": session_id},
@@ -156,6 +167,9 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
                 # belongs to the next turn.
                 "pending_results": {},
                 "status": "",
+                # Turn-scoped like pending_results: the checkpoint should hold
+                # this turn's node path, not every turn's.
+                "trace": [],
             }
             try:
                 async for mode, chunk in runtime.app.astream(
@@ -164,7 +178,7 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
                     stream_mode=["messages", "custom", "updates"],
                 ):
                     if mode == "messages":
-                        message, _meta = chunk
+                        message, meta = chunk
                         text = getattr(message, "content", "")
                         if isinstance(text, list):
                             text = "".join(
@@ -173,7 +187,19 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
                                 if isinstance(b, dict)
                             )
                         if text:
-                            await queue.put(_frame("token", {"text": text}))
+                            # LangGraph puts the emitting node in the metadata;
+                            # it used to be destructured and dropped, which left
+                            # streamed text as the one thing on this stream with
+                            # no author.
+                            await queue.put(
+                                _frame(
+                                    "token",
+                                    {
+                                        "text": text,
+                                        "node": (meta or {}).get("langgraph_node", ""),
+                                    },
+                                )
+                            )
                     elif mode == "custom":
                         if isinstance(chunk, dict):
                             await queue.put(
@@ -191,13 +217,31 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
                                     _frame("state", {"node": node, "state": slim})
                                 )
                             # Without an LLM no tokens stream, so send the
-                            # assistant turn explicitly.
+                            # assistant turn explicitly. `node` and `source`
+                            # answer "which code wrote this sentence?" — the
+                            # sibling `state` frame above has always carried the
+                            # node and this one did not.
                             for message in update.get("messages") or []:
                                 content = _content_of(message)
                                 if content:
                                     await queue.put(
-                                        _frame("message", {"text": content})
+                                        _frame(
+                                            "message",
+                                            {
+                                                "text": content,
+                                                "node": node,
+                                                "source": update.get(
+                                                    "reply_source", ""
+                                                ),
+                                            },
+                                        )
                                     )
+                            # Each update carries the whole trace so far (the
+                            # wrapper appends to what it read), so this mirror
+                            # replaces rather than extends — appending would
+                            # repeat every earlier node once per update.
+                            if update.get("trace"):
+                                trace[:] = update["trace"]
             except Exception as exc:
                 log.exception("graph run failed")
                 await queue.put(_frame("error", {"message": str(exc)}))
@@ -211,6 +255,8 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
                 if frame is None:
                     break
                 yield frame
+            # A clean turn used to log nothing at all.
+            log.info("turn %s: %s", session_id, summarize(trace))
             yield _frame("done")
         except asyncio.CancelledError:
             # The browser went away; stop the turn rather than leaking it.

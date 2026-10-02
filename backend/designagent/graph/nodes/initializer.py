@@ -106,6 +106,7 @@ def make_initializer(deps: Deps):
                 goto="__end__",
                 update={
                     "messages": [{"role": "assistant", "content": message}],
+                    "reply_source": "initializer:no_target",
                     "status": "",
                 },
             )
@@ -196,6 +197,7 @@ def make_initializer(deps: Deps):
             "reference_design": reference,
             "status": summary_line,
             "messages": [{"role": "assistant", "content": summary_line}],
+            "reply_source": "initializer:summary_line",
         }
 
         # A bare "load this protein" ends here; a design request continues.

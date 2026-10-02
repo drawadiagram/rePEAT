@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
 import MarkdownView from "../artifacts/MarkdownView";
-import type { ChatMessage, TaskChip } from "../lib/types";
+import type { ChatMessage, StatusLine, TaskChip } from "../lib/types";
 import Composer from "./Composer";
 import TaskChips from "./TaskChips";
+import TurnTrace from "./TurnTrace";
 
 export default function ChatPane({
   messages,
@@ -13,7 +14,7 @@ export default function ChatPane({
   onStop,
 }: {
   messages: ChatMessage[];
-  statuses: string[];
+  statuses: StatusLine[];
   tasks: TaskChip[];
   busy: boolean;
   onSend: (text: string) => void;
@@ -51,6 +52,9 @@ export default function ChatPane({
               )}
               {message.streaming && <span className="caret" />}
             </div>
+            {message.role === "assistant" && !message.streaming && (
+              <TurnTrace message={message} />
+            )}
           </article>
         ))}
 
@@ -58,10 +62,11 @@ export default function ChatPane({
           <div className="status-trail">
             {statuses.slice(-4).map((status, index) => (
               <div
-                key={`${status}-${index}`}
+                key={`${status.text}-${index}`}
                 className={index === statuses.slice(-4).length - 1 ? "status live" : "status"}
               >
-                {status}
+                {status.node && <span className="status-node">{status.node}</span>}
+                {status.text}
               </div>
             ))}
           </div>

@@ -39,6 +39,7 @@ async def _send(app, text, *, session="s1", thread="t1"):
         "session_id": session,
         "pending_results": {},
         "status": "",
+        "trace": [],
     }
     return await app.ainvoke(payload, config=_config(thread))
 
@@ -371,7 +372,7 @@ async def test_a_rejected_key_says_so_instead_of_silently_using_rules(
     assert "the API key was rejected" in deps.last_llm_error
     # The run still produced its work: degradation, not failure.
     assert out["design_summary"]
-    assert out["summary_source"] == "rules"
+    assert out["reply_source"] == "interpreter:_rule_based_summary"
 
 
 class _Unusable:
@@ -379,3 +380,65 @@ class _Unusable:
 
     def __init__(self, ainvoke):
         self.ainvoke = ainvoke
+
+
+# --- the turn's trace ------------------------------------------------------
+
+
+async def test_a_turn_records_the_path_it_took(app, stub_tools):
+    """The question this answers: which node produced the text I just read?"""
+    out = await _send(app, "redesign 1UBQ for stability")
+
+    path = [e["node"] for e in out["trace"]]
+    assert path[0] == "coordinator"
+    assert path[-1] == "interpreter"
+    assert "orchestrator" in path and "analyst" in path
+
+    # Every entry carries its own timing and where it routed next.
+    assert all(isinstance(e["ms"], int) for e in out["trace"])
+    assert out["trace"][0]["goto"] in ("initializer", "orchestrator")
+    assert out["trace"][-1]["goto"] == "end"
+
+    # And the reply is attributed to the function that wrote it.
+    author = [e.get("reply_source") for e in out["trace"] if e.get("reply_source")]
+    assert author[-1] == "interpreter:_rule_based_summary"
+    assert out["reply_source"] == "interpreter:_rule_based_summary"
+
+
+async def test_the_trace_is_turn_scoped(app, stub_tools):
+    """A session's checkpoint holds this turn's path, not every turn's."""
+    await _send(app, "load PDB 1UBQ")
+    # Deliberately not "what is loaded?", which misroutes to design — see
+    # "a question containing a past participle" in plans/BACKLOG.md.
+    out = await _send(app, "what is the lead design?")
+
+    # `_send` mirrors app.py, which resets `trace` the way it resets
+    # pending_results — so turn 2 must not carry turn 1's initializer.
+    assert [e["node"] for e in out["trace"]] == ["coordinator"]
+    assert out["trace"][0]["reply_source"] == "coordinator:describe_state"
+
+
+async def test_a_trace_entry_holds_counters_not_payloads(app, stub_tools):
+    """A trace that quoted what it describes would double every checkpoint."""
+    out = await _send(app, "redesign 1UBQ for stability")
+
+    allowed = {
+        "node", "ms", "goto", "intent", "round", "reply_source", "status",
+        "n_messages", "n_warnings", "n_artifacts", "n_ensemble", "n_worklist",
+    }
+    for entry in out["trace"]:
+        assert set(entry) <= allowed, set(entry) - allowed
+        assert "ATOM  " not in repr(entry)
+
+
+async def test_a_task_records_which_node_submitted_it(app, stub_tools, deps):
+    """Previously inferable only from the task's name, and ambiguous."""
+    await _send(app, "redesign 1UBQ for stability")
+
+    by_node: dict[str, set[str]] = {}
+    for task in deps.tasks.snapshot():
+        by_node.setdefault(task["node"], set()).add(task["task"])
+
+    assert by_node["initializer"] >= {"pdb_lookup", "pdb_structure"}
+    assert "propose_variants" in by_node["orchestrator"]
+    assert "" not in by_node  # nothing escaped the node context

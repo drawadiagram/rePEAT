@@ -105,14 +105,24 @@ class TaskHandle:
     # Byte offsets already streamed, for interfaces that tail logs.
     log_offset: int = 0
     log_tail: str = ""
+    # Set when the task settles, so `elapsed` stops being a stopwatch. Without
+    # it a finished task reported age-since-submission, which grew for as long
+    # as the session stayed open and made its duration meaningless.
+    finished_at: float | None = None
 
     @property
     def elapsed(self) -> float:
-        return time.monotonic() - self.submitted_at
+        """How long the task ran, or has been running."""
+        return (self.finished_at or time.monotonic()) - self.submitted_at
 
     @property
     def done(self) -> bool:
         return self.future.done()
+
+    def mark_finished(self) -> None:
+        """Freeze `elapsed`. Idempotent: a settled task keeps its first time."""
+        if self.finished_at is None:
+            self.finished_at = time.monotonic()
 
     def snapshot(self) -> dict[str, Any]:
         """JSON-safe view for the UI."""
@@ -125,6 +135,9 @@ class TaskHandle:
             "elapsed": round(self.elapsed, 2),
             "error": self.error,
             "log_tail": self.log_tail[-2000:],
+            # Which graph node submitted this. Previously inferable only from
+            # the task's name, and ambiguous where two call sites share one.
+            "node": str(self.meta.get("node", "")),
         }
 
 

@@ -103,19 +103,39 @@ fixed: stripping a trailing `e` before matching would fix the class at the cost 
 positives (`create` → `creat` fires on "creature"). A stem list, or two entries for the verbs that
 matter, is the safe version.
 
-### B4 · `asyncflow.session.*` directories accumulate in the repo root
+### B4 · A question containing a past participle runs a redesign round
+Same root cause as B3, opposite direction: `_has_word` is a prefix match, so **"what is loaded?"**
+matches `load` in `ACTION_WORDS`, which sets `wants_action` and disables the
+`is_question → chat` branch (`coordinator.py`). With a reference in state the turn classifies as
+**design** and runs a full round — folds, scoring, a summary — in answer to a question.
+
+```python
+>>> classify_rules("what is loaded?", state_with_reference)["intent"]
+'design'          # also "which PDB is loaded?", "what did you load?"
+```
+
+Found by a trace test that used that phrasing as a throwaway question
+(`tests/test_graph.py::test_the_trace_is_turn_scoped` now avoids it and says why).
+
+**Why it is not a one-liner.** `load`/`fetch` cannot simply leave `ACTION_WORDS`: they are what makes
+"load a thermostable lipase" (no identifier) bootstrap, and moving the identifier branch above the
+question branch would then swallow "can you load 1OIL?". The shape that works is probably a separate
+`LOAD_WORDS` list consulted by the identifier branch, plus a participle guard on `wants_action`, and
+it needs the classifier table in `tests/test_graph.py` extended with the interrogative forms first.
+
+### B5 · `asyncflow.session.*` directories accumulate in the repo root
 Eight of them at the time of writing. Gitignored, so harmless to the repo, but they make `ls` useless
 and they are never cleaned up. They come from `WorkflowEngine` and are created per run.
 
 **Fix:** point asyncflow at `data/flow/` the way `config.yml` already points its other outputs, if
 the engine supports it; otherwise clean them in `Runtime.aclose()`.
 
-### B5 · Nothing prunes `data/`
+### B6 · Nothing prunes `data/`
 Blobs are content-addressed, so duplicates are free, but nothing ever removes them — the reference
 campaign alone is 5.1 MB across 24 files. Checkpoints, artifacts and the Kuzu WAL grow the same way.
 Fine for development, wrong for anything long-lived.
 
-### B6 · Runtime settings are not persisted
+### B7 · Runtime settings are not persisted
 `PUT /api/settings` and the Settings panel hold values in memory only: a restart returns to `.env`,
 and `GET /api/settings` reports the source so nothing is hidden. That was deliberate — a secrets file
 is a second source of truth and a new thing to leak — but it means a credential typed into the UI has
@@ -124,7 +144,7 @@ to be typed again after a restart, or copied into `.env` by hand.
 **If it becomes annoying:** write the override layer to `data/overrides.json` at 0600 and load it
 below the environment, or offer an "append to .env" action. Not until someone actually wants it.
 
-### B7 · Tier 1 cannot be read while the server is running
+### B8 · Tier 1 cannot be read while the server is running
 Kuzu takes an exclusive file lock. Any out-of-process reader has to copy the database aside first
 (`slides/run_model.py` does). Tiers 2 and 3 are a plain SQLite file and Parquet and read fine in
 place.
@@ -195,9 +215,23 @@ refuses to start without a cert and key. Both are documentation fixes, not code.
 
 ## D — needs investigation
 
-### D1 · The LLM classifier path is unmeasured
+### D1 · A turn is still not recorded anywhere durable
+The per-turn trace lives in state and is reset each turn, so the checkpoint holds the *current* turn
+only: once the next prompt arrives, the previous turn's path is gone. Good enough to explain the
+answer on screen, not enough to compare turns across a session or a restart.
+
+**What blocks the obvious fix.** `record_analysis` keys its row
+`f"{campaign_id}:{kind}:{round_no}"` with `ON CONFLICT DO UPDATE` (`lake/scores.py`), so two turns in
+the same round overwrite each other — a turn is not a concept the lake models. Persisting traces means
+either a turn id in that key or a `Turn` entity in tier 1, and then a route to read them back.
+
+**Also not recoverable:** attribution *within* one message. The interpreter's reply is the summary plus
+an appended caveats block, transmitted as one string with one `reply_source`; and task handles live in
+an in-memory dict, so `/api/tasks` empties on restart while the lake's Task rows persist.
+
+### D2 · The LLM classifier path is unmeasured
 Everything known about routing comes from `classify_rules`: the reported session, the whole reference
-campaign and all 114 offline tests run with `llm: false`. When a key is present, `CLASSIFY_SYSTEM`
+campaign and all 124 offline tests run with `llm: false`. When a key is present, `CLASSIFY_SYSTEM`
 (`coordinator.py`) decides instead and the rules are never consulted — so the phrasings fixed in the
 rule path ("label the active site residues", "run another round") are unverified there.
 
@@ -212,7 +246,7 @@ Already found while wiring that tier, with a key present: `build_llm` passed `te
 with no key, because the call never happened. Fixed in `llm.py`; the lesson is that an unmeasured path
 is not a working path.
 
-### D2 · ESM Atlas drops requests under concurrent load
+### D3 · ESM Atlas drops requests under concurrent load
 One of six round-2 folds came back with no structure (`s-tutp87hw-r2-5`). The campaign absorbed it
 correctly — sequence-only scoring, a warning to the user — so this is not a bug report against us.
 But the fold path has **no retry**, and a 1-in-6 drop rate at a fan-out of 6 is high enough that it

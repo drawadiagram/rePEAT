@@ -269,3 +269,62 @@ def test_test_route_probes_without_storing(client, monkeypatch):
     # Nothing was adopted.
     assert client.runtime.settings.llm_available is False
     assert config_module.overrides() == {}
+
+
+# --- what reaches the chat -------------------------------------------------
+
+
+def test_internal_llm_calls_are_tagged_nostream(monkeypatch):
+    """The classifier's JSON must not be appended to the chat as the reply.
+
+    LangGraph's messages stream emits a whole message on `on_llm_end` whether or
+    not the model streamed, so without this tag `app.py` forwards the intent
+    classifier's and the round planner's JSON as `token` frames.
+    """
+    from designagent import llm as llm_module
+
+    built: list[dict] = []
+
+    class FakeChat:
+        def __init__(self, **kwargs):
+            built.append(kwargs)
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "langchain_anthropic", _module(ChatAnthropic=FakeChat)
+    )
+    settings = Settings(anthropic_api_key=KEY)
+
+    llm_module.build_llm(settings)
+    assert built[-1]["tags"] == [llm_module.NOSTREAM_TAG]
+
+    llm_module.build_llm(settings, stream=True)
+    assert "tags" not in built[-1]
+
+
+def test_temperature_is_only_sent_when_asked(monkeypatch):
+    """claude-sonnet-5-5 rejects a non-default temperature outright."""
+    from designagent import llm as llm_module
+
+    built: list[dict] = []
+
+    class FakeChat:
+        def __init__(self, **kwargs):
+            built.append(kwargs)
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "langchain_anthropic", _module(ChatAnthropic=FakeChat)
+    )
+    llm_module.build_llm(Settings(anthropic_api_key=KEY))
+    assert "temperature" not in built[-1]
+
+    llm_module.build_llm(Settings(anthropic_api_key=KEY), temperature=0.7)
+    assert built[-1]["temperature"] == 0.7
+
+
+def _module(**attrs):
+    import types
+
+    module = types.ModuleType("langchain_anthropic")
+    for name, value in attrs.items():
+        setattr(module, name, value)
+    return module

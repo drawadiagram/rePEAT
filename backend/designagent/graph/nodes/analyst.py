@@ -315,7 +315,12 @@ async def _make_visualization(
     llm_error = str(result.get("llm_error") or "")
     if llm_error:
         deps.note_llm_fallback(llm_error)
-    return {"spec": spec, "artifact": artifact, "llm_error": llm_error}
+    return {
+        "spec": spec,
+        "artifact": artifact,
+        "llm_error": llm_error,
+        "caption_source": str(result.get("caption_source") or ""),
+    }
 
 
 async def _visualize_only(
@@ -330,7 +335,8 @@ async def _visualize_only(
             update={
                 "messages": [
                     {"role": "assistant", "content": "There is nothing loaded to display yet."}
-                ]
+                ],
+                "reply_source": "analyst:nothing_loaded",
             },
         )
 
@@ -345,7 +351,8 @@ async def _visualize_only(
             update={
                 "messages": [
                     {"role": "assistant", "content": "I could not build that view."}
-                ]
+                ],
+                "reply_source": "analyst:no_view",
             },
         )
 
@@ -356,6 +363,9 @@ async def _visualize_only(
             "molecular_visualization": visualization["spec"],
             "artifacts": [visualization["artifact"]],
             "messages": [{"role": "assistant", "content": caption}],
+            # The caption is written in a pool worker, so its generator travels
+            # back in the task result rather than being known here.
+            "reply_source": f"analyst:{visualization.get('caption_source') or 'molviz'}",
             "status": "",
         },
     )

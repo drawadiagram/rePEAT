@@ -288,4 +288,16 @@ async def generate_visualization(
     from ..llm import NO_KEY
 
     error = next((r for r in reasons if r != NO_KEY), "")
-    return {"spec": spec, "llm_used": proposed is not None, "llm_error": error}
+    return {
+        "spec": spec,
+        "llm_used": proposed is not None,
+        "llm_error": error,
+        # Which function wrote the caption the user will read. `sanitize_spec`
+        # keeps the fallback's caption unless the model proposed its own, so a
+        # repaired generation is still the rule-based sentence.
+        "caption_source": (
+            "molviz:llm"
+            if proposed is not None and spec.get("caption") != fallback.get("caption")
+            else "molviz:_caption"
+        ),
+    }

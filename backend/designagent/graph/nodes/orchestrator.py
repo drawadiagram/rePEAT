@@ -100,7 +100,8 @@ def make_orchestrator(deps: Deps):
                             "role": "assistant",
                             "content": "I have no sequence to redesign yet.",
                         }
-                    ]
+                    ],
+                    "reply_source": "orchestrator:no_sequence",
                 },
             )
 

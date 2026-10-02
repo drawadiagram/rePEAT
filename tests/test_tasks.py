@@ -304,3 +304,25 @@ async def test_globus_argv_is_not_shell_interpreted():
     assert "pwned" in result["stdout"]  # echoed as text ...
     assert result["stdout"].count("\n") == 1  # ... on one line, not two commands
     await iface.close()
+
+
+async def test_a_finished_task_stops_counting(deps):
+    """`elapsed` used to be age-at-read, so a finished chip grew all session."""
+    manager = TaskManager()
+    spec = TaskSpec(name="apply_mutations", params={"sequence": "MKV", "mutations": []})
+    records = await manager.run_many([spec], session_id="s", campaign_id="c")
+    assert records[0]["ok"]
+
+    handle = manager.get(records[0]["id"])
+    settled = handle.elapsed
+    await asyncio.sleep(0.05)
+    assert handle.elapsed == settled
+    assert handle.snapshot()["elapsed"] == round(settled, 2)
+
+
+async def test_a_task_outside_a_graph_run_has_no_node(deps):
+    """The node comes from a context var, so this must degrade to empty."""
+    manager = TaskManager()
+    spec = TaskSpec(name="apply_mutations", params={"sequence": "MKV", "mutations": []})
+    records = await manager.run_many([spec], session_id="s", campaign_id="c")
+    assert manager.get(records[0]["id"]).snapshot()["node"] == ""

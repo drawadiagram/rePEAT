@@ -20,16 +20,16 @@ Priority: ★ must show · ○ show if time. ~20 lines is the legible maximum at
 
 | ID | Slide | Source | Lines | Fidelity | Pri |
 |---|---|---|---|---|---|
-| S4-A | 4 | `backend/designagent/graph/build.py:99–114` | 16 | VERBATIM | ★ |
+| S4-A | 4 | `backend/designagent/graph/build.py:145–162` | 16 | VERBATIM | ★ |
 | S4-B | 4 | `backend/designagent/graph/nodes/coordinator.py:93–125` | 20 | TRIMMED | ★ |
-| S6-A | 6 | `backend/designagent/graph/state.py:168–196` | 20 | TRIMMED | ★ |
+| S6-A | 6 | `backend/designagent/graph/state.py:169–198` | 20 | TRIMMED | ★ |
 | S6-B | 6 | `backend/designagent/graph/state.py:117–162` (reducers) | 16 | TRIMMED | ○ |
 | S6-C | 6 | `tests/test_graph.py::test_structures_are_not_carried_in_state` | 12 | TRIMMED | ★ |
-| S7-A | 7 | `backend/designagent/graph/nodes/orchestrator.py:257–277` | 19 | TRIMMED | ★ |
-| S7-B | 7 | `backend/designagent/graph/nodes/orchestrator.py:293–309` | 17 | VERBATIM | ○ |
+| S7-A | 7 | `backend/designagent/graph/nodes/orchestrator.py:258–278` | 19 | TRIMMED | ★ |
+| S7-B | 7 | `backend/designagent/graph/nodes/orchestrator.py:294–310` | 17 | VERBATIM | ○ |
 | S8-A | 8 | `backend/designagent/tasks/base.py:22–34, 62–67, 70–83` | 20 | TRIMMED | ★ |
-| S8-B | 8 | `backend/designagent/tasks/base.py:92–115` (`TaskHandle`) | 18 | TRIMMED | ★ |
-| S8-C | 8 | `backend/designagent/tasks/base.py:135–173` (the ABC) | 20 | TRIMMED | ★★ |
+| S8-B | 8 | `backend/designagent/tasks/base.py:92–120` (`TaskHandle`) | 18 | TRIMMED | ★ |
+| S8-C | 8 | `backend/designagent/tasks/base.py:148–186` (the ABC) | 20 | TRIMMED | ★★ |
 | S8-D | 8 | `backend/designagent/tasks/manager.py:111–128` | 18 | VERBATIM | ★ |
 | S8-E | 8 | `backend/designagent/tasks/manager.py:75–87` (`interface_for`) | 13 | VERBATIM | ○ |
 | S9-A | 9 | `backend/designagent/runtime.py:179–219` | 20 | TRIMMED | ★★ |
@@ -38,7 +38,7 @@ Priority: ★ must show · ○ show if time. ~20 lines is the legible maximum at
 | S9-D | 9 | `refcodes/flowgentic/.../fault_tolerance.py:23–37` (the defaults) | 15 | TRIMMED | ★ |
 | S10-A | 10 | `backend/designagent/tasks/hpc/orbit.py:286–301` | 16 | VERBATIM | ★★ |
 | S10-B | 10 | `backend/designagent/tasks/hpc/orbit.py:303–327` | 20 | TRIMMED | ★★ |
-| S10-C | 10 | `backend/designagent/tasks/hpc/base.py:78–101` (`drain_logs`) | 20 | TRIMMED | ★ |
+| S10-C | 10 | `backend/designagent/tasks/hpc/base.py:80–103` (`drain_logs`) | 20 | TRIMMED | ★ |
 | S10-D | 10 | `backend/designagent/tasks/hpc/orbit.py:363–383` (`_finish_job`) | 20 | TRIMMED | ★ |
 | S11-A | 11 | `backend/designagent/tasks/hpc/globus.py:31–36` (capabilities) | 6 | VERBATIM | ★ |
 | S11-B | 11 | `backend/designagent/tasks/hpc/globus.py:90–104` | 15 | VERBATIM | ★ |
@@ -46,7 +46,7 @@ Priority: ★ must show · ○ show if time. ~20 lines is the legible maximum at
 | S13-A | 13 | `backend/designagent/lake/graph.py:24–51` (the schema) | 20 | TRIMMED | ★ |
 | S13-B | 13 | `backend/designagent/lake/store.py:87–118` | 18 | TRIMMED | ★ |
 | S14-A | 14 | `backend/designagent/graph/nodes/analyst.py:155–184` | 20 | TRIMMED | ★★ |
-| S14-B | 14 | `backend/designagent/graph/nodes/analyst.py:384–390` (`_rank_in_memory`) | 7 | VERBATIM | ★ |
+| S14-B | 14 | `backend/designagent/graph/nodes/analyst.py:394–400` (`_rank_in_memory`) | 7 | VERBATIM | ★ |
 | S15-A | 15 | `frontend/src/lib/api.ts:36–58` | 20 | TRIMMED | ○ |
 | S16-A | 16 | — (shell) | 6 | VERBATIM | ★ |
 | S17-A | 17 | `backend/designagent/config.py:65–68` | 4 | **VERBATIM** | ★★ |
@@ -156,7 +156,7 @@ and LangGraph's streaming are mutually exclusive, and that belongs in its README
 
 Not a complaint, worth saying out loud: offset-based log tailing via `PSIJClient.get_job_status(job_id,
 stdout_offset, stderr_offset)` is the **only** streaming mechanism either backend offers, and it
-works. `drain_logs` (`hpc/base.py:78–101`) is built on it and `tests/test_orbit_local.py:92` proves
+works. `drain_logs` (`hpc/base.py:80–101`) is built on it and `tests/test_orbit_local.py:92` proves
 incremental tailing against a real local endpoint.
 
 ---

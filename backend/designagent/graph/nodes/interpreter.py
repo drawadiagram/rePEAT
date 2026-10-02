@@ -72,11 +72,14 @@ def make_interpreter(deps: Deps):
                     _context(state, related, report),
                     settings=deps.settings,
                     on_fallback=llm_caveat(deps, caveats),
+                    stream=True,   # the session summary is the reply itself
                     max_tokens=1200,
                 )
                 or ""
             )
-        summary_source = "llm" if summary_text else "rules"
+        reply_source = (
+            "interpreter:llm" if summary_text else "interpreter:_rule_based_summary"
+        )
         if not summary_text:
             summary_text = _rule_based_summary(
                 goal, reference, key_metric, lead, ensemble, related, tasks
@@ -177,7 +180,7 @@ def make_interpreter(deps: Deps):
             goto="__end__",
             update={
                 "design_summary": summary_text,
-                "summary_source": summary_source,
+                "reply_source": reply_source,
                 "artifacts": artifacts,
                 "messages": [{"role": "assistant", "content": reply}],
                 "status": "",
