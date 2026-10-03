@@ -3,7 +3,7 @@ import type {
   ArtifactRef,
   Frame,
   ProbeResult,
-  SettingsApplied,
+  SettingsResponse,
   SettingsView,
   TaskChip,
 } from "./types";
@@ -92,7 +92,7 @@ function adminHeaders(admin?: string): Record<string, string> {
 export async function saveSettings(
   values: Record<string, unknown>,
   options: { force?: boolean; admin?: string } = {},
-): Promise<{ ok: boolean; status: number; body: SettingsApplied | { detail?: string } }> {
+): Promise<{ ok: boolean; status: number; body: SettingsResponse }> {
   const response = await fetch("/api/settings", {
     method: "PUT",
     headers: adminHeaders(options.admin),

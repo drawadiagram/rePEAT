@@ -127,14 +127,30 @@ export interface SettingsView {
   persistent_sessions: boolean;
 }
 
+/** `PUT`/`DELETE /api/settings` applied the change and reports what restarted. */
 export interface SettingsApplied extends SettingsView {
-  applied: boolean;
-  restarted?: string[];
-  sessions_preserved?: boolean;
-  /** Present instead of `applied` when tasks are still running. */
-  reason?: string;
-  running?: string[];
+  applied: true;
+  restarted: string[];
+  sessions_preserved: boolean;
 }
+
+/** 409: tasks are still in flight, so the change was not applied. */
+export interface SettingsRefused {
+  applied: false;
+  reason: string;
+  running: string[];
+}
+
+/**
+ * One of three shapes, and they share almost nothing — which is why this is a
+ * union rather than one interface with everything optional. The refusal carries
+ * none of `SettingsView`'s fields, so a single interface made the panel cast its
+ * way through every branch and type-checked a stub that could never arrive.
+ */
+export type SettingsResponse =
+  | SettingsApplied
+  | SettingsRefused
+  | { detail?: string };
 
 export interface ProbeResult {
   state: "ok" | "absent" | "rejected" | "error" | "skipped";

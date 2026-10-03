@@ -123,19 +123,41 @@ question branch would then swallow "can you load 1OIL?". The shape that works is
 `LOAD_WORDS` list consulted by the identifier branch, plus a participle guard on `wants_action`, and
 it needs the classifier table in `tests/test_graph.py` extended with the interrogative forms first.
 
-### B5 · `asyncflow.session.*` directories accumulate in the repo root
+### B5 · A branch switch under the running dev server kills the browser tab
+Cost a session. Vite was serving `wire-user-config-and-secrets`, a `git checkout main` deleted
+`src/settings/SettingsPanel.tsx` and `src/chat/TurnTrace.tsx` underneath it, and the browser applied
+an HMR update for modules whose dependencies had vanished — a dead tab with no error in the server
+log. The vite log is the tell: HMR updates naming files that no longer exist on disk.
+
+**Recovery:** check out the branch the tab was loaded from (or restart the server on the branch you
+want), then **hard-reload**; a soft reload can keep the broken module graph.
+
+**Possible guard:** a `postcheckout` git hook that touches a sentinel, or just a line in the README.
+Not obviously worth automating, but worth knowing, because the symptom points at the browser and the
+cause is in git.
+
+### B6 · The browser tests stop at the Mol* canvas
+`frontend/e2e` asserts the artifact pane opens and the viewer mounts; nothing checks that a structure
+actually renders, that highlights land on the right residues, or that a focus call moves the camera.
+Those are the parts of the visualization path a user would notice first and the tests would not.
+
+**How it could be done:** a Playwright screenshot comparison on a fixed PDB with a fixed view spec,
+or reading back Mol*'s own state through `page.evaluate`. Both are more machinery than the rest of
+this tier, which is why neither is here yet.
+
+### B7 · `asyncflow.session.*` directories accumulate in the repo root
 Eight of them at the time of writing. Gitignored, so harmless to the repo, but they make `ls` useless
 and they are never cleaned up. They come from `WorkflowEngine` and are created per run.
 
 **Fix:** point asyncflow at `data/flow/` the way `config.yml` already points its other outputs, if
 the engine supports it; otherwise clean them in `Runtime.aclose()`.
 
-### B6 · Nothing prunes `data/`
+### B8 · Nothing prunes `data/`
 Blobs are content-addressed, so duplicates are free, but nothing ever removes them — the reference
 campaign alone is 5.1 MB across 24 files. Checkpoints, artifacts and the Kuzu WAL grow the same way.
 Fine for development, wrong for anything long-lived.
 
-### B7 · Runtime settings are not persisted
+### B9 · Runtime settings are not persisted
 `PUT /api/settings` and the Settings panel hold values in memory only: a restart returns to `.env`,
 and `GET /api/settings` reports the source so nothing is hidden. That was deliberate — a secrets file
 is a second source of truth and a new thing to leak — but it means a credential typed into the UI has
@@ -144,7 +166,7 @@ to be typed again after a restart, or copied into `.env` by hand.
 **If it becomes annoying:** write the override layer to `data/overrides.json` at 0600 and load it
 below the environment, or offer an "append to .env" action. Not until someone actually wants it.
 
-### B8 · Tier 1 cannot be read while the server is running
+### B10 · Tier 1 cannot be read while the server is running
 Kuzu takes an exclusive file lock. Any out-of-process reader has to copy the database aside first
 (`slides/run_model.py` does). Tiers 2 and 3 are a plain SQLite file and Parquet and read fine in
 place.

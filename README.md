@@ -214,6 +214,10 @@ is its duration rather than its age.
 .venv/bin/python -m pytest -q -m live    # 6 tests; starts a real Orbit broker + endpoint
 .venv/bin/python -m pytest -q -m remote  # 5 tests; submits to a real HPC endpoint
 .venv/bin/python -m pytest -q -m llm     # 4 tests; calls Anthropic with a real key
+
+cd frontend && npm test                  # 32 tests in jsdom; no servers needed
+cd frontend && npm run test:e2e          # 2 tests in Chromium, canned stream
+cd frontend && E2E_LIVE=1 npm run test:e2e   # ...plus one real round trip
 ```
 
 The offline tier covers the lake tiers, task routing and capabilities,
@@ -235,6 +239,22 @@ where it disagrees with the rules, and checks that the session summary really ca
 from the model. All three tiers are deselected by default (`addopts` in
 `pyproject.toml`), and a marker is the only thing that selects them — naming the
 file alone collects nothing.
+
+### The browser
+
+`npm run build` type-checks; it cannot tell you the page renders. Two layers do:
+
+- **jsdom (`npm test`)** — the SSE reader against byte chunks split mid-JSON and mid-terminator, the
+  frame reducers that turn a stream into chat state, the trace disclosure, the settings panel (its
+  secret input must stay empty and an untouched field must not be sent back as its own masked hint),
+  and Markdown sanitization, since assistant text is model-influenced.
+- **Chromium (`npm run test:e2e`)** — a real page load, a prompt, the reply, the artifact pane and the
+  "how this answer was made" disclosure. The default run replays a canned SSE body through
+  `page.route`, so it needs no backend and no network; `E2E_LIVE=1` adds the real turn. Needs a
+  one-time `npx playwright install chromium`.
+
+Every e2e test fails on an uncaught page error. That is deliberate: the failure these were written
+after was a blank tab, which type-checks and curls perfectly well.
 
 ## Slides
 

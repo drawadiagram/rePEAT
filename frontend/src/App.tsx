@@ -227,8 +227,14 @@ export default function App() {
   );
 }
 
-/** Apply one SSE frame to the UI. */
-function handleFrame(
+/**
+ * Apply one SSE frame to the UI.
+ *
+ * Exported for `frames.test.ts`: this switch is the whole translation from the
+ * wire to what the user sees, and it is the part of the browser path most able
+ * to break without anything failing to compile.
+ */
+export function handleFrame(
   frame: Frame,
   sinks: {
     appendToken: (chunk: string, node?: string) => void;

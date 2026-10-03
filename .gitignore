@@ -11,3 +11,6 @@ cg_logs/
 asyncflow.session.*
 *.egg-info/
 *.tsbuildinfo
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/

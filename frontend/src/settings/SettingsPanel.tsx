@@ -142,28 +142,25 @@ export default function SettingsPanel({
     setMessage("");
     const result = await saveSettings(draft, { force, admin: admin || undefined });
     setBusy("");
-    if (result.status === 409) {
-      const body = result.body as { running?: string[] };
+    const body = result.body;
+    // Narrowed rather than cast: the three response shapes share almost nothing,
+    // so a cast here would have been a guess about which one arrived.
+    if ("running" in body) {
       setNeedsForce(true);
       setMessage(
-        `${body.running?.length ?? 0} task(s) are still running. Applying now abandons them.`,
+        `${body.running.length} task(s) are still running. Applying now abandons them.`,
       );
       return;
     }
-    if (!result.ok) {
-      const body = result.body as { detail?: string };
-      setMessage(body.detail ?? `the server refused the change (${result.status})`);
+    if (!result.ok || !("applied" in body)) {
+      const detail = "detail" in body ? body.detail : undefined;
+      setMessage(detail ?? `the server refused the change (${result.status})`);
       return;
     }
-    const body = result.body as {
-      restarted?: string[];
-      sessions_preserved?: boolean;
-    };
-    const restarted = body.restarted?.length ? body.restarted.join(", ") : "nothing";
-    const sessions =
-      body.sessions_preserved === false
-        ? " Conversations were in memory and are gone."
-        : "";
+    const restarted = body.restarted.length ? body.restarted.join(", ") : "nothing";
+    const sessions = body.sessions_preserved
+      ? ""
+      : " Conversations were in memory and are gone.";
     setMessage(`Applied. Restarted: ${restarted}.${sessions}`);
     setNeedsForce(false);
     await reload();

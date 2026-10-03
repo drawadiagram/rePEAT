@@ -30,6 +30,9 @@ with no fallback once it finds a file. Run everything from the repo root.
 .venv/bin/python -m designagent --check-config --probe   # ...and try each credential
 cd frontend && npm run dev                      # Vite on :5173, proxies /api
 cd frontend && npm run build                    # tsc -b && vite build
+cd frontend && npm test                         # 32 vitest/jsdom tests, no servers
+cd frontend && npm run test:e2e                 # 2 Playwright tests in a real browser
+cd frontend && E2E_LIVE=1 npm run test:e2e      # ...plus one real round trip
 
 .venv/bin/python -m pytest -q                   # 124 offline tests, no network
 .venv/bin/python -m pytest -q -m live           # 6 live tests; starts a real broker
@@ -38,6 +41,13 @@ cd frontend && npm run build                    # tsc -b && vite build
 .venv/bin/python -m pytest tests/test_graph.py::test_design_loop_produces_lead_ensemble_and_artifacts -q
 .venv/bin/ruff check backend tests              # E/F/I, line-length 100
 ```
+
+`npm test` is jsdom only and needs nothing running: it covers the SSE reader's partial-frame buffer,
+`handleFrame`'s reducers, the trace disclosure, the settings panel's refusal to render a secret, and
+Markdown sanitization. `npm run test:e2e` drives Chromium (one-time `npx playwright install
+chromium`) and replays a canned stream through `page.route`, so it is deterministic and needs no
+backend; `E2E_LIVE=1` adds the networked turn. **Every e2e test fails on an uncaught page error** —
+that assertion is the one that catches a dead tab, which `tsc` cannot.
 
 `remote` and `llm` are the validation tiers: each is excluded separately in
 `addopts`, so `-m live` cannot pull in one that needs an allocation or spends
