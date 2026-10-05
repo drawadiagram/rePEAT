@@ -792,7 +792,7 @@ And the red block is the first of the findings. That is verbatim flowgentic. The
     '    if self._loop is None or self._loop.is_closed():',
     '        return',
     '    self._loop.call_soon_threadsafe(fn, *args)',
-  ], M, 5.05, 5.9, 0.95, { anchor: "tasks/hpc/orbit.py:286–290  ·  VERBATIM", fs: 10 });
+  ], M, 5.05, 5.9, 0.95, { anchor: "tasks/hpc/orbit.py:288–292  ·  VERBATIM", fs: 10 });
 
   s.addShape(pres.shapes.RECTANGLE, { x: M + 6.2, y: 1.5, w: 6.63, h: 0.38,
     fill: { color: C.fail }, line: { color: C.fail } });
@@ -809,20 +809,20 @@ And the red block is the first of the findings. That is verbatim flowgentic. The
     '    merged = {**info, **{k: v for k, v in data.items()',
     '                         if v not in (None, "")}}',
   ], M + 6.2, 1.97, 6.63, 1.55,
-    { anchor: "tasks/hpc/orbit.py:311–324  ·  TRIMMED", fs: 10, fill: "3A1F1C" });
+    { anchor: "tasks/hpc/orbit.py:313–326  ·  TRIMMED", fs: 10, fill: "3A1F1C" });
   code(s, [
     'if state is TaskState.FAILED and not error:',
     '    error = (f"exit code {exit_code}" if exit_code not in (None, 0)',
     '             else (data.get("stderr")',
     '                   or handle.log_tail[-500:] or "job failed"))',
   ], M + 6.2, 3.65, 6.63, 0.82,
-    { anchor: "tasks/hpc/orbit.py:378–382  ·  TRIMMED", fs: 10, fill: "3A1F1C" });
+    { anchor: "tasks/hpc/orbit.py:383–388  ·  TRIMMED", fs: 10, fill: "3A1F1C" });
   text(s, "A completed task's result came back empty until the re-fetch. A job that exited 3 " +
     "reported no reason at all — only the code — so FAILED always synthesises an explanation.",
     M + 6.2, 4.6, 6.63, 0.55, { fontSize: 11, color: C.fail });
 
   card(s, M + 6.2, 5.2, 6.63, 1.1, "Proven, and only this far", [
-    "6 tests against a real localhost broker + endpoint: push states, incremental log tailing by offset, a failing job, and cancelling a running one.",
+    "8 tests against a real localhost broker + endpoint: push states, incremental log tailing by offset, a failing job, cancelling a running one, and that a job's stdout comes back whole and unduplicated.",
     "Never run against a scheduler. That is the next real step.",
   ], { fill: C.panel, fs: 10.5 });
   footer(s, "tests/test_orbit_local.py — skipped unless the Orbit CLI scripts are runnable; LocalOrbitStack brings up broker and endpoint as subprocesses.");
@@ -1046,7 +1046,7 @@ The bottom line is a small thing I only noticed when building this deck: only ti
     ["ChemGraph not installed", "the task reports unavailable; nothing else changes", "chemgraph_available()"],
     ["ESM Atlas drops a request", "design survives sequence-only; round scores the rest", `really happened: ${CAMP}-r2-5`],
     ["Tier 1/2 write fails", "warn, rank in memory, tell the user in the reply", "test_lake_write_failure_does_not_lose_the_round"],
-    ["No SQLite checkpointer", "InMemorySaver, with a note on /api/health", "runtime.py:373"],
+    ["No SQLite checkpointer", "InMemorySaver, with a note on /api/health", "runtime.py:374"],
   ];
   const cw = [2.9, 5.0, 4.43];
   const tbl = [["when", "what happens", "evidence"].map(h => ({ text: h,

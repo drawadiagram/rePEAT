@@ -93,6 +93,11 @@ class Settings(BaseSettings):
     orbit_client_name: str = "designagent"
     orbit_poll_interval: float = 2.0
     orbit_connect_timeout: float = 30.0
+    # Ceiling on the stdout a finished job may return. The broker serves the
+    # whole file from a byte offset, so this is our limit rather than the
+    # scheduler's; it has to be generous because stdout is the only channel a
+    # job has for returning a file (see tasks/hpc/artifacts.py).
+    orbit_job_output_max_bytes: int = 4_194_304
 
     # --- Globus Compute ---
     # Implemented and unit-tested with an injected executor; never run against a
@@ -334,6 +339,7 @@ CREDENTIAL_FIELDS: dict[str, tuple[tuple[str, bool], ...]] = {
         ("orbit_account", False),
         ("orbit_queue", False),
         ("orbit_job_duration_sec", False),
+        ("orbit_job_output_max_bytes", False),
     ),
     "globus": (
         ("globus_enabled", False),

@@ -167,3 +167,60 @@ async def test_manager_routes_through_orbit(orbit, tmp_path):
         assert name == "hpc"
     finally:
         history.close()
+
+
+async def test_job_stdout_is_not_duplicated_by_the_log_drain(orbit):
+    """A finished job's stdout holds each line exactly once.
+
+    The regression this pins: `drain_logs` and `_poll_job` tailed the same file
+    from independent cursors and both appended to `handle.log_tail`, which
+    `_finish_job` then returned as the job's output. Every existing assertion
+    here is a substring check, which passes happily on duplicated output.
+    """
+    # The output has to dribble out over several seconds, or the job finishes
+    # before the 1 s poller ever reads a chunk and only the drain writes --
+    # which is why this race hid for so long. 20 lines at 0.3 s spans both.
+    n = 20
+    job = {
+        "executable": "/bin/bash",
+        "arguments": [
+            "-c",
+            f"for i in $(seq 1 {n}); do echo line-$i; sleep 0.3; done",
+        ],
+        "duration_sec": 120,
+    }
+    spec = TaskSpec(name="dup", kind="job", params={"job_spec": job, "executor": "local"})
+    handle = await orbit.submit(spec)
+
+    async def collect(_handle, _text):
+        return None
+
+    # A drain running concurrently with the manager's poller is the production
+    # arrangement: `manager.submit` starts one for every interface that
+    # advertises `supports_log_stream`.
+    drain = asyncio.ensure_future(drain_logs(orbit, handle, collect, interval=0.2))
+    result = await asyncio.wait_for(handle.future, timeout=180)
+    drain.cancel()
+
+    assert result["state"] == "DONE"
+    lines = [ln for ln in (result["stdout"] or "").splitlines() if ln.startswith("line-")]
+    assert len(lines) == n, f"expected {n} lines, got {len(lines)}"
+    assert lines == [f"line-{i}" for i in range(1, n + 1)]
+
+
+async def test_a_large_stdout_payload_survives_intact(orbit):
+    """Stdout is the only way a job can return a file, so it must be exact."""
+    # 1200 x 50 characters, well past the 8000-char UI tail cap.
+    job = {
+        "executable": "/bin/bash",
+        "arguments": ["-c", 'for i in $(seq 1 1200); do printf "%050d\n" "$i"; done'],
+        "duration_sec": 120,
+    }
+    spec = TaskSpec(name="big", kind="job", params={"job_spec": job, "executor": "local"})
+    handle = await orbit.submit(spec)
+    result = await asyncio.wait_for(handle.future, timeout=180)
+
+    assert result["state"] == "DONE"
+    expected = "".join(f"{i:050d}\n" for i in range(1, 1201))
+    assert result["stdout"] == expected
+    assert not result.get("stdout_truncated")

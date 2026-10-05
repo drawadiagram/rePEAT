@@ -99,9 +99,11 @@ class OrbitInterface(RemoteWorkflowInterface):
         poll_interval: float = 2.0,
         connect_timeout: float = 30.0,
         name: str = "designagent",
+        output_max_bytes: int = 4_194_304,
     ):
         super().__init__(poll_interval=poll_interval)
         self._connect_timeout = connect_timeout
+        self._output_max_bytes = output_max_bytes
         self._broker_url = broker_url
         self._endpoint_hint = endpoint
         self._token = token
@@ -334,7 +336,11 @@ class OrbitInterface(RemoteWorkflowInterface):
         if not state.terminal:
             handle.state = state
             return
-        self._finish_job(handle, data, state)
+        # stdout is the only channel a job has for returning data, and the tail
+        # kept for the UI is neither complete nor ordered (see
+        # `_read_whole_stdout`), so the full output is re-read before the future
+        # resolves. Mirrors `_apply_task_status` above.
+        asyncio.ensure_future(self._finish_job_enriched(handle, data, state))
 
     # --- completion ---------------------------------------------------
     def _finish_task(self, handle: TaskHandle, data: dict, state: TaskState) -> None:
@@ -363,25 +369,86 @@ class OrbitInterface(RemoteWorkflowInterface):
     def _finish_job(self, handle: TaskHandle, data: dict, state: TaskState) -> None:
         exit_code = data.get("exit_code")
         error = data.get("error") or ""
-        stdout = data.get("stdout", "")
-        if stdout:
-            handle.log_tail = (handle.log_tail + stdout)[-8000:]
         result = {
             "job_id": handle.id,
             "state": state.value,
             "exit_code": exit_code,
-            "stdout": handle.log_tail,
+            # Whatever the caller resolved, never `handle.log_tail`: that is a
+            # capped UI tail written by the log drain, not the job's output.
+            "stdout": data.get("stdout", ""),
             "stderr": data.get("stderr", ""),
         }
         if state is TaskState.DONE and exit_code not in (None, 0):
             state = TaskState.FAILED
         if state is TaskState.FAILED and not error:
+            # `log_tail` is a last resort and may be empty when no drain ran.
             error = (
                 f"exit code {exit_code}" if exit_code not in (None, 0)
                 else (data.get("stderr") or handle.log_tail[-500:] or "job failed")
             )
         self._settle(handle, state, result, error)
         self._stop_poller(handle.id)
+
+    async def _finish_job_enriched(
+        self, handle: TaskHandle, data: dict, state: TaskState
+    ) -> None:
+        """Resolve a job with its whole stdout, read once from offset zero."""
+        merged = dict(data)
+        stdout, truncated = await self._read_whole_stdout(handle)
+        if stdout:
+            merged["stdout"] = stdout
+            if truncated:
+                merged["stdout_truncated"] = True
+        self._finish_job(handle, merged, state)
+
+    async def _read_whole_stdout(self, handle: TaskHandle) -> tuple[str, bool]:
+        """Read a finished job's stdout in full, from the start.
+
+        The terminal event and the poller each carry only the slice since their
+        own offset, and `handle.log_tail` is worse than partial: the log drain
+        (`hpc/base.py`) and `_poll_job` used to tail the same file from
+        independent cursors, so the same bytes landed twice in arbitrary order.
+        Every assertion on that channel was a substring check, which cannot see
+        duplication. The broker serves the whole file from any offset
+        (`plugin_psij.get_job_status`) and reports its current size, so the
+        honest read is a fresh one from zero.
+        """
+        if self._psij is None:
+            return "", False
+        chunks: list[str] = []
+        total = 0
+        offset = 0
+        while total < self._output_max_bytes:
+            try:
+                info = await asyncio.to_thread(
+                    self._psij.get_job_status, handle.id, offset, 0
+                )
+            except Exception as exc:
+                log.debug("final stdout read for %s failed: %s", handle.id, exc)
+                break
+            chunk = info.get("stdout") or ""
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk.encode())
+            # The reply reports the file size as the next offset; trust it over
+            # our own count so a multi-byte character cannot desynchronise us.
+            nxt = info.get("stdout_offset")
+            if isinstance(nxt, (int, float)):
+                offset = int(nxt)
+                if total >= int(nxt):
+                    break
+            else:
+                offset += len(chunk.encode())
+        text = "".join(chunks)
+        if total >= self._output_max_bytes:
+            log.warning(
+                "job %s stdout exceeded %d bytes; truncating",
+                handle.id,
+                self._output_max_bytes,
+            )
+            return text[: self._output_max_bytes], True
+        return text, False
 
     def _stop_poller(self, task_id: str) -> None:
         poller = self._pollers.pop(task_id, None)
@@ -426,13 +493,15 @@ class OrbitInterface(RemoteWorkflowInterface):
                     continue
                 chunk = info.get("stdout") or ""
                 if chunk:
+                    # Advance our own cursor only. `handle.log_tail` belongs to
+                    # `drain_logs`; writing it here as well duplicated every
+                    # byte, because the two cursors are independent.
                     handle.meta["stdout_offset"] = (
                         handle.meta.get("stdout_offset", 0) + len(chunk.encode())
                     )
-                    handle.log_tail = (handle.log_tail + chunk)[-8000:]
                 state = normalize_state(info.get("state"))
                 if state.terminal:
-                    self._finish_job(handle, info, state)
+                    await self._finish_job_enriched(handle, info, state)
                     return
                 handle.state = state
         except asyncio.CancelledError:

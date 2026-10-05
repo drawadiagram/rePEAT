@@ -16,7 +16,7 @@ when fixed and the rest close up, so refer to issues by their title in commit me
 ## A — correctness and honesty
 
 ### A1 · No HPC endpoint has ever executed a task
-The remote path is proven against a localhost broker only (`tests/test_orbit_local.py`, 6 tests).
+The remote path is proven against a localhost broker only (`tests/test_orbit_local.py`, 8 tests).
 That exercises the client — websocket, plugin sessions, push events, PSI/J offset tailing,
 cancellation — and says nothing about a scheduler, a queue, staging, or an allocation.
 
@@ -32,6 +32,24 @@ PSI/J names its resource fields differently from us and answers **HTTP 500** rat
 unexpected one (`PSIJ_RESOURCE_KEYS` in `orbit.py` now maps them), and the manager's 900 s
 `task_timeout_sec` is shorter than a job's walltime, so a queued job was failed before the scheduler
 started it (`_batch_timeout`).
+
+A third, found the same way and worse than either: **a job's `stdout` came back duplicated.**
+`drain_logs` (`tasks/hpc/base.py`) and `_poll_job` (`tasks/hpc/orbit.py`) tailed the same file from
+independent cursors — `handle.log_offset` and `meta["stdout_offset"]` — and both appended to
+`handle.log_tail`, which `_finish_job` then returned as the job's output, appending the terminal
+event's copy on top. Three writers, so every byte landed up to three times in arbitrary order, then
+got clipped to the last 8000 chars. Reproduce by printing 20 lines at 0.3 s intervals with a drain
+running, which is the production arrangement since `manager.submit` starts one for every interface
+advertising `supports_log_stream`: the result held 60 lines,
+`['line-1', 'line-2', 'line-3', 'line-1', ...]`. Every assertion on that channel was a substring
+check, which cannot see duplication, so it passed throughout. Fixed by making `_finish_job_enriched`
+re-read the whole file once from offset 0 (the broker serves it from any offset and reports its
+size) and by leaving `log_tail` to the drain alone. Pinned by
+`test_job_stdout_is_not_duplicated_by_the_log_drain` and
+`test_a_large_stdout_payload_survives_intact`.
+
+This matters beyond logging: stdout is the **only** channel a job has for returning a file, because
+`outputs` is dropped in transit (**C6**). Anything built on job output had to land on top of this.
 
 ### A2 · The Globus adapter has never met a live endpoint
 `tasks/hpc/globus.py` implements the ABC and is tested with an injected executor

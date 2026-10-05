@@ -35,7 +35,7 @@ cd frontend && npm run test:e2e                 # 2 Playwright tests in a real b
 cd frontend && E2E_LIVE=1 npm run test:e2e      # ...plus one real round trip
 
 .venv/bin/python -m pytest -q                   # 124 offline tests, no network
-.venv/bin/python -m pytest -q -m live           # 6 live tests; starts a real broker
+.venv/bin/python -m pytest -q -m live           # 8 live tests; starts a real broker
 .venv/bin/python -m pytest -q -m remote         # 5 tests against a real HPC endpoint
 .venv/bin/python -m pytest -q -m llm            # 4 tests against a real API key
 .venv/bin/python -m pytest tests/test_graph.py::test_design_loop_produces_lead_ensemble_and_artifacts -q
@@ -65,7 +65,7 @@ question with a measurement in `plans/BACKLOG.md`.
 Changing backend code moves line numbers the deck cites, so run `slides/check_anchors.py` after any
 edit — see Slides below.
 
-`addopts = "-m 'not live'"` in `pyproject.toml` deselects the 6 live tests by default, because they
+`addopts = "-m 'not live'"` in `pyproject.toml` deselects the 8 live tests by default, because they
 start a real broker. `-m live` on the command line overrides it; naming the file alone does not, and
 collects nothing.
 
