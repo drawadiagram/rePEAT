@@ -18,6 +18,19 @@ carries the full reasoning where a `[tool.uv.sources]` block used to be.
 Run `--check` after a pull: it fails with the missing piece named, rather than letting the app die
 deep inside an import.
 
+```bash
+./scripts/setup_mpnn.sh          # real ProteinMPNN (CPU) in .venv-mpnn + refcodes/ProteinMPNN
+./scripts/setup_mpnn.sh --check  # verify, and print the command to export
+```
+
+Optional and deliberately **not** part of `setup.sh`: torch is a ~200 MB download and no offline test
+needs it, so a fresh clone should not pay for it. It pins ProteinMPNN's revision, because
+"whatever main is today" is how `refcodes/` ended up with no recorded revisions. `--check` prints the
+`DESIGNAGENT_MPNN_COMMAND` to export; with `DESIGNAGENT_ORBIT_LOCAL=true` and
+`DESIGNAGENT_ORBIT_JOB_GPUS=0` the `hpc` path then runs the real model on this host through a real
+broker. A 76-residue target takes a few seconds on CPU. It proves the model, not a scheduler, a
+queue, an allocation or a GPU — the local PSI/J executor forks a process (`plans/BACKLOG.md` A1).
+
 `config.yml` in the **current working directory** is read at `import flowgentic` time. Both
 `agent_execution` and `logger` keys must be present — flowgentic does `APP_SETTINGS["logger"]["level"]`
 with no fallback once it finds a file. Run everything from the repo root.

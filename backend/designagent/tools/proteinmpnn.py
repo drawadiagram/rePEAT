@@ -309,7 +309,9 @@ def _mpnn_rationale(record: dict[str, Any]) -> str:
         bits.append(f"score {score:.4f}")
     recovery = record.get("seq_recovery")
     if isinstance(recovery, (int, float)):
-        bits.append(f"{recovery:.0%} identity to the input")
+        # Say which sequence: ProteinMPNN measures recovery against the one in
+        # the backbone it was given, which is not the round's parent design.
+        bits.append(f"{recovery:.0%} identity to the input backbone's sequence")
     return "ProteinMPNN " + ", ".join(bits) if bits else "ProteinMPNN sample"
 
 

@@ -392,7 +392,7 @@ def _adapt_mpnn_records(
         result = record.get("result")
         if not isinstance(result, dict):
             continue
-        fasta = _staged_fasta(deps, result)
+        fasta, fasta_path = _staged_fasta(deps, result)
         if not fasta:
             caveats.append(
                 "ProteinMPNN returned no sequence file"
@@ -423,33 +423,38 @@ def _adapt_mpnn_records(
                 "The ProteinMPNN output declared no model name, so these "
                 "samples cannot be attributed to specific weights."
             )
-        if deps.history is not None:
+        # The manager already stored it; writing it again under a prettier
+        # prefix would put identical bytes on disk twice.
+        if fasta_path:
+            result["fasta_path"] = fasta_path
+        elif deps.history is not None:
             result["fasta_path"] = deps.history.write_blob(
                 fasta, suffix=".fa", prefix=f"mpnn-{campaign_id}-r{round_no}"
             )
-        # The staged bytes are on disk already; drop the inline copy.
+        # Keep only the reference: a round of sequences must not ride in state.
         result.pop("artifacts", None)
 
 
-def _staged_fasta(deps: Deps, result: dict) -> str:
-    """Read the one FASTA a ProteinMPNN job staged back.
+def _staged_fasta(deps: Deps, result: dict) -> tuple[str, str]:
+    """Read the one FASTA a ProteinMPNN job staged back, as (text, blob path).
 
-    The manager turns staged files into blob paths, so these are paths; a raw
-    `bytes` value only appears when no history was attached.
+    The manager turns staged files into blob paths, so these are normally
+    paths and the path is worth keeping; a raw `bytes` value only appears when
+    no history was attached to store it.
     """
     artifacts = result.get("artifacts")
     if not isinstance(artifacts, dict):
-        return ""
+        return "", ""
     for name, value in artifacts.items():
         if not name.endswith((".fa", ".fasta")):
             continue
         if isinstance(value, bytes):
-            return value.decode(errors="replace")
+            return value.decode(errors="replace"), ""
         if isinstance(value, str) and deps.history is not None:
             raw = deps.history.read_blob(value)
             if raw:
-                return raw.decode(errors="replace")
-    return ""
+                return raw.decode(errors="replace"), value
+    return "", ""
 
 
 async def _heuristic_fallback(

@@ -144,6 +144,8 @@ def test_the_adapter_drops_the_input_and_names_mutations():
     assert first["mutations"] == ["P19A"]
     assert first["metrics"]["mpnn_score"] == pytest.approx(0.8521)
     assert "score 0.8521" in first["rationale"]
+    # The baseline is named, because it is not the round's parent design.
+    assert "input backbone" in first["rationale"]
 
 
 def test_the_adapter_reads_provenance_out_of_the_models_own_output():

@@ -51,6 +51,28 @@ size) and by leaving `log_tail` to the drain alone. Pinned by
 This matters beyond logging: stdout is the **only** channel a job has for returning a file, because
 `outputs` is dropped in transit (**C6**). Anything built on job output had to land on top of this.
 
+### A4 · Every ProteinMPNN round redesigns the *reference* backbone
+`_mpnn_job` (`graph/nodes/orchestrator.py`) reads `reference["structure_path"]`, so round 2 and round
+3 re-sample the same original backbone with a different seed rather than building on the round's
+lead. Meanwhile `parent_sequence` *is* the evolving lead, so `mutations` is the delta from the lead
+while ProteinMPNN's own `seq_recovery` is measured against the reference sequence. Both numbers are
+correct and they are not comparable, which is why a finished round can read
+"5 mutations ... 51% identity to the input backbone's sequence".
+
+Measured on a real 3-round 1UBQ run (`model_name=v_48_020`): round 1 designs sat 30-36 substitutions
+from the reference; round 2 designs were 11-15 from their parent but still 33-36 from the reference.
+So the rounds are near-independent samples of one fold, not refinement.
+
+The heuristic path does not have this shape -- `propose_variants` mutates `parent_sequence`, so it
+iterates. The asymmetry was invisible until ProteinMPNN actually ran.
+
+**The choice:** feed each round the lead's own predicted structure
+(`lead_design["structure_path"]`, already written as a blob by the fold step) and a campaign
+iterates; keep the reference and a campaign is a wider sample of one backbone with
+`rmsd_to_reference` still meaningful. Either is defensible, but it should be deliberate and the
+reply should say which. Reproduce with `DESIGNAGENT_ORBIT_LOCAL=true` plus a real
+`DESIGNAGENT_MPNN_COMMAND` and three rounds on one target.
+
 ### A2 · The Globus adapter has never met a live endpoint
 `tasks/hpc/globus.py` implements the ABC and is tested with an injected executor
 (`tests/test_tasks.py::test_globus_interface_runs_with_injected_executor`), which proves the shape

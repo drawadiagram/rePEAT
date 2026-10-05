@@ -1,4 +1,7 @@
 .venv/
+# The optional ProteinMPNN env (scripts/setup_mpnn.sh). uv writes a self-ignoring
+# .gitignore inside it, but do not rely on that: it is ~200 MB of torch.
+.venv-mpnn/
 __pycache__/
 *.pyc
 .env

@@ -306,3 +306,94 @@ async def test_the_manager_turns_staged_files_into_blob_paths(orbit, tmp_path):
         assert Path(path).read_text() == "payload\n"
     finally:
         history.close()
+
+
+# --- real ProteinMPNN, on this host, through the real transport --------------
+
+
+def _helix_pdb(n: int = 30, chain: str = "A") -> str:
+    """An ideal alpha helix with a full N/CA/C/O backbone.
+
+    Synthetic so the test needs no committed structure and no network. The
+    sequences ProteinMPNN returns for a poly-alanine helix are degenerate, which
+    is fine: what is under test is the transport and the adapter, with the real
+    model and real weights at the far end rather than a stub.
+    """
+    import math
+
+    offset = {"N": -0.45, "CA": 0.0, "C": 0.55, "O": 0.75}
+    radius = {"N": 2.2, "CA": 2.3, "C": 2.4, "O": 3.3}
+    rows, serial = [], 1
+    for i in range(1, n + 1):
+        for atom in ("N", "CA", "C", "O"):
+            t = i + offset[atom]
+            ang = math.radians(100.0 * t)
+            r = radius[atom]
+            rows.append(
+                f"ATOM  {serial:5d}  {atom:<3s} ALA {chain}{i:4d}    "
+                f"{r * math.cos(ang):8.3f}{r * math.sin(ang):8.3f}{1.5 * t:8.3f}"
+                f"  1.00 50.00           {atom[0]}"
+            )
+            serial += 1
+    return "\n".join([*rows, "TER", "END"]) + "\n"
+
+
+def _mpnn_command() -> str:
+    """The local CPU install, or a skip naming what is missing."""
+    import shutil
+
+    root = Path(__file__).resolve().parent.parent
+    python = root / ".venv-mpnn" / "bin" / "python"
+    script = root / "refcodes" / "ProteinMPNN" / "protein_mpnn_run.py"
+    if not python.exists() or not script.exists():
+        pytest.skip("ProteinMPNN is not installed; run ./scripts/setup_mpnn.sh")
+    if not shutil.which("sha256sum") or not shutil.which("base64"):
+        pytest.skip("the staging protocol needs base64 and sha256sum")
+    return f"{python} {script}"
+
+
+async def test_real_proteinmpnn_runs_and_its_samples_reach_the_adapter(orbit):
+    """The whole chain, with the real model: stage in, run, stage out, adapt.
+
+    This is what makes a round attributable to specific weights. It says
+    nothing about a scheduler, a queue or a GPU -- the local PSI/J executor
+    forks a process. See plans/BACKLOG.md A1.
+    """
+    from designagent.tools.proteinmpnn import mpnn_job_spec, variants_from_mpnn_fasta
+
+    command = _mpnn_command()
+    structure = _helix_pdb(30)
+    spec_dict = mpnn_job_spec(structure, num_sequences=3, command=command)
+    # This host has no GPU, and the local executor would be asked for one.
+    spec_dict["resources"].pop("gpus", None)
+
+    spec = TaskSpec(
+        name="proteinmpnn",
+        kind="job",
+        params={"job_spec": spec_dict, "executor": "local"},
+    )
+    handle = await orbit.submit(spec)
+    result = await asyncio.wait_for(handle.future, timeout=600)
+
+    assert result["state"] == "DONE", result.get("stderr", "")[-800:]
+    assert not result.get("artifacts_error"), result["artifacts_error"]
+    assert not result.get("artifacts_truncated")
+
+    fasta = next(
+        v.decode() for k, v in result["artifacts"].items() if k.endswith(".fa")
+    )
+    parent = "A" * 30
+    adapted = variants_from_mpnn_fasta(fasta, parent_sequence=parent, requested=3)
+    assert not adapted.get("error"), adapted["error"]
+    assert adapted["n"] == 3
+
+    # Provenance the model itself declared -- a stub could not produce these.
+    assert adapted["provenance"]["model_name"].startswith("v_48_")
+    assert len(adapted["provenance"]["git_hash"]) == 40
+
+    for variant in adapted["variants"]:
+        assert variant["source"] == "proteinmpnn"
+        assert "mpnn_score" in variant["metrics"]
+    # ProteinMPNN redesigns many positions at once; the heuristic table never
+    # emits more than one substitution per variant.
+    assert max(len(v["mutations"]) for v in adapted["variants"]) > 1
