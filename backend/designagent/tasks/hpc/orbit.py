@@ -443,7 +443,9 @@ class OrbitInterface(RemoteWorkflowInterface):
         Only a job that actually framed something is rewritten: for everything
         else `stdout` stays exactly as it came back, byte for byte.
         """
-        got = artifacts.collect(data.get("stdout", ""))
+        got = artifacts.collect(
+            data.get("stdout", ""), max_artifact_bytes=self._artifact_max_bytes
+        )
         if not got.files and not got.skipped and got.declared_files < 0:
             return data
         out = dict(data)

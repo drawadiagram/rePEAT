@@ -442,3 +442,151 @@ async def test_a_task_records_which_node_submitted_it(app, stub_tools, deps):
     assert by_node["initializer"] >= {"pdb_lookup", "pdb_structure"}
     assert "propose_variants" in by_node["orchestrator"]
     assert "" not in by_node  # nothing escaped the node context
+
+
+# --- the ProteinMPNN path, via a fake endpoint ------------------------------
+#
+# The only place the whole chain is provable without a broker: routing to `hpc`,
+# the staged FASTA, the adapter, the metric, and the ranking.
+
+
+def _mpnn_stdout(n: int = 3, *, model: str = "v_48_020") -> str:
+    """What a finished ProteinMPNN job stages back, framed as the protocol does."""
+    import base64
+    import gzip
+    import hashlib
+
+    header = f"model_name={model}, git_hash=deadbeef, " if model else ""
+    lines = [
+        f">1ubq, score=1.0383, global_score=1.0383, designed_chains=['A'], "
+        f"{header}seed=37",
+        REF_SEQ,
+    ]
+    # Each sample mutates a different position, so mutations are multi-position
+    # in aggregate and never collide with the heuristic's single substitutions.
+    for i in range(1, n + 1):
+        seq = list(REF_SEQ)
+        seq[i] = "A" if seq[i] != "A" else "G"
+        seq[i + 20] = "W"
+        lines.append(
+            f">T=0.1, sample={i}, score={0.8 + i / 100:.4f}, "
+            f"global_score=0.9, seq_recovery=0.64"
+        )
+        lines.append("".join(seq))
+    fasta = "\n".join(lines) + "\n"
+
+    raw = fasta.encode()
+    name = base64.urlsafe_b64encode(b"seqs/in.fa").decode().rstrip("=")
+    body = base64.b64encode(gzip.compress(raw)).decode()
+    return "\n".join([
+        f"<<<ORBIT_ARTIFACT name={name} bytes={len(raw)} "
+        f"sha256={hashlib.sha256(raw).hexdigest()}>>>",
+        body,
+        "<<<ORBIT_ARTIFACT_END>>>",
+        f"<<<ORBIT_MANIFEST files=1 bytes={len(raw)} skipped=0>>>",
+    ]) + "\n"
+
+
+@pytest.fixture
+def fake_hpc(deps):
+    """Attach an `hpc` interface that returns a canned job result.
+
+    It goes through `OrbitInterface._demultiplex` so the framing is exercised
+    rather than bypassed; only the broker is replaced.
+    """
+    import asyncio
+
+    from designagent.tasks.base import Capabilities, TaskState
+    from designagent.tasks.hpc.orbit import OrbitInterface
+
+    class FakeOrbit(OrbitInterface):
+        name = "hpc"
+        # No log stream: there is no file to tail, and the drain would only
+        # poll a method that cannot answer.
+        capabilities = Capabilities(
+            supports_cancel=True, supports_push_events=False, supports_staging=True
+        )
+
+        def __init__(self, stdout: str):
+            super().__init__()
+            self.stdout = stdout
+            self.submitted: list[dict] = []
+
+        @property
+        def connected(self) -> bool:
+            return True
+
+        async def submit(self, spec):
+            self.submitted.append(spec.params.get("job_spec") or {})
+            future: asyncio.Future = asyncio.get_running_loop().create_future()
+            handle = self._handle(spec, future, task_id=f"fake-{len(self.submitted)}")
+            handle.state = TaskState.QUEUED
+            data = self._demultiplex(
+                {"state": "DONE", "exit_code": 0, "stdout": self.stdout, "stderr": ""},
+                False,
+            )
+            self._finish_job(handle, data, TaskState.DONE)
+            return handle
+
+        async def close(self) -> None:
+            return None
+
+    iface = FakeOrbit(_mpnn_stdout())
+    deps.tasks.attach_hpc(iface)
+    return iface
+
+
+async def test_a_real_mpnn_job_produces_ranked_designs(app, stub_tools, deps, fake_hpc):
+    out = await _send(app, "redesign 1UBQ to improve thermostability")
+
+    assert out["ensemble"], "the round produced no designs"
+    sources = {d.get("provenance", {}).get("source") for d in out["ensemble"]}
+    assert "proteinmpnn" in sources, sources
+    # The structure travelled with the job rather than as a local path.
+    assert "in.pdb" in fake_hpc.submitted[0]["inputs"]
+    assert fake_hpc.submitted[0]["outputs"] == ["seqs/*.fa"]
+    # mpnn_score reached a metric, which it could not before.
+    assert any("mpnn_score" in d.get("metrics", {}) for d in out["ensemble"])
+    # ProteinMPNN mutates several positions; the heuristic only ever one.
+    assert any(len(d.get("mutations") or []) > 1 for d in out["ensemble"])
+
+
+async def test_the_mpnn_task_is_recorded_as_hpc_in_the_ledger(app, stub_tools, deps, fake_hpc):
+    """The row this whole change exists to make true."""
+    await _send(app, "redesign 1UBQ to improve thermostability")
+    tasks = deps.history.graph.tasks_for_campaign("s1")
+    mpnn = [t for t in tasks if t["name"] == "proteinmpnn"]
+    assert mpnn, [t["name"] for t in tasks]
+    assert mpnn[0]["interface"] == "hpc"
+    assert mpnn[0]["state"] == "DONE"
+
+
+async def test_the_staged_fasta_is_not_carried_in_state(app, stub_tools, deps, fake_hpc):
+    """Same rule as coordinates: a round of sequences travels by blob path."""
+    import json
+
+    out = await _send(app, "redesign 1UBQ to improve thermostability")
+    blob = json.dumps(out, default=str)
+    assert ">T=" not in blob, "FASTA records leaked into state"
+    assert "ORBIT_ARTIFACT" not in blob, "framing leaked into state"
+
+
+async def test_unreadable_mpnn_output_falls_back_and_says_so(app, stub_tools, deps, fake_hpc):
+    """A round the user waited on must not die silently."""
+    fake_hpc.stdout = "ProteinMPNN: CUDA out of memory\n"
+    out = await _send(app, "redesign 1UBQ to improve thermostability")
+
+    assert out["ensemble"], "the round should survive on the heuristic"
+    sources = {d.get("provenance", {}).get("source") for d in out["ensemble"]}
+    assert sources == {"heuristic"} or "heuristic" in sources
+    assert any("ProteinMPNN" in w for w in out["warnings"]), out["warnings"]
+    reply = out["messages"][-1].content
+    assert "No candidate designs were produced" not in reply
+    assert "Caveats from this run" in reply
+
+
+async def test_output_with_no_model_name_is_flagged(app, stub_tools, deps, fake_hpc):
+    """Provenance is read, not assumed, so a run that cannot say is reported."""
+    fake_hpc.stdout = _mpnn_stdout(model="")
+    out = await _send(app, "redesign 1UBQ to improve thermostability")
+    assert any("declared no model name" in w for w in out["warnings"]), out["warnings"]

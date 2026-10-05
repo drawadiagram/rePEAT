@@ -53,7 +53,11 @@ def make_analyst(deps: Deps):
                 "parent_id": parent_id,
                 "mutations": variant.get("mutations")
                 or mutations_between(parent_sequence, variant.get("sequence", "")),
-                "metrics": {},
+                # A generator may arrive with metrics of its own -- ProteinMPNN's
+                # negative log-likelihood is the only source of `mpnn_score`,
+                # which the orchestrator registers as rankable. Seeding this {}
+                # meant that metric could never reach a folded design.
+                "metrics": dict(variant.get("metrics") or {}),
                 "provenance": {
                     "round": round_no,
                     "rationale": variant.get("rationale", ""),
@@ -128,7 +132,14 @@ def make_analyst(deps: Deps):
                             name="score_sequences",
                             params={
                                 "sequences": [
-                                    {"sequence": d["sequence"], "design_id": d["design_id"]}
+                                    {
+                                        "sequence": d["sequence"],
+                                        "design_id": d["design_id"],
+                                        # `score_sequences` maps this onto
+                                        # mpnn_score; dropping it lost the metric.
+                                        **({"score": d["metrics"]["mpnn_score"]}
+                                           if "mpnn_score" in d["metrics"] else {}),
+                                    }
                                     for d in unfolded
                                 ],
                                 "reference_sequence": reference_sequence,

@@ -34,7 +34,7 @@ cd frontend && npm test                         # 32 vitest/jsdom tests, no serv
 cd frontend && npm run test:e2e                 # 2 Playwright tests in a real browser
 cd frontend && E2E_LIVE=1 npm run test:e2e      # ...plus one real round trip
 
-.venv/bin/python -m pytest -q                   # 139 offline tests, no network
+.venv/bin/python -m pytest -q                   # 165 offline tests, no network
 .venv/bin/python -m pytest -q -m live           # 11 live tests; starts a real broker
 .venv/bin/python -m pytest -q -m remote         # 5 tests against a real HPC endpoint
 .venv/bin/python -m pytest -q -m llm            # 4 tests against a real API key
@@ -183,8 +183,27 @@ the brief said "codes a browser-based visualization". Shipping LLM-written JS in
 let a prompt get code into the page. `tools/molviz_agent.py::sanitize_spec` repairs or drops every
 field; a bad generation degrades to a plain cartoon.
 
-With no HPC endpoint attached, `proteinmpnn` falls back to a heuristic proposer that labels its own
-output `"note": "heuristic proposals, not ProteinMPNN samples"`. Keep that label honest.
+With no HPC endpoint attached, `proteinmpnn` falls back to a heuristic proposer. The catalog entry
+stays pointed at `proteinmpnn_local_fallback`, which relabels at the point of substitution — *"no HPC
+endpoint was attached, so the job was never submitted"* — because pointing it straight at
+`propose_variants` made a heuristic round indistinguishable from a real one in the output. Keep that
+label honest.
+
+With an endpoint, the samples are real, and **their provenance is read rather than asserted**:
+`variants_from_mpnn_fasta` lifts `model_name`/`git_hash` out of ProteinMPNN's own FASTA header, and a
+run that declares neither earns a caveat saying so. The cheapest discriminator in a finished round is
+the mutation count — the heuristic only ever emits single substitutions, so a multi-position design
+did not come from the table.
+
+**ProteinMPNN's result has to be adapted before the graph can see it.** A job result is
+`{job_id, state, exit_code, stdout, artifacts}`; `_collect_variants` reads `result["variants"]`.
+`_adapt_mpnn_records` (`nodes/orchestrator.py`) bridges the two so `_collect_variants` stays generic,
+and the adapter itself is a pure function in `tools/proteinmpnn.py` — it cannot live in the task body,
+because on the `hpc` path `_submit_job` reads `params["job_spec"]` and the body never runs. That is
+why `parse_mpnn_fasta` sat with no callers for so long. If a round yields nothing usable the
+orchestrator submits the heuristic proposer as a **fresh** spec rather than ending as "No candidate
+designs were produced" — fresh because `interface_for` pops `_interface` out of the params it is
+given.
 
 **An `hpc` spec must carry a `job_spec`, or the submission is `/bin/true`.** `OrbitInterface._submit_job`
 reads `params["job_spec"]`, and `to_psij_spec({})` defaults the executable; the orchestrator fills it

@@ -30,9 +30,9 @@ ANCHORS: list[tuple[str, int, str]] = [
     ("backend/designagent/graph/state.py", 169, "class DesignState"),
     ("backend/designagent/graph/state.py", 117, "def merge_artifacts"),
     # S7 — the orchestrator's blob write
-    ("backend/designagent/graph/nodes/orchestrator.py", 272,
+    ("backend/designagent/graph/nodes/orchestrator.py", 291,
      'summary["structure_path"] = deps.history.write_blob('),
-    ("backend/designagent/graph/nodes/orchestrator.py", 294, "return Command("),
+    ("backend/designagent/graph/nodes/orchestrator.py", 313, "return Command("),
     # S8 — the task contract
     ("backend/designagent/tasks/base.py", 22, "class TaskState"),
     ("backend/designagent/tasks/base.py", 62, "@dataclass(frozen=True)"),
@@ -63,9 +63,9 @@ ANCHORS: list[tuple[str, int, str]] = [
     ("backend/designagent/lake/graph.py", 24, "_SCHEMA = ["),
     ("backend/designagent/lake/store.py", 87, "def record_task_result"),
     # S14 — degradation
-    ("backend/designagent/graph/nodes/analyst.py", 155,
+    ("backend/designagent/graph/nodes/analyst.py", 166,
      "# A storage failure must not lose"),
-    ("backend/designagent/graph/nodes/analyst.py", 394, "def _rank_in_memory"),
+    ("backend/designagent/graph/nodes/analyst.py", 405, "def _rank_in_memory"),
     # S15 — the frontend
     ("frontend/src/lib/api.ts", 38, 'let buffer = "";'),
     # S17 / B1 — the wrap_nodes deviation

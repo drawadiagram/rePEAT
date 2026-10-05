@@ -17,7 +17,7 @@ from ...llm import complete_json
 from ...tasks.base import TaskSpec
 from ...tasks.registry import describe
 from ...tools.esmfold import ESMATLAS_MAX_LEN, fold_job_spec
-from ...tools.proteinmpnn import mpnn_job_spec
+from ...tools.proteinmpnn import mpnn_job_spec, variants_from_mpnn_fasta
 from ..deps import Deps, llm_caveat, status
 from ..state import DesignState
 
@@ -149,8 +149,6 @@ def make_orchestrator(deps: Deps):
             )
         else:
             hints = reference.get("literature_mutations") or []
-            use_hpc = deps.tasks.hpc_available
-            task_name = "proteinmpnn" if use_hpc else "propose_variants"
             params = {
                 "sequence": parent_sequence,
                 "n": n_variants,
@@ -158,19 +156,17 @@ def make_orchestrator(deps: Deps):
                 "seed": round_no,
                 "structure_path": reference.get("structure_path", ""),
             }
-            if use_hpc:
-                # Without this the remote interface submits `to_psij_spec({})`,
-                # which is `/bin/true` — a job that succeeds and does nothing.
-                params.update(
-                    _job_params(
-                        deps,
-                        mpnn_job_spec(
-                            reference.get("structure_path", ""),
-                            num_sequences=n_variants,
-                        ),
-                    )
-                )
-            work.append(_item(task_name, "hpc" if use_hpc else "local", params))
+            job = None
+            if deps.tasks.hpc_available:
+                # Without a `job_spec` the remote interface submits
+                # `to_psij_spec({})`, which is `/bin/true` — a job that succeeds
+                # and does nothing.
+                job = _mpnn_job(deps, reference, n_variants, caveats)
+            if job is not None:
+                params.update(_job_params(deps, job))
+                work.append(_item("proteinmpnn", "hpc", params))
+            else:
+                work.append(_item("propose_variants", "local", params))
 
         # ChemGraph only when the goal is actually about chemistry.
         if plan and any(
@@ -205,7 +201,27 @@ def make_orchestrator(deps: Deps):
         )
 
         # --- fold every candidate produced ---
+        # A job's result is {job_id, state, exit_code, stdout, artifacts}: the
+        # FASTA has to become variants before `_collect_variants` can see them.
+        _adapt_mpnn_records(
+            deps, records, parent_sequence, caveats, campaign_id, round_no, n_variants
+        )
         variants = _collect_variants(records)
+        if not variants:
+            fallback = await _heuristic_fallback(
+                deps,
+                parent_sequence,
+                reference,
+                n_variants,
+                round_no,
+                session_id,
+                campaign_id,
+                records,
+                caveats,
+            )
+            if fallback:
+                work.append(fallback["item"])
+                variants = fallback["variants"]
         if not variants:
             note = _failure_note(records)
             return Command(
@@ -217,6 +233,9 @@ def make_orchestrator(deps: Deps):
                         {**item, "status": "failed", "error": note} for item in work
                     ],
                     "status": note,
+                    # Without this every caveat gathered above is dropped on
+                    # exactly the turn that owes the user an explanation.
+                    **({"warnings": caveats} if caveats else {}),
                 },
             )
 
@@ -316,6 +335,178 @@ def make_orchestrator(deps: Deps):
 # --- helpers ---------------------------------------------------------------
 
 
+def _mpnn_job(
+    deps: Deps, reference: dict, n_variants: int, caveats: list[str]
+) -> dict[str, Any] | None:
+    """Build the ProteinMPNN job spec, or None to fall back to the heuristic.
+
+    The structure travels with the job as a declared input, so it is read here
+    through `deps.history` -- a blob path means nothing at the far end, and a
+    node must not touch the filesystem itself.
+    """
+    path = reference.get("structure_path", "")
+    if not path or deps.history is None:
+        caveats.append(
+            "No reference structure was available to send to ProteinMPNN, "
+            "so this round used the heuristic proposer."
+        )
+        return None
+    raw = deps.history.read_blob(path)
+    if not raw:
+        caveats.append(
+            "The reference structure could not be read, so this round used "
+            "the heuristic proposer."
+        )
+        return None
+    try:
+        return mpnn_job_spec(
+            raw.decode(errors="replace"),
+            num_sequences=n_variants,
+            sampling_temp=deps.settings.mpnn_sampling_temp,
+            command=deps.settings.mpnn_command,
+            prologue=deps.settings.mpnn_prologue,
+        )
+    except ValueError as exc:
+        caveats.append(f"ProteinMPNN could not be run ({exc}); used the heuristic proposer.")
+        return None
+
+
+def _adapt_mpnn_records(
+    deps: Deps,
+    records: list[dict],
+    parent_sequence: str,
+    caveats: list[str],
+    campaign_id: str,
+    round_no: int,
+    requested: int,
+) -> None:
+    """Turn each ProteinMPNN job's staged FASTA into variants, in place.
+
+    `_collect_variants` stays generic: it reads `result["variants"]`, and this
+    is what puts them there. The FASTA itself goes to a blob, because a round's
+    worth of sequences has no business in a checkpoint.
+    """
+    for record in records:
+        if record.get("task") != "proteinmpnn" or record.get("interface") != "hpc":
+            continue
+        result = record.get("result")
+        if not isinstance(result, dict):
+            continue
+        fasta = _staged_fasta(deps, result)
+        if not fasta:
+            caveats.append(
+                "ProteinMPNN returned no sequence file"
+                + (f" ({result['artifacts_error']})" if result.get("artifacts_error") else "")
+                + "; falling back to the heuristic proposer."
+            )
+            continue
+        adapted = variants_from_mpnn_fasta(
+            fasta, parent_sequence=parent_sequence, requested=requested
+        )
+        if adapted.get("error"):
+            caveats.append(f"ProteinMPNN output could not be read: {adapted['error']}")
+            continue
+        result["variants"] = adapted["variants"]
+        result["method"] = "proteinmpnn"
+        if result.get("artifacts_truncated"):
+            caveats.append(
+                "ProteinMPNN's output was truncated in transit, so fewer "
+                "candidates than requested were read."
+            )
+        if adapted.get("short"):
+            caveats.append(f"ProteinMPNN returned {adapted['short']}.")
+        model = (adapted.get("provenance") or {}).get("model_name")
+        if model:
+            result["model_name"] = model
+        else:
+            caveats.append(
+                "The ProteinMPNN output declared no model name, so these "
+                "samples cannot be attributed to specific weights."
+            )
+        if deps.history is not None:
+            result["fasta_path"] = deps.history.write_blob(
+                fasta, suffix=".fa", prefix=f"mpnn-{campaign_id}-r{round_no}"
+            )
+        # The staged bytes are on disk already; drop the inline copy.
+        result.pop("artifacts", None)
+
+
+def _staged_fasta(deps: Deps, result: dict) -> str:
+    """Read the one FASTA a ProteinMPNN job staged back.
+
+    The manager turns staged files into blob paths, so these are paths; a raw
+    `bytes` value only appears when no history was attached.
+    """
+    artifacts = result.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return ""
+    for name, value in artifacts.items():
+        if not name.endswith((".fa", ".fasta")):
+            continue
+        if isinstance(value, bytes):
+            return value.decode(errors="replace")
+        if isinstance(value, str) and deps.history is not None:
+            raw = deps.history.read_blob(value)
+            if raw:
+                return raw.decode(errors="replace")
+    return ""
+
+
+async def _heuristic_fallback(
+    deps: Deps,
+    parent_sequence: str,
+    reference: dict,
+    n_variants: int,
+    round_no: int,
+    session_id: str,
+    campaign_id: str,
+    records: list[dict],
+    caveats: list[str],
+) -> dict[str, Any] | None:
+    """Run the heuristic proposer after a failed ProteinMPNN round.
+
+    A round the user waited on must not end as "No candidate designs were
+    produced" when there is still something honest to offer. The variants label
+    themselves `heuristic`, and a caveat says what happened.
+    """
+    if not any(r.get("task") == "proteinmpnn" for r in records):
+        return None
+    # Not `_failure_note`: it is worded for a round that is about to end, and
+    # quoting it here tells the user nothing was produced on a turn that did
+    # produce something. The specific reason is already a caveat of its own.
+    for record in records:
+        if record.get("task") == "proteinmpnn" and record.get("error"):
+            caveats.append(f"The ProteinMPNN job failed: {record['error']}")
+            break
+    caveats.append(
+        "This round used the heuristic proposer instead of ProteinMPNN, so its "
+        "designs are single substitutions from a fixed table rather than model "
+        "samples."
+    )
+    # A fresh spec: `interface_for` pops `_interface` from the one above.
+    item = _item("propose_variants", "local", {
+        "sequence": parent_sequence,
+        "n": n_variants,
+        "suggested_mutations": reference.get("literature_mutations") or [],
+        "seed": round_no,
+    })
+    retry = await deps.tasks.run_many(
+        [TaskSpec(
+            name="propose_variants",
+            params={**item["params"], "_interface": "local"},
+            label="propose variants",
+            kind="function",
+        )],
+        session_id=session_id,
+        campaign_id=campaign_id,
+        timeout=deps.settings.task_timeout_sec,
+    )
+    variants = _collect_variants(retry)
+    if not variants:
+        return None
+    return {"item": {**item, "status": "done"}, "variants": variants}
+
+
 def _job_params(deps: Deps, job_spec: dict[str, Any]) -> dict[str, Any]:
     """Carry a job spec and the site's scheduler details to a remote interface.
 
@@ -330,6 +521,13 @@ def _job_params(deps: Deps, job_spec: dict[str, Any]) -> dict[str, Any]:
         spec["account"] = settings.orbit_account
     if settings.orbit_queue:
         spec["queue"] = settings.orbit_queue
+    # How many GPUs a job gets is the site's business too, and omitting the key
+    # is not the same as sending zero: `to_psij_spec` is presence-based, and the
+    # endpoint answers HTTP 500 for a resource field it does not expect.
+    resources = {k: v for k, v in (spec.get("resources") or {}).items() if k != "gpus"}
+    if settings.orbit_job_gpus > 0:
+        resources["gpus"] = settings.orbit_job_gpus
+    spec["resources"] = resources
     return {"job_spec": spec, "executor": settings.orbit_psij_executor}
 
 

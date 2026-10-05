@@ -25,8 +25,8 @@ Priority: ★ must show · ○ show if time. ~20 lines is the legible maximum at
 | S6-A | 6 | `backend/designagent/graph/state.py:169–198` | 20 | TRIMMED | ★ |
 | S6-B | 6 | `backend/designagent/graph/state.py:117–162` (reducers) | 16 | TRIMMED | ○ |
 | S6-C | 6 | `tests/test_graph.py::test_structures_are_not_carried_in_state` | 12 | TRIMMED | ★ |
-| S7-A | 7 | `backend/designagent/graph/nodes/orchestrator.py:258–278` | 19 | TRIMMED | ★ |
-| S7-B | 7 | `backend/designagent/graph/nodes/orchestrator.py:294–310` | 17 | VERBATIM | ○ |
+| S7-A | 7 | `backend/designagent/graph/nodes/orchestrator.py:273–297` | 19 | TRIMMED | ★ |
+| S7-B | 7 | `backend/designagent/graph/nodes/orchestrator.py:313–329` | 17 | VERBATIM | ○ |
 | S8-A | 8 | `backend/designagent/tasks/base.py:22–34, 62–67, 70–83` | 20 | TRIMMED | ★ |
 | S8-B | 8 | `backend/designagent/tasks/base.py:92–120` (`TaskHandle`) | 18 | TRIMMED | ★ |
 | S8-C | 8 | `backend/designagent/tasks/base.py:148–186` (the ABC) | 20 | TRIMMED | ★★ |
@@ -45,8 +45,8 @@ Priority: ★ must show · ○ show if time. ~20 lines is the legible maximum at
 | S12-A | 12 | `backend/designagent/tools/molviz_agent.py:143–154` | 12 | TRIMMED | ○ |
 | S13-A | 13 | `backend/designagent/lake/graph.py:24–51` (the schema) | 20 | TRIMMED | ★ |
 | S13-B | 13 | `backend/designagent/lake/store.py:87–118` | 18 | TRIMMED | ★ |
-| S14-A | 14 | `backend/designagent/graph/nodes/analyst.py:155–184` | 20 | TRIMMED | ★★ |
-| S14-B | 14 | `backend/designagent/graph/nodes/analyst.py:394–400` (`_rank_in_memory`) | 7 | VERBATIM | ★ |
+| S14-A | 14 | `backend/designagent/graph/nodes/analyst.py:166–195` | 20 | TRIMMED | ★★ |
+| S14-B | 14 | `backend/designagent/graph/nodes/analyst.py:405–411` (`_rank_in_memory`) | 7 | VERBATIM | ★ |
 | S15-A | 15 | `frontend/src/lib/api.ts:36–58` | 20 | TRIMMED | ○ |
 | S16-A | 16 | — (shell) | 6 | VERBATIM | ★ |
 | S17-A | 17 | `backend/designagent/config.py:65–68` | 4 | **VERBATIM** | ★★ |

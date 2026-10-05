@@ -92,7 +92,9 @@ def fold_job_spec(sequence: str, *, name: str = "fold") -> dict[str, Any]:
         ],
         "stdin_text": f">query\n{sequence}\n",
         "outputs": ["model.pdb"],
-        "resources": {"node_count": 1, "processes": 1, "gpus": 1},
+        # GPUs come from settings via `_job_params`: how many a site will
+        # give a job is not something this module can know.
+        "resources": {"node_count": 1, "processes": 1},
         "duration_sec": 1800,
     }
 

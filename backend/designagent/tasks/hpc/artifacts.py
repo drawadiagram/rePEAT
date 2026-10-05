@@ -37,6 +37,7 @@ from __future__ import annotations
 import base64
 import gzip
 import hashlib
+import io
 import logging
 import re
 import shlex
@@ -83,6 +84,22 @@ class ArtifactSet:
 
     def text(self, name: str, encoding: str = "utf-8") -> str:
         return self.files[name].decode(encoding, errors="replace")
+
+
+def _inflate(payload: str, limit: int) -> bytes:
+    """Decompress a framed payload, refusing to expand past `limit`.
+
+    The bytes come from a job's stdout, so the compression ratio is not ours to
+    trust: a few KB of base64 can describe gigabytes. Reading `limit + 1` and
+    rejecting a full buffer bounds the allocation without having to believe the
+    declared size first.
+    """
+    raw = base64.b64decode(payload, validate=False)
+    with gzip.GzipFile(fileobj=io.BytesIO(raw)) as fh:
+        out = fh.read(limit + 1)
+    if len(out) > limit:
+        raise ValueError(f"expands past {limit} bytes")
+    return out
 
 
 def _b64name(name: str) -> str:
@@ -211,8 +228,13 @@ def wrap(
 # --- reading ----------------------------------------------------------------
 
 
-def collect(stdout: str) -> ArtifactSet:
-    """Read framed artifacts back out of a job's stdout. Never raises."""
+def collect(stdout: str, *, max_artifact_bytes: int = ARTIFACT_MAX_BYTES) -> ArtifactSet:
+    """Read framed artifacts back out of a job's stdout. Never raises.
+
+    `max_artifact_bytes` bounds what a single frame may expand to. The job wrote
+    these frames, so neither the declared size nor the compression ratio is
+    trustworthy on its own.
+    """
     out = ArtifactSet()
     if not stdout:
         return out
@@ -220,16 +242,30 @@ def collect(stdout: str) -> ArtifactSet:
     noise: list[str] = []
     pending: tuple[str, int, str] | None = None
     payload: list[str] = []
+    skipping = False
 
     for line in stdout.splitlines():
+        if skipping:
+            # Swallow a refused frame's payload rather than reading it as log.
+            if line == ARTIFACT_END:
+                skipping = False
+            continue
         if pending is None:
             begin = _BEGIN_RE.match(line)
             if begin:
-                pending = (
-                    _unb64name(begin.group(1)),
-                    int(begin.group(2)),
-                    begin.group(3),
-                )
+                name = _unb64name(begin.group(1))
+                size = int(begin.group(2))
+                if size > max_artifact_bytes:
+                    # Refuse before reading the payload at all.
+                    out.skipped.append({
+                        "name": name,
+                        "bytes": size,
+                        "reason": "declared_over_limit",
+                    })
+                    pending = None
+                    skipping = True
+                    continue
+                pending = (name, size, begin.group(3))
                 payload = []
                 continue
             skipped = _SKIPPED_RE.match(line)
@@ -252,7 +288,7 @@ def collect(stdout: str) -> ArtifactSet:
             name, size, digest = pending
             pending = None
             try:
-                raw = gzip.decompress(base64.b64decode("".join(payload)))
+                raw = _inflate("".join(payload), max_artifact_bytes)
             except Exception as exc:
                 out.error = f"{name}: could not decode ({exc})"
                 continue

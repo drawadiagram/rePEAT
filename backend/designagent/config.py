@@ -100,6 +100,20 @@ class Settings(BaseSettings):
     orbit_job_output_max_bytes: int = 4_194_304
     # Ceiling on any single file a job stages back through that channel.
     orbit_artifact_max_bytes: int = 1_048_576
+    # GPUs to request per job. 0 omits the key entirely rather than sending a
+    # zero: `to_psij_spec` is presence-based, and the endpoint answers HTTP 500
+    # for a resource field it does not expect, so a guess is expensive.
+    orbit_job_gpus: int = 1
+
+    # --- ProteinMPNN ---
+    # A command string, not a path, so one field spells both a local CPU install
+    # (".venv-mpnn/bin/python refcodes/ProteinMPNN/protein_mpnn_run.py") and a
+    # site's own ("python /sw/ProteinMPNN/protein_mpnn_run.py").
+    mpnn_command: str = "protein_mpnn_run.py"
+    # Shell run before the command at the far end, e.g. "module load conda &&
+    # conda activate proteinmpnn".
+    mpnn_prologue: str = ""
+    mpnn_sampling_temp: float = 0.1
 
     # --- Globus Compute ---
     # Implemented and unit-tested with an injected executor; never run against a
@@ -343,6 +357,12 @@ CREDENTIAL_FIELDS: dict[str, tuple[tuple[str, bool], ...]] = {
         ("orbit_job_duration_sec", False),
         ("orbit_job_output_max_bytes", False),
         ("orbit_artifact_max_bytes", False),
+        ("orbit_job_gpus", False),
+    ),
+    "mpnn": (
+        ("mpnn_command", False),
+        ("mpnn_prologue", False),
+        ("mpnn_sampling_temp", False),
     ),
     "globus": (
         ("globus_enabled", False),

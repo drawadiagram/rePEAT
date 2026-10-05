@@ -31,6 +31,12 @@ class TaskDef:
     description: str
     # Where the result belongs, for the analyst's dispatch.
     produces: str = "data"  # data | designs | structure | visualization
+    # Whether the LLM planner may ask for this task. False for the job-only
+    # entries: the orchestrator picks those from endpoint availability
+    # (`hpc_available`) and never consults `plan["tasks"]` for them, so offering
+    # them is a surface that cannot be acted on. Must stay last with a default --
+    # `tests/conftest.py` builds TaskDef positionally.
+    planner_selectable: bool = True
 
 
 CATALOG: dict[str, TaskDef] = {
@@ -91,11 +97,13 @@ CATALOG: dict[str, TaskDef] = {
         "fold_sequence_hpc", esmfold.fold_sequence, "hpc",
         "Predict a structure on an HPC endpoint (large proteins, batches).",
         produces="structure",
+        planner_selectable=False,
     ),
     "proteinmpnn": TaskDef(
-        "proteinmpnn", proteinmpnn.propose_variants, "hpc",
+        "proteinmpnn", proteinmpnn.proteinmpnn_local_fallback, "hpc",
         "Run ProteinMPNN on an HPC endpoint to sample redesigned sequences.",
         produces="designs",
+        planner_selectable=False,
     ),
 }
 
@@ -105,10 +113,17 @@ def get(name: str) -> TaskDef | None:
 
 
 def describe(interfaces: set[str] | None = None) -> str:
-    """A catalog listing for the orchestrator's prompt."""
+    """A catalog listing for the orchestrator's prompt.
+
+    Only what the planner can actually choose. A job-only entry is selected from
+    endpoint availability rather than from the plan, so listing it invites a
+    request that is silently ignored.
+    """
     lines = []
     for task in CATALOG.values():
         if interfaces and task.interface not in interfaces:
+            continue
+        if not task.planner_selectable:
             continue
         lines.append(f"- {task.name} ({task.interface}): {task.description}")
     return "\n".join(lines)

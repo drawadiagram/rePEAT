@@ -270,8 +270,8 @@ So treat the science as a demo and the plumbing as the deliverable. The plumbing
     ["Tasks return futures, never results", "Every interface's submit() places the work and returns a handle. Nothing in the graph awaits a task at submission time.", "tasks/base.py:159"],
     ["Task duration is not the interface's business", "The same handle covers a 40 ms REST call and a queued batch job. Only the capability flags differ.", "tasks/base.py:62"],
     ["Status is a stream, not a return value", "Nodes emit progress over LangGraph's custom channel; the manager fans task events onto the same SSE stream.", "graph/deps.py · app.py:124"],
-    ["State holds references, not payloads", "Coordinates go to a content-addressed blob and travel as a path, because every checkpoint is serialized.", "orchestrator.py:272"],
-    ["Every layer has a floor", "No key, no endpoint, no graph DB: each degrades to something that still answers, and says so.", "runtime.py · analyst.py:155"],
+    ["State holds references, not payloads", "Coordinates go to a content-addressed blob and travel as a path, because every checkpoint is serialized.", "orchestrator.py:291"],
+    ["Every layer has a floor", "No key, no endpoint, no graph DB: each degrades to something that still answers, and says so.", "runtime.py · analyst.py:166"],
   ];
   const cw = [3.45, 6.6, 2.28];
   const tbl = [["consequence", "what it means in the code", "where"].map(h => ({ text: h,
@@ -501,7 +501,7 @@ Two things in the rail. The rule that nodes only ever reach through Deps is what
   code(s, [
     'summary["structure_path"] = deps.history.write_blob(',
     '    structure, suffix=".pdb", prefix=summary["design_id"])',
-  ], M + 7.3, 3.15, 5.53, 0.6, { anchor: "orchestrator.py:272–276  ·  TRIMMED", fs: 10 });
+  ], M + 7.3, 3.15, 5.53, 0.6, { anchor: "orchestrator.py:291–295  ·  TRIMMED", fs: 10 });
   code(s, [
     'def test_structures_are_not_carried_in_state(...):',
     '    blob = json.dumps(jsonable(out), default=str)',
@@ -1071,7 +1071,7 @@ The bottom line is a small thing I only noticed when building this deck: only ti
     '...',
     'if storage_error:',
     '    update["warnings"] = [f"Design History write failed: {storage_error}"]',
-  ], M, 4.15, 7.6, 1.8, { anchor: "graph/nodes/analyst.py:155–222  ·  TRIMMED", fs: 10 });
+  ], M, 4.15, 7.6, 1.8, { anchor: "graph/nodes/analyst.py:166–233  ·  TRIMMED", fs: 10 });
 
   card(s, M + 7.9, 4.15, 4.93, 0.95, "How the user finds out", [
     "The interpreter appends a \"Caveats from this run\" section to its reply, from the warnings channel.",

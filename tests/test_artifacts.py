@@ -8,6 +8,7 @@ that a clipped or corrupted channel is *detected* rather than quietly short.
 from __future__ import annotations
 
 import base64
+import gzip
 import hashlib
 import os
 import subprocess
@@ -27,6 +28,11 @@ def run(spec: dict, **kw):
 
 def job(script: str, **extra) -> dict:
     return {"executable": "bash", "arguments": ["-c", script], **extra}
+
+
+def _name(name: str) -> str:
+    """The frame header's name encoding: urlsafe base64, unpadded."""
+    return base64.urlsafe_b64encode(name.encode()).decode().rstrip("=")
 
 
 def _raw_stdout(script: str, **extra) -> str:
@@ -178,3 +184,42 @@ def test_a_corrupted_payload_fails_its_digest(two_file_stdout):
 def test_empty_stdout_is_not_an_error():
     got = collect("")
     assert got.files == {} and not got.error and not got.truncated
+
+
+def test_a_payload_that_expands_past_the_ceiling_is_refused():
+    """The job wrote these frames, so its compression ratio is not trustworthy.
+
+    A few hundred bytes of base64 can describe gigabytes, and the declared size
+    is part of the same untrusted output, so neither can gate the other.
+    """
+    bomb = b"\0" * (64 * 1024 * 1024)
+    payload = base64.b64encode(gzip.compress(bomb)).decode()
+    # ~87 KB of base64 describing 64 MB: a 750x expansion.
+    assert len(payload) * 100 < len(bomb), "the point is that the frame is small"
+    frame = "\n".join([
+        f"<<<ORBIT_ARTIFACT name={_name('bomb.bin')} bytes={len(bomb)} sha256=>>>",
+        payload,
+        "<<<ORBIT_ARTIFACT_END>>>",
+        "<<<ORBIT_MANIFEST files=1 bytes=1 skipped=0>>>",
+    ])
+    got = collect(frame, max_artifact_bytes=1_048_576)
+    assert got.files == {}
+    assert got.skipped == [
+        {"name": "bomb.bin", "bytes": len(bomb), "reason": "declared_over_limit"}
+    ]
+    # The refused payload must not be mistaken for the job's log.
+    assert payload not in got.log
+
+
+def test_a_lying_header_cannot_smuggle_an_oversized_payload():
+    """A frame understating its size is caught while inflating, not after."""
+    big = b"x" * (4 * 1024 * 1024)
+    frame = "\n".join([
+        f"<<<ORBIT_ARTIFACT name={_name('liar.bin')} bytes=10 sha256=>>>",
+        base64.b64encode(gzip.compress(big)).decode(),
+        "<<<ORBIT_ARTIFACT_END>>>",
+        "<<<ORBIT_MANIFEST files=1 bytes=10 skipped=0>>>",
+    ])
+    got = collect(frame, max_artifact_bytes=1_048_576)
+    assert got.files == {}
+    assert "expands past" in got.error
