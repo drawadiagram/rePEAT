@@ -34,8 +34,8 @@ cd frontend && npm test                         # 32 vitest/jsdom tests, no serv
 cd frontend && npm run test:e2e                 # 2 Playwright tests in a real browser
 cd frontend && E2E_LIVE=1 npm run test:e2e      # ...plus one real round trip
 
-.venv/bin/python -m pytest -q                   # 124 offline tests, no network
-.venv/bin/python -m pytest -q -m live           # 8 live tests; starts a real broker
+.venv/bin/python -m pytest -q                   # 139 offline tests, no network
+.venv/bin/python -m pytest -q -m live           # 11 live tests; starts a real broker
 .venv/bin/python -m pytest -q -m remote         # 5 tests against a real HPC endpoint
 .venv/bin/python -m pytest -q -m llm            # 4 tests against a real API key
 .venv/bin/python -m pytest tests/test_graph.py::test_design_loop_produces_lead_ensemble_and_artifacts -q
@@ -65,7 +65,7 @@ question with a measurement in `plans/BACKLOG.md`.
 Changing backend code moves line numbers the deck cites, so run `slides/check_anchors.py` after any
 edit — see Slides below.
 
-`addopts = "-m 'not live'"` in `pyproject.toml` deselects the 8 live tests by default, because they
+`addopts = "-m 'not live'"` in `pyproject.toml` deselects the 11 live tests by default, because they
 start a real broker. `-m live` on the command line overrides it; naming the file alone does not, and
 collects nothing.
 
@@ -209,6 +209,26 @@ a listener thread (hopped with `call_soon_threadsafe`). Its terminal task event 
 `_finish_task_enriched` re-fetches; a FAILED job carries only an exit code, so the reason is
 synthesized. `tasks/hpc/local_orbit.py` stands up a real broker + endpoint for tests — note that
 `--no-auth` disables ingress auth only, and the broker still requires a cert and key.
+
+**A job's stdout is read once, from offset 0, and it is the only way a file comes back.** Three
+things follow, and all three were bugs first. `drain_logs` and `_poll_job` tail the same file from
+independent cursors, so only the drain may write `handle.log_tail` — it is a capped UI tail, never
+the job's output, and `_finish_job` returning it duplicated every byte up to three times. A terminal
+push event can beat the scheduler's flush, so `_read_whole_stdout` waits for the file to appear, but
+**only** for a job that staged something (`handle.meta["expects_artifacts"]`); everything else may
+legitimately print nothing and must settle at once. And `_finish_job` builds a fixed result dict, so
+anything new has to be named in `_STAGING_KEYS` or it is silently dropped.
+
+**Staging is in band, because the broker forwards neither `outputs` nor `stdin_text`** (backlog C6,
+and `refcodes/` is gitignored so a fix there is unshippable). `tasks/hpc/artifacts.py` rewrites any
+spec declaring `inputs`/`outputs` into a `bash -lc` script: inputs are gzipped, base64'd and split
+across argv elements (`MAX_ARG_STRLEN` caps a single element at ~128 KiB, not all of them), the real
+command's own output goes to **stderr** so stdout stays a clean data channel, and each output is
+printed as a framed block with its size and sha256. `outputs: ["**"]` means "everything this job
+created", for a job whose output shape is not known until it runs. Frames are not optional: `bash
+-lc` sources the login profile, and a stray `>` line is a valid FASTA header. `TaskManager`
+materializes the returned bytes into blob paths before anything persists them, so `_slim` never sees
+a megabyte. A spec declaring neither field is passed through unwrapped.
 
 ## Who writes the text the user reads
 

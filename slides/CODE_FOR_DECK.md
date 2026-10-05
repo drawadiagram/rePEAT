@@ -31,15 +31,15 @@ Priority: ★ must show · ○ show if time. ~20 lines is the legible maximum at
 | S8-B | 8 | `backend/designagent/tasks/base.py:92–120` (`TaskHandle`) | 18 | TRIMMED | ★ |
 | S8-C | 8 | `backend/designagent/tasks/base.py:148–186` (the ABC) | 20 | TRIMMED | ★★ |
 | S8-D | 8 | `backend/designagent/tasks/manager.py:111–128` | 18 | VERBATIM | ★ |
-| S8-E | 8 | `backend/designagent/tasks/manager.py:75–87` (`interface_for`) | 13 | VERBATIM | ○ |
+| S8-E | 8 | `backend/designagent/tasks/manager.py:76–88` (`interface_for`) | 13 | VERBATIM | ○ |
 | S9-A | 9 | `backend/designagent/runtime.py:179–219` | 20 | TRIMMED | ★★ |
 | S9-B | 9 | `backend/designagent/tasks/local.py:58–63` | 6 | VERBATIM | ★ |
 | S9-C | 9 | `refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py:73–84` | 12 | **VERBATIM — the bug** | ★★ |
 | S9-D | 9 | `refcodes/flowgentic/.../fault_tolerance.py:23–37` (the defaults) | 15 | TRIMMED | ★ |
-| S10-A | 10 | `backend/designagent/tasks/hpc/orbit.py:288–303` | 16 | VERBATIM | ★★ |
-| S10-B | 10 | `backend/designagent/tasks/hpc/orbit.py:305–329` | 20 | TRIMMED | ★★ |
+| S10-A | 10 | `backend/designagent/tasks/hpc/orbit.py:319–334` | 16 | VERBATIM | ★★ |
+| S10-B | 10 | `backend/designagent/tasks/hpc/orbit.py:336–360` | 20 | TRIMMED | ★★ |
 | S10-C | 10 | `backend/designagent/tasks/hpc/base.py:80–103` (`drain_logs`) | 20 | TRIMMED | ★ |
-| S10-D | 10 | `backend/designagent/tasks/hpc/orbit.py:369–390` (`_finish_job`) | 20 | TRIMMED | ★ |
+| S10-D | 10 | `backend/designagent/tasks/hpc/orbit.py:400–426` (`_finish_job`) | 20 | TRIMMED | ★ |
 | S11-A | 11 | `backend/designagent/tasks/hpc/globus.py:31–36` (capabilities) | 6 | VERBATIM | ★ |
 | S11-B | 11 | `backend/designagent/tasks/hpc/globus.py:90–104` | 15 | VERBATIM | ★ |
 | S12-A | 12 | `backend/designagent/tools/molviz_agent.py:143–154` | 12 | TRIMMED | ○ |
@@ -147,12 +147,12 @@ and LangGraph's streaming are mutually exclusive, and that belongs in its README
 
 | Finding | Evidence | Workaround |
 |---|---|---|
-| The terminal rhapsody event carries state and `exit_code` but **not `stdout`** | a completed `/bin/echo` task resolved with an empty result | `orbit.py:292–304` `_finish_task_enriched` re-fetches with `get_task` before settling the future |
-| A FAILED job reports **only a non-zero exit code** — no reason reaches the client | `handle.error` was empty for a job that exited 3 | `orbit.py:383–388` synthesises one from exit code, then stderr, then the log tail |
+| The terminal rhapsody event carries state and `exit_code` but **not `stdout`** | a completed `/bin/echo` task resolved with an empty result | `orbit.py:323–335` `_finish_task_enriched` re-fetches with `get_task` before settling the future |
+| A FAILED job reports **only a non-zero exit code** — no reason reaches the client | `handle.error` was empty for a job that exited 3 | `orbit.py:419–424` synthesises one from exit code, then stderr, then the log tail |
 | The broker has **no HTTP topology route** | `/topology` → 307 → 404, `Endpoint 'topology' unknown` (it reads as a plugin name) | readiness comes from the client's own `rt.topology()`, polled in `connect()`; the local stack greps the endpoint's log for `registered as '<name>'` (`local_orbit.py:193–212`) |
 | `--no-auth` disables **only ingress auth** — the broker still refuses to start without cert and key | broker exited at startup with `--no-auth` alone | `local_orbit.py:60–83` generates a throwaway self-signed pair, SAN `IP:127.0.0.1,DNS:localhost`, key `0600` |
 | All Orbit clients are **synchronous/blocking** | `RhapsodyClient` / `PSIJClient` methods block | every call goes through `asyncio.to_thread` (23 sites in `orbit.py`) |
-| Push callbacks arrive on a **listener thread** | — | `orbit.py:288–292` `_dispatch` hops to the loop with `call_soon_threadsafe` |
+| Push callbacks arrive on a **listener thread** | — | `orbit.py:319–323` `_dispatch` hops to the loop with `call_soon_threadsafe` |
 
 Not a complaint, worth saying out loud: offset-based log tailing via `PSIJClient.get_job_status(job_id,
 stdout_offset, stderr_offset)` is the **only** streaming mechanism either backend offers, and it
@@ -170,7 +170,7 @@ incremental tailing against a real local endpoint.
 python -m designagent --reload          # :8000, needs the __main__ guard (ProcessPoolExecutor)
 cd frontend && npm install && npm run dev   # :5173, proxies /api
 pytest -q                               # 93 tests, offline
-pytest -q -m live                       # 8 tests against a real localhost broker + endpoint
+pytest -q -m live                       # 11 tests against a real localhost broker + endpoint
 ```
 
 `uv sync` cannot work: the three middleware packages are local editable installs from `refcodes/`

@@ -20,11 +20,26 @@ import logging
 from typing import Any
 
 from ..base import Capabilities, LogChunk, TaskHandle, TaskSpec, TaskState, normalize_state
+from . import artifacts
 from .base import RemoteWorkflowInterface
 
 log = logging.getLogger(__name__)
 
 TERMINAL = {"DONE", "FAILED", "CANCELED", "CANCELLED", "COMPLETED"}
+
+# A terminal job event can arrive before the scheduler has flushed the job's
+# output file. Only jobs staging files back wait for it; see `_read_whole_stdout`.
+_FLUSH_ATTEMPTS = 25
+_FLUSH_WAIT = 0.2
+
+# Keys `_demultiplex` adds, which `_finish_job` must carry into the result.
+_STAGING_KEYS = (
+    "artifacts",
+    "artifacts_skipped",
+    "artifacts_truncated",
+    "artifacts_error",
+    "stdout_truncated",
+)
 
 
 # Our resource vocabulary → PSI/J's `ResourceSpecV1` keyword arguments. The
@@ -85,7 +100,10 @@ class OrbitInterface(RemoteWorkflowInterface):
         supports_cancel=True,
         supports_log_stream=True,   # via the psij plugin's offset reads
         supports_push_events=True,  # via rhapsody/psij notifications
-        supports_staging=True,      # the staging/globus plugins
+        # Not the broker's staging plugins -- it forwards neither `outputs` nor
+        # `stdin_text` (backlog C6). Staging is in-band over stdout; see
+        # `hpc/artifacts.py` for the protocol and its ceilings.
+        supports_staging=True,
     )
 
     def __init__(
@@ -100,10 +118,12 @@ class OrbitInterface(RemoteWorkflowInterface):
         connect_timeout: float = 30.0,
         name: str = "designagent",
         output_max_bytes: int = 4_194_304,
+        artifact_max_bytes: int = 1_048_576,
     ):
         super().__init__(poll_interval=poll_interval)
         self._connect_timeout = connect_timeout
         self._output_max_bytes = output_max_bytes
+        self._artifact_max_bytes = artifact_max_bytes
         self._broker_url = broker_url
         self._endpoint_hint = endpoint
         self._token = token
@@ -263,6 +283,16 @@ class OrbitInterface(RemoteWorkflowInterface):
 
         job_spec = spec.params.get("job_spec") or {}
         executor = spec.params.get("executor", "local")
+        # A spec declaring `inputs`/`outputs` is rewritten to carry them over
+        # stdout, because the broker forwards neither. A spec declaring neither
+        # passes through untouched.
+        wrapped = artifacts.wrap(
+            job_spec,
+            artifact_max_bytes=self._artifact_max_bytes,
+            total_max_bytes=self._output_max_bytes,
+        )
+        expects_artifacts = wrapped is not job_spec
+        job_spec = wrapped
         resp = await asyncio.to_thread(
             self._psij.submit_job, to_psij_spec(job_spec), executor
         )
@@ -278,6 +308,7 @@ class OrbitInterface(RemoteWorkflowInterface):
             native_id=resp.get("native_id"),
             stdout_offset=0,
             stderr_offset=0,
+            expects_artifacts=expects_artifacts,
         )
         handle.state = TaskState.QUEUED
         self._track(handle)
@@ -378,6 +409,11 @@ class OrbitInterface(RemoteWorkflowInterface):
             "stdout": data.get("stdout", ""),
             "stderr": data.get("stderr", ""),
         }
+        # Staged files and their diagnostics ride through; the result dict is
+        # otherwise fixed, which is what silently dropped them at first.
+        for key in _STAGING_KEYS:
+            if key in data:
+                result[key] = data[key]
         if state is TaskState.DONE and exit_code not in (None, 0):
             state = TaskState.FAILED
         if state is TaskState.FAILED and not error:
@@ -399,7 +435,43 @@ class OrbitInterface(RemoteWorkflowInterface):
             merged["stdout"] = stdout
             if truncated:
                 merged["stdout_truncated"] = True
-        self._finish_job(handle, merged, state)
+        self._finish_job(handle, self._demultiplex(merged, truncated), state)
+
+    def _demultiplex(self, data: dict, clipped: bool) -> dict:
+        """Lift staged files out of stdout, leaving the job's own log behind.
+
+        Only a job that actually framed something is rewritten: for everything
+        else `stdout` stays exactly as it came back, byte for byte.
+        """
+        got = artifacts.collect(data.get("stdout", ""))
+        if not got.files and not got.skipped and got.declared_files < 0:
+            return data
+        out = dict(data)
+        # Staged bytes do not belong in the job's log. The manager turns them
+        # into blob paths before anything persists or reads them.
+        out["stdout"] = got.log
+        out["artifacts"] = got.files
+        if got.skipped:
+            out["artifacts_skipped"] = got.skipped
+        if got.truncated or clipped:
+            out["artifacts_truncated"] = True
+        if got.error:
+            out["artifacts_error"] = got.error
+        return out
+
+    async def _stdout_size(self, handle: TaskHandle) -> int:
+        """Bytes of stdout the endpoint currently has, or 0 if it cannot say."""
+        try:
+            info = await asyncio.to_thread(
+                self._psij.get_job_status, handle.id, 0, 0
+            )
+        except Exception as exc:
+            log.debug("stdout size probe for %s failed: %s", handle.id, exc)
+            return 0
+        size = info.get("stdout_offset")
+        if isinstance(size, (int, float)):
+            return int(size)
+        return len((info.get("stdout") or "").encode())
 
     async def _read_whole_stdout(self, handle: TaskHandle) -> tuple[str, bool]:
         """Read a finished job's stdout in full, from the start.
@@ -415,6 +487,21 @@ class OrbitInterface(RemoteWorkflowInterface):
         """
         if self._psij is None:
             return "", False
+        # A terminal push event can beat the scheduler's flush of the output
+        # file, so a read taken the instant the event lands comes back empty.
+        # Only a job that framed something is worth waiting for: everything
+        # else may legitimately print nothing, and must settle immediately.
+        if handle.meta.get("expects_artifacts"):
+            for attempt in range(_FLUSH_ATTEMPTS):
+                if await self._stdout_size(handle) > 0:
+                    break
+                await asyncio.sleep(_FLUSH_WAIT)
+            else:
+                log.warning(
+                    "job %s produced no stdout after %.1fs; staged files may be lost",
+                    handle.id,
+                    _FLUSH_ATTEMPTS * _FLUSH_WAIT,
+                )
         chunks: list[str] = []
         total = 0
         offset = 0

@@ -235,6 +235,7 @@ async def _make_orbit(settings: Settings) -> tuple[Any, str]:
         poll_interval=settings.orbit_poll_interval,
         connect_timeout=settings.orbit_connect_timeout,
         output_max_bytes=settings.orbit_job_output_max_bytes,
+        artifact_max_bytes=settings.orbit_artifact_max_bytes,
     )
     try:
         await interface.connect()

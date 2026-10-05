@@ -241,9 +241,31 @@ left the endpoint.
 hitting argv limits, and both job specs declare `outputs` for staging. Reproduce by submitting
 `fold_job_spec(...)` through `hpc` and watching the remote command read an empty stdin.
 
-**Consequence now:** a job spec must carry its inputs on the command line, which is why
-`mpnn_job_spec` passes a path and `fold_job_spec` is not yet used on a real endpoint. Either the
-client should inline stdin into the command (`printf … | cmd`) or the plugin should carry the field.
+**Still open upstream, and worked around in one place.** `refcodes/` is gitignored and an editable
+install with no recorded revision (**B1**), so a patch to `plugin_psij.py` is neither shippable nor
+verifiable by anyone else. The client therefore honours both fields in band, over the one channel the
+broker does carry whole: stdout. `tasks/hpc/artifacts.py` rewrites any spec declaring `inputs` or
+`outputs` into a `bash -lc` script that reassembles its inputs from argv, redirects the real
+command's own output to stderr, and prints each declared output as a framed block carrying its size
+and sha256. `OrbitInterface._submit_job` applies it to every job spec, so `fold_job_spec` gets the
+same treatment; `TaskManager._materialize_artifacts` turns the returned bytes into blob paths before
+anything persists them. A spec declaring neither field passes through unwrapped.
+
+Two ceilings that workaround buys, both measured:
+
+* **Inputs**: `MAX_ARG_STRLEN` caps a *single* argv element at ~128 KiB, so the payload is gzipped,
+  base64'd and split into 64 KiB chunks; the limit on all of them together is `ARG_MAX`, megabytes.
+  A 533 KB incompressible input round-trips in 9 chunks.
+* **Outputs**: bounded by `orbit_artifact_max_bytes` per file and `orbit_job_output_max_bytes` in
+  total. An over-budget file is *named* in the manifest rather than dropped.
+
+The protocol detects rather than infers a short read: a missing closing frame, a missing manifest, a
+file count below the manifest's, and a digest mismatch are all distinguishable, which matters because
+a clipped base64 payload is still valid base64. Pinned by `tests/test_artifacts.py` (15 offline tests
+that run the generated script with bash) and three `-m live` tests through a real broker.
+
+**What would close this:** the broker forwarding `outputs` and `stdin_text`, at which point the
+wrapper becomes a fallback for older endpoints rather than the only path.
 
 ### C7 · Broker documentation gaps
 Two afternoon-sized traps: there is no HTTP topology route (`/topology` is read as a plugin name and

@@ -11,6 +11,7 @@ Run explicitly:
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 from designagent.tasks.base import TaskSpec, TaskState
@@ -224,3 +225,84 @@ async def test_a_large_stdout_payload_survives_intact(orbit):
     expected = "".join(f"{i:050d}\n" for i in range(1, 1201))
     assert result["stdout"] == expected
     assert not result.get("stdout_truncated")
+
+
+async def test_declared_outputs_come_back_through_a_real_psij_job(orbit):
+    """Stage-in and stage-out over a real broker, endpoint and PSI/J executor.
+
+    The offline tests run the generated script with bash directly; this is the
+    same protocol with the whole transport underneath it, which is where a
+    dropped spec field or a clipped stdout would actually show up.
+    """
+    job = {
+        "executable": "bash",
+        "arguments": [
+            "-c",
+            'mkdir -p out && wc -c < in.txt > out/size.txt '
+            '&& tr "a-z" "A-Z" < in.txt > out/upper.txt',
+        ],
+        "inputs": {"in.txt": "staged through argv\n"},
+        "outputs": ["out/*.txt"],
+        "duration_sec": 120,
+    }
+    spec = TaskSpec(name="stage", kind="job", params={"job_spec": job, "executor": "local"})
+    handle = await orbit.submit(spec)
+    result = await asyncio.wait_for(handle.future, timeout=180)
+
+    assert result["state"] == "DONE"
+    assert not result.get("artifacts_error"), result.get("artifacts_error")
+    assert not result.get("artifacts_truncated")
+    artifacts = result["artifacts"]
+    assert sorted(artifacts) == ["out/size.txt", "out/upper.txt"]
+    assert artifacts["out/size.txt"].decode().strip() == "20"
+    assert artifacts["out/upper.txt"].decode() == "STAGED THROUGH ARGV\n"
+
+
+async def test_a_jobs_own_chatter_stays_out_of_the_staged_files(orbit):
+    job = {
+        "executable": "bash",
+        "arguments": ["-c", 'echo noisy; echo ">looks like fasta"; printf "real\n" > r.txt'],
+        "outputs": ["*.txt"],
+        "duration_sec": 120,
+    }
+    spec = TaskSpec(name="noisy", kind="job", params={"job_spec": job, "executor": "local"})
+    handle = await orbit.submit(spec)
+    result = await asyncio.wait_for(handle.future, timeout=180)
+
+    assert result["state"] == "DONE"
+    assert result["artifacts"]["r.txt"].decode() == "real\n"
+    # The chatter went to stderr, so it is diagnosable but not in the payload.
+    assert "noisy" in (result.get("stderr") or "")
+
+
+async def test_the_manager_turns_staged_files_into_blob_paths(orbit, tmp_path):
+    """Bytes must not survive into a record: state and the graph see paths."""
+    from designagent.config import Settings
+    from designagent.lake.store import DesignHistory
+    from designagent.tasks.manager import TaskManager
+
+    history = DesignHistory(Settings(data_dir=tmp_path / "lake", anthropic_api_key=""))
+    manager = TaskManager(hpc=orbit, history=history)
+    try:
+        job = {
+            "executable": "bash",
+            "arguments": ["-c", 'printf "payload\n" > kept.fa'],
+            "outputs": ["*.fa"],
+            "duration_sec": 120,
+        }
+        records = await manager.run_many(
+            [TaskSpec(
+                name="proteinmpnn",
+                kind="job",
+                params={"job_spec": job, "executor": "local", "_interface": "hpc"},
+            )],
+            campaign_id="artifacts-test",
+            timeout=300,
+        )
+        assert len(records) == 1 and records[0]["ok"], records[0].get("error")
+        artifacts = records[0]["result"]["artifacts"]
+        path = artifacts["kept.fa"]
+        assert isinstance(path, str), "the manager should have stored a path"
+        assert Path(path).read_text() == "payload\n"
+    finally:
+        history.close()

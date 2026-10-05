@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable
 
 from ..lake.store import DesignHistory
@@ -218,6 +219,10 @@ class TaskManager:
             else:
                 handle.state = TaskState.DONE
                 record = self._record(handle, result, "")
+                # Staged files arrive as bytes; they become blob paths here, so
+                # nothing downstream -- state, the graph, `_slim` -- ever sees a
+                # megabyte inline.
+                self._materialize_artifacts(handle, record)
 
             # One place, after every branch: `elapsed` must stop here or it keeps
             # counting for as long as the session is open.
@@ -231,6 +236,35 @@ class TaskManager:
             return record
 
         return list(await asyncio.gather(*(_one(h) for h in handles)))
+
+    def _materialize_artifacts(self, handle: TaskHandle, record: dict) -> None:
+        """Write a job's staged files to blobs, replacing the bytes with paths.
+
+        Interfaces cannot do this themselves -- they have no history -- and it
+        must happen before `_persist`, which is the same division of labour the
+        `structure`/`text` blob rule already follows.
+        """
+        result = record.get("result")
+        if not isinstance(result, dict):
+            return
+        files = result.get("artifacts")
+        if not isinstance(files, dict) or not files:
+            return
+        if self.history is None:
+            # Nothing to write them to; say so rather than passing bytes on.
+            result["artifacts"] = {}
+            result["artifacts_error"] = "no history is attached to store artifacts"
+            return
+        paths: dict[str, str] = {}
+        for name, data in files.items():
+            suffix = Path(name).suffix or ".bin"
+            prefix = f"{handle.spec.name}-{Path(name).stem or 'artifact'}"
+            try:
+                paths[name] = self.history.write_blob(data, suffix=suffix, prefix=prefix)
+            except Exception as exc:
+                log.warning("storing artifact %s for %s failed: %s", name, handle.id, exc)
+                result["artifacts_error"] = f"{name}: {exc}"
+        result["artifacts"] = paths
 
     def _record(self, handle: TaskHandle, result: Any, error: str) -> dict:
         return {

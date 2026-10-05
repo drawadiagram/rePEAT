@@ -98,6 +98,8 @@ class Settings(BaseSettings):
     # scheduler's; it has to be generous because stdout is the only channel a
     # job has for returning a file (see tasks/hpc/artifacts.py).
     orbit_job_output_max_bytes: int = 4_194_304
+    # Ceiling on any single file a job stages back through that channel.
+    orbit_artifact_max_bytes: int = 1_048_576
 
     # --- Globus Compute ---
     # Implemented and unit-tested with an injected executor; never run against a
@@ -340,6 +342,7 @@ CREDENTIAL_FIELDS: dict[str, tuple[tuple[str, bool], ...]] = {
         ("orbit_queue", False),
         ("orbit_job_duration_sec", False),
         ("orbit_job_output_max_bytes", False),
+        ("orbit_artifact_max_bytes", False),
     ),
     "globus": (
         ("globus_enabled", False),
