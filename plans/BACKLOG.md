@@ -51,6 +51,42 @@ size) and by leaving `log_tail` to the drain alone. Pinned by
 This matters beyond logging: stdout is the **only** channel a job has for returning a file, because
 `outputs` is dropped in transit (**C6**). Anything built on job output had to land on top of this.
 
+### A2 · The Globus adapter has never met a live endpoint
+`tasks/hpc/globus.py` implements the ABC and is tested with an injected executor
+(`tests/test_tasks.py::test_globus_interface_runs_with_injected_executor`), which proves the shape
+and the argv handling, not the integration. Capability flags are set from the documented behaviour of
+Globus Compute, not from observation.
+
+**Risk if ignored:** the flags may be wrong in a direction that matters —
+`supports_cancel=False` is conservative, but `supports_staging=False` may be too pessimistic.
+
+Now reachable from configuration (`DESIGNAGENT_GLOBUS_ENABLED` + `_ENDPOINT_ID`, constructed in
+`runtime._make_globus`), but still unproven, and `globus-compute-sdk` is **not installed** — so
+enabling it reports why it could not start rather than connecting. Credentials come from the SDK's own
+login, not from our settings; if that turns out to need plumbing, it is a new entry.
+
+### A3 · `proteinmpnn` is a heuristic proposer unless an endpoint with ProteinMPNN is attached
+With no `hpc` interface, `interface_for` falls back to the heuristic, which produces single-point
+substitutions from a fixed table. The catalog entry now points at
+`proteinmpnn_local_fallback` rather than `propose_variants` itself, so the result relabels at the
+point of substitution — *"no HPC endpoint was attached, so the job was never submitted"* — because
+the old wiring made a heuristic round indistinguishable from a real one in the output while the
+ledger recorded that ProteinMPNN was asked for.
+
+**The real path now works and has been run.** Weights `v_48_020` on CPU, through a real localhost
+broker: 3 sequences of a 320-residue target in 4.6 s, and a three-round 1UBQ campaign whose designs
+carry `source=proteinmpnn`, `mpnn_score`, and 30–36 substitutions from the reference. See
+`scripts/setup_mpnn.sh`.
+
+Honesty no longer rests on a hand-written note. `variants_from_mpnn_fasta` lifts `model_name` and
+`git_hash` out of ProteinMPNN's own FASTA header, so provenance is *read* rather than asserted, and a
+run that declares neither earns a caveat saying its samples cannot be attributed to specific weights.
+The cheapest discriminator in a finished round is the mutation count: the heuristic table never emits
+more than one substitution per variant.
+
+**Still keep it honest** — the whole reference campaign in `slides/run.json` is heuristic output until
+it is regenerated, and a reader who misses the label will over-read a 0.13 pLDDT difference.
+
 ### A4 · Every ProteinMPNN round redesigns the *reference* backbone
 `_mpnn_job` (`graph/nodes/orchestrator.py`) reads `reference["structure_path"]`, so round 2 and round
 3 re-sample the same original backbone with a different seed rather than building on the round's
@@ -73,26 +109,29 @@ iterates; keep the reference and a campaign is a wider sample of one backbone wi
 reply should say which. Reproduce with `DESIGNAGENT_ORBIT_LOCAL=true` plus a real
 `DESIGNAGENT_MPNN_COMMAND` and three rounds on one target.
 
-### A2 · The Globus adapter has never met a live endpoint
-`tasks/hpc/globus.py` implements the ABC and is tested with an injected executor
-(`tests/test_tasks.py::test_globus_interface_runs_with_injected_executor`), which proves the shape
-and the argv handling, not the integration. Capability flags are set from the documented behaviour of
-Globus Compute, not from observation.
+### A5 · `--fixed_positions` was not a ProteinMPNN flag
+`mpnn_job_spec` carried `--fixed_positions <space-separated ints>`, which ProteinMPNN does not
+accept: the real flag is `--fixed_positions_jsonl` and it takes a file. No caller ever passed it, so
+nothing broke, but a real run would have exited non-zero on the first use of the feature. Removed
+rather than left in place, with a comment at the site.
 
-**Risk if ignored:** the flags may be wrong in a direction that matters —
-`supports_cancel=False` is conservative, but `supports_staging=False` may be too pessimistic.
+**To bring it back correctly:** write the JSONL into the job's `inputs` (the staging mechanism added
+for C6 can carry it) and pass `--fixed_positions_jsonl` pointing at that name. The caller-facing
+argument can stay a list of residue positions. Worth having — it is how a campaign protects an active
+site from redesign, which is precisely what the `functional_features` already in `reference` describe.
 
-Now reachable from configuration (`DESIGNAGENT_GLOBUS_ENABLED` + `_ENDPOINT_ID`, constructed in
-`runtime._make_globus`), but still unproven, and `globus-compute-sdk` is **not installed** — so
-enabling it reports why it could not start rather than connecting. Credentials come from the SDK's own
-login, not from our settings; if that turns out to need plumbing, it is a new entry.
+### A6 · An inlined structure has a hard size ceiling
+Stage-in rides in argv (C6), so `mpnn_job_spec` refuses a structure whose gzipped, base64'd backbone
+exceeds `MAX_INLINE_B64` = 1 MiB, half of this host's `ARG_MAX` of 2 MiB. The round then falls back to
+the heuristic with a caveat naming the measured size.
 
-### A3 · `proteinmpnn` is a heuristic proposer unless an endpoint is attached
-With no `hpc` interface, `interface_for` falls back to `propose_variants`, which produces
-single-point substitutions by rule. It labels itself
-(`"note": "heuristic proposals, not ProteinMPNN samples"`), and the summary carries the label
-through. **Keep that honest** — the whole reference campaign in `slides/run.json` is heuristic
-output, and a reader who misses the label will over-read a 0.13 pLDDT difference.
+Backbone-only stripping buys most of the headroom: 1UBQ's 76 residues go from ~80 KB to ~25 KB before
+gzip, and a real 320-residue chain inlined at ~120 KB of backbone without trouble. The ceiling bites
+on a very large single chain or a multi-chain design, and `ARG_MAX` is not guaranteed to be 2 MiB
+everywhere — a site with a smaller limit will fail at submission rather than at the guard.
+
+**The real fix is upstream staging (C6)**, or a site-side input cache the job reads by path. Until
+then the guard is the honest behaviour: a named refusal beats a scheduler error.
 
 ---
 
