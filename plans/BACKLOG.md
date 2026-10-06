@@ -405,6 +405,27 @@ that run the generated script with bash) and three `-m live` tests through a rea
 **What would close this:** the broker forwarding `outputs` and `stdin_text`, at which point the
 wrapper becomes a fallback for older endpoints rather than the only path.
 
+### C8 · asyncflow swallows SIGTERM, so the backend never exits on its own
+`radical.asyncflow.workflow_manager` installs its own `SIGTERM` handler. On a
+`kill`, it logs *"Received external shutdown signal (SIGTERM), initiating graceful shutdown"*,
+then *"Shutdown completed for all components"* — and the process stays alive. uvicorn's own shutdown
+never runs, so `app.lifespan` never closes Kuzu or the checkpoint store. Deterministic: 3 of 3 clean
+attempts, each needing `SIGKILL` after a 30 s wait.
+
+Consequences. Every backend stop is effectively a kill, so the graph store is never closed cleanly
+and the checkpoint WAL is never checkpointed on exit — both are crash-safe by design, which is why
+this has never shown as corruption, but neither gets the orderly path it has code for. And a stop
+takes 30 s longer than it should, which is most of what `./scripts/dev.sh down` spends its time on;
+the script treats escalation as the expected route rather than an error.
+
+Reproduce: start the backend, `kill <pid>`, watch the log print a completed shutdown while the
+process keeps answering `/api/health`.
+
+**The ask:** asyncflow should not install a process-wide signal handler when it is a library inside
+someone else's server — or should re-raise after its own teardown so the host's handler still runs.
+Until then the only correct client behaviour is to escalate, which cannot distinguish "hung" from
+"finished but did not exit".
+
 ### C7 · Broker documentation gaps
 Two afternoon-sized traps: there is no HTTP topology route (`/topology` is read as a plugin name and
 404s after a 307, so readiness must come from the client's `rt.topology()`, which propagates

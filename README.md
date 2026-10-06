@@ -29,11 +29,17 @@ visualizations.
 ```bash
 ./scripts/setup.sh              # builds .venv and verifies it
 cp .env.example .env            # optional: add ANTHROPIC_API_KEY
-.venv/bin/python -m designagent # http://127.0.0.1:8000
-
-# frontend (separate shell)
-cd frontend && npm install && npm run dev   # http://localhost:5173
+cd frontend && npm install && cd ..
+./scripts/dev.sh up             # backend :8000 + frontend :5173
 ```
+
+Or start the two by hand — `.venv/bin/python -m designagent` and, in another
+shell, `cd frontend && npm run dev`. `dev.sh` does the same thing and also waits
+for the remote endpoint to finish registering, refuses to start a second backend
+on a data dir Kuzu has locked, and knows that stopping the backend needs more
+than a `SIGTERM`. `down`, `status`, `restart` and `logs` are the other
+subcommands; `up --no-mpnn` starts it with no endpoint, which is the heuristic
+path.
 
 `scripts/setup.sh` is the only supported install path, and `--check` verifies an
 existing environment without installing anything. **`uv sync` cannot work here**:

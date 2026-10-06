@@ -38,6 +38,15 @@ against the work dir twice and the broker exited "TLS cert not found". Every tes
 `tmp_path`, so the suite could not see it; `DESIGNAGENT_ORBIT_LOCAL=true` from the repo root was
 broken the whole time.
 
+`./scripts/dev.sh` is the shortest path to a running stack and encodes four traps worth knowing even
+if you start things by hand. Kuzu's lock means a second backend on the same data dir **dies** rather
+than degrading, so `up` refuses and names the holder and `down` waits for the lock to clear.
+**SIGTERM does not stop the backend** — asyncflow installs its own handler, reports a completed
+shutdown, and leaves the process running, so every stop escalates (backlog C8). The local Orbit
+endpoint registers a few seconds *after* the port opens, so `up` waits for `hpc: true`: a round
+planned before then silently takes the heuristic branch. And `pgrep -f "port 8000"` matches the shell
+running it and kills itself, which is why processes are found by reading `/proc`.
+
 `config.yml` in the **current working directory** is read at `import flowgentic` time. Both
 `agent_execution` and `logger` keys must be present — flowgentic does `APP_SETTINGS["logger"]["level"]`
 with no fallback once it finds a file. Run everything from the repo root.
@@ -45,6 +54,9 @@ with no fallback once it finds a file. Run everything from the repo root.
 ## Commands
 
 ```bash
+./scripts/dev.sh up                             # backend + frontend, endpoint if installed
+./scripts/dev.sh up --no-mpnn                   # no endpoint: the heuristic path
+./scripts/dev.sh down | status | restart | logs
 .venv/bin/python -m designagent --reload        # backend on :8000
 .venv/bin/python -m designagent --check-config  # effective config, secrets masked
 .venv/bin/python -m designagent --check-config --probe   # ...and try each credential
