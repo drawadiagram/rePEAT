@@ -432,8 +432,14 @@ class SettingsUpdate(BaseModel):
     orbit_artifact_max_bytes: int | None = None
     orbit_job_output_max_bytes: int | None = None
 
-    mpnn_command: str | None = None
-    mpnn_prologue: str | None = None
+    # `mpnn_command` and `mpnn_prologue` are deliberately absent. Both name
+    # shell to run -- the prologue is appended to the job script verbatim
+    # (`tasks/hpc/artifacts.py`) and the command names the executable -- so
+    # accepting them here would turn this route into arbitrary code execution,
+    # as the server user locally and on the endpoint under the site's
+    # allocation remotely. The route is unauthenticated on loopback by design
+    # (`_authorize_write`), so "only local callers" is not a defence. They stay
+    # environment-only, like `data_dir` and `pool_workers`.
     mpnn_sampling_temp: float | None = None
 
     globus_enabled: bool | None = None

@@ -23,8 +23,10 @@ import { isSecret } from "../lib/types";
  * the backend reports but this file omits is dropped silently by the
  * `GROUPS.map` below, which is how the `mpnn` group and three `orbit` fields
  * stayed invisible after being added server-side. A field added here must also
- * be declared on `SettingsUpdate` (`app.py`), which is `extra="forbid"`.
- * `globus` is still reported and still not rendered.
+ * be declared on `SettingsUpdate` (`app.py`), which is `extra="forbid"` — or
+ * marked `readonly`, which is how a value the server deliberately refuses is
+ * shown without offering an edit that would 422. `globus` is still reported and
+ * still not rendered.
  */
 
 type Field = {
@@ -34,6 +36,14 @@ type Field = {
   secret?: boolean;
   kind?: "text" | "bool" | "number";
   hint?: string;
+  /**
+   * Shown, but not editable here, because the server will not accept it:
+   * `SettingsUpdate` is `extra="forbid"`, so sending one would 422. Reserved
+   * for values that name shell to run — the settings routes are
+   * unauthenticated on loopback, so accepting those over HTTP would be
+   * arbitrary code execution. Set them in the environment or `.env`.
+   */
+  readonly?: boolean;
 };
 
 const FIELDS: Field[] = [
@@ -106,13 +116,15 @@ const FIELDS: Field[] = [
     name: "mpnn_command",
     label: "ProteinMPNN command",
     group: "mpnn",
-    hint: "a command, not a path: ./scripts/setup_mpnn.sh --check prints one",
+    readonly: true,
+    hint: "environment only — ./scripts/setup_mpnn.sh --check prints one",
   },
   {
     name: "mpnn_prologue",
     label: "Prologue",
     group: "mpnn",
-    hint: "shell run first at the far end, e.g. module load conda && conda activate …",
+    readonly: true,
+    hint: "environment only — shell run first at the far end",
   },
   {
     name: "mpnn_sampling_temp",
@@ -136,7 +148,7 @@ const GROUPS: { id: string; title: string; note: string }[] = [
   {
     id: "mpnn",
     title: "ProteinMPNN",
-    note: "Used only when an endpoint is attached; without one the round falls back to the heuristic proposer and says so.",
+    note: "Used only when an endpoint is attached; without one the round falls back to the heuristic proposer and says so. The command and prologue name shell to run, so they are environment-only and shown here read-only.",
   },
   { id: "fold", title: "Structure prediction", note: "" },
 ];
@@ -279,6 +291,7 @@ export default function SettingsPanel({
                     {field.label}
                     {source === "override" && <em className="tag">set here</em>}
                     {source === "env" && <em className="tag">from .env</em>}
+                    {field.readonly && <em className="tag">read only</em>}
                   </span>
                   {field.kind === "bool" ? (
                     <input
@@ -289,6 +302,7 @@ export default function SettingsPanel({
                   ) : (
                     <input
                       type={field.secret ? "password" : "text"}
+                      disabled={field.readonly}
                       inputMode={field.kind === "number" ? "numeric" : undefined}
                       value={
                         field.name in draft ? String(draft[field.name]) : field.secret ? "" : String(currentValue(field))

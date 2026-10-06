@@ -153,6 +153,26 @@ and then nothing renders it. Caveats reach the user only because `nodes/interpre
 `TurnTrace` disclosure. So a degraded turn whose reply the user skims looks normal, and caveats 6+
 are dropped silently.
 
+### A9 · The settings write surface is a security boundary
+`PUT /api/settings` is open on loopback with no `DESIGNAGENT_ADMIN_TOKEN`, which is the development
+default, so every field added to `SettingsUpdate` is reachable by any local process. That was fine
+while the surface held credentials and config values. It stopped being fine the moment
+`mpnn_command` and `mpnn_prologue` were added: the prologue is appended to the generated job script
+verbatim (`tasks/hpc/artifacts.py`), so a `PUT` was arbitrary shell, run as the server user locally
+and on the HPC endpoint under the site's allocation remotely. Caught in review before it shipped
+anywhere; demonstrated against the pre-fix process, which accepted
+`{"mpnn_prologue": "touch /tmp/pwned"}` with HTTP 200 and held it as an active override awaiting the
+next design round.
+
+Both are now refused, listed in `NOT_REMOTELY_WRITABLE` with the reason, and shown `readonly` in the
+panel. The general lesson is recorded because the next field to name a program will look just as
+harmless: **adding a field to `SettingsUpdate` widens an unauthenticated surface**, and a value that
+is interpreted rather than stored needs a reason before it goes there.
+
+**Worth considering separately:** whether loopback-without-token should stay open at all now that the
+surface is wider, or whether `orbit_psij_executor` and `orbit_broker_url` — a scheduler name and a
+URL the client will trust — deserve the same scrutiny.
+
 ---
 
 ## B — developer experience

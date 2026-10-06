@@ -518,6 +518,10 @@ body {
 }
 .sheet-row input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .sheet-row input[type="checkbox"] { justify-self: start; width: 16px; height: 16px; }
+.sheet-row input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .sheet-error {
   grid-column: 2;
   font-size: 12px;

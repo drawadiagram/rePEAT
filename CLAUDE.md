@@ -54,7 +54,7 @@ cd frontend && npm test                         # 39 vitest/jsdom tests, no serv
 cd frontend && npm run test:e2e                 # 2 Playwright tests in a real browser
 cd frontend && E2E_LIVE=1 npm run test:e2e      # ...plus one real round trip
 
-.venv/bin/python -m pytest -q                   # 169 offline tests, no network
+.venv/bin/python -m pytest -q                   # 171 offline tests, no network
 .venv/bin/python -m pytest -q -m live           # 12 live tests; starts a real broker
 .venv/bin/python -m pytest -q -m remote         # 5 tests against a real HPC endpoint
 .venv/bin/python -m pytest -q -m llm            # 4 tests against a real API key
@@ -285,9 +285,21 @@ trace disclosure.
 `SettingsPanel.tsx` builds its form from **hardcoded** `FIELDS` and `GROUPS`, hand-maintained against
 `CREDENTIAL_FIELDS` — a group the backend reports but the panel omits is dropped silently, which is
 how the `mpnn` group stayed invisible after being added server-side. `globus` still is.
-`tests/test_settings.py::test_every_reported_field_is_also_writable` pins the API half of that
-invariant: anything in `CREDENTIAL_FIELDS` must also be declared on `SettingsUpdate`, which is
-`extra="forbid"`.
+
+**Reported is not the same as writable, and the direction matters.** `PUT /api/settings` is
+unauthenticated on loopback by design (`_authorize_write`), so the write surface is a security
+boundary, not a convenience. `mpnn_command` and `mpnn_prologue` are reported and deliberately
+**refused**: both name shell the server will run — the prologue is appended to the job script
+verbatim (`tasks/hpc/artifacts.py`) and the command names the executable — so accepting them would
+make that route arbitrary code execution, as the server user locally and on the endpoint under the
+site's allocation remotely. They are environment-only, like `data_dir` and `pool_workers`, and the
+panel shows them `readonly` so a user sees the value without being offered an edit that would 422.
+
+The invariant worth enforcing is therefore one-way: everything **writable must be reported**, so a
+change is never invisible (`test_a_writable_field_is_always_reported`). The converse is not a rule;
+the exceptions are listed with their reasons in `NOT_REMOTELY_WRITABLE`
+(`tests/test_settings.py`), and a test asserts that set is exactly right so neither a forgotten
+field nor a quietly widened surface passes.
 
 ## Who writes the text the user reads
 

@@ -231,38 +231,73 @@ def test_an_unknown_field_is_refused(client):
     assert client.put("/api/settings", json={"data_dir": "/etc"}).status_code == 422
 
 
-def test_every_reported_field_is_also_writable(client):
-    """`CREDENTIAL_FIELDS` and `SettingsUpdate` must not drift apart.
+#: Reported by `/api/settings` and deliberately NOT accepted by `PUT`. Each needs
+#: a reason, because the default is that a reported field is settable.
+NOT_REMOTELY_WRITABLE = {
+    # Both name shell the server will run -- the prologue is appended to the job
+    # script verbatim (`tasks/hpc/artifacts.py`) and the command names the
+    # executable. The settings routes are unauthenticated on loopback by design,
+    # so accepting these over HTTP is arbitrary code execution: as the server
+    # user locally, and on the endpoint under the site's allocation remotely.
+    "mpnn_command",
+    "mpnn_prologue",
+}
 
-    Reporting a field the API then refuses is how the `mpnn` group and three
-    `orbit` fields ended up readable but not settable: `SettingsUpdate` is
-    `extra="forbid"`, so a `PUT` naming one returned 422.
+
+def test_a_writable_field_is_always_reported(client):
+    """Nothing may be changed without `/api/settings` showing it afterwards.
+
+    This is the direction that matters: a write the UI cannot read back is an
+    invisible change. The converse is *not* a rule -- see
+    `NOT_REMOTELY_WRITABLE`.
     """
     from designagent.app import SettingsUpdate
     from designagent.config import CREDENTIAL_FIELDS
 
     reported = {name for fields in CREDENTIAL_FIELDS.values() for name, _ in fields}
     writable = set(SettingsUpdate.model_fields) - {"force"}
-    assert not (reported - writable), f"reported but not writable: {sorted(reported - writable)}"
+    assert not (writable - reported), f"writable but not reported: {sorted(writable - reported)}"
 
 
-def test_put_applies_the_proteinmpnn_command(client, monkeypatch):
-    """The field the UI needs to point at a local CPU install."""
+def test_the_only_unwritable_reported_fields_are_the_declared_ones(client):
+    """Catches both drifts: a forgotten field, and a quietly widened surface."""
+    from designagent.app import SettingsUpdate
+    from designagent.config import CREDENTIAL_FIELDS
+
+    reported = {name for fields in CREDENTIAL_FIELDS.values() for name, _ in fields}
+    writable = set(SettingsUpdate.model_fields) - {"force"}
+    assert reported - writable == NOT_REMOTELY_WRITABLE
+
+
+def test_shell_bearing_settings_are_refused_over_http(client):
+    """The settings route must not become a way to run commands.
+
+    `PUT /api/settings` is open on loopback with no admin token configured, which
+    is the development default, so a local caller could otherwise hand the next
+    design round a prologue of its choosing.
+    """
+    for field, payload in (
+        ("mpnn_command", "/bin/sh -c 'touch /tmp/pwned'"),
+        ("mpnn_prologue", "touch /tmp/pwned"),
+    ):
+        response = client.put("/api/settings", json={field: payload})
+        assert response.status_code == 422, f"{field} was accepted: {response.text}"
+    # And the running process kept its own value.
+    assert client.runtime.settings.mpnn_prologue == ""
+
+
+def test_put_applies_the_proteinmpnn_sampling_temperature(client, monkeypatch):
+    """The one mpnn setting that is safe to accept: a float."""
 
     async def no_build(settings=None):
         raise AssertionError("an mpnn change must not rebuild the pool")
 
     monkeypatch.setattr(app_module, "build_runtime", no_build)
 
-    response = client.put(
-        "/api/settings",
-        json={"mpnn_command": "/venv/bin/python /sw/protein_mpnn_run.py",
-              "mpnn_sampling_temp": 0.2},
-    )
+    response = client.put("/api/settings", json={"mpnn_sampling_temp": 0.2})
     assert response.status_code == 200, response.text
     assert response.json()["applied"] is True
-    # The orchestrator reads these off `deps.settings` on every turn.
-    assert client.runtime.deps.settings.mpnn_command.endswith("protein_mpnn_run.py")
+    # The orchestrator reads this off `deps.settings` on every turn.
     assert client.runtime.deps.settings.mpnn_sampling_temp == 0.2
 
 
