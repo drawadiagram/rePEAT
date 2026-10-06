@@ -1167,7 +1167,7 @@ Last line: this was built without a browser available, so for a while the canvas
     '$ cd frontend && npm install && npm run dev # :5173, proxies /api',
     '',
     '$ pytest -q                                 # 93 tests, no network',
-    '$ pytest -q -m live                         # 6 tests, starts a real broker',
+    '$ pytest -q -m live                         # 12 tests, starts a real broker',
   ], M, 1.55, 7.3, 1.35, { anchor: "VERBATIM", fs: 10.5 });
 
   card(s, M + 7.6, 1.55, 5.23, 1.6, "Two things to know", [

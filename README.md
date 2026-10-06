@@ -216,25 +216,28 @@ is its duration rather than its age.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q            # 124 tests, offline; stubs replace every tool
-.venv/bin/python -m pytest -q -m live    # 6 tests; starts a real Orbit broker + endpoint
+.venv/bin/python -m pytest -q            # 171 tests, offline; stubs replace every tool
+.venv/bin/python -m pytest -q -m live    # 12 tests; starts a real Orbit broker + endpoint
 .venv/bin/python -m pytest -q -m remote  # 5 tests; submits to a real HPC endpoint
 .venv/bin/python -m pytest -q -m llm     # 4 tests; calls Anthropic with a real key
 
-cd frontend && npm test                  # 32 tests in jsdom; no servers needed
+cd frontend && npm test                  # 39 tests in jsdom; no servers needed
 cd frontend && npm run test:e2e          # 2 tests in Chromium, canned stream
 cd frontend && E2E_LIVE=1 npm run test:e2e   # ...plus one real round trip
 ```
 
 The offline tier covers the lake tiers, task routing and capabilities,
-shell-injection safety on the Globus path, the classifier, the full design loop,
-artifact rendering, the SSE framing contract, and resilience when storage or a
-fold service fails. It needs no network, no process pool and no endpoint, because
+shell-injection safety on the Globus path, the in-band staging protocol and its
+refusal to decompress past a ceiling, the ProteinMPNN job spec and output
+adapter, the classifier, the full design loop, artifact rendering, the SSE
+framing contract, and resilience when storage or a fold service fails. It needs no network, no process pool and no endpoint, because
 nodes reach the outside only through `Deps`.
 
-The 6 tests marked `live` bring up a localhost Orbit broker and endpoint as
+The 12 tests marked `live` bring up a localhost Orbit broker and endpoint as
 subprocesses and exercise the real client path — push states, incremental log
-tailing by byte offset, a failing job, cancelling a running one.
+tailing by byte offset, a failing job, cancelling a running one, that a job's
+stdout comes back whole and unduplicated, that declared inputs and outputs
+actually travel, and one real ProteinMPNN run on CPU.
 
 `remote` and `llm` are the two validation tiers, each excluded separately so that
 `-m live` cannot drag in one that needs an allocation or spends money. `remote`

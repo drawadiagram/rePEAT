@@ -16,7 +16,7 @@ when fixed and the rest close up, so refer to issues by their title in commit me
 ## A — correctness and honesty
 
 ### A1 · No HPC endpoint has ever executed a task
-The remote path is proven against a localhost broker only (`tests/test_orbit_local.py`, 8 tests).
+The remote path is proven against a localhost broker only (`tests/test_orbit_local.py`, 12 tests).
 That exercises the client — websocket, plugin sessions, push events, PSI/J offset tailing,
 cancellation — and says nothing about a scheduler, a queue, staging, or an allocation.
 
@@ -405,6 +405,12 @@ that run the generated script with bash) and three `-m live` tests through a rea
 **What would close this:** the broker forwarding `outputs` and `stdin_text`, at which point the
 wrapper becomes a fallback for older endpoints rather than the only path.
 
+### C7 · Broker documentation gaps
+Two afternoon-sized traps: there is no HTTP topology route (`/topology` is read as a plugin name and
+404s after a 307, so readiness must come from the client's `rt.topology()`, which propagates
+asynchronously); and `--no-auth` disables *ingress auth only* — the broker still serves TLS and
+refuses to start without a cert and key. Both are documentation fixes, not code.
+
 ### C8 · asyncflow swallows SIGTERM, so the backend never exits on its own
 `radical.asyncflow.workflow_manager` installs its own `SIGTERM` handler. On a
 `kill`, it logs *"Received external shutdown signal (SIGTERM), initiating graceful shutdown"*,
@@ -426,12 +432,6 @@ someone else's server — or should re-raise after its own teardown so the host'
 Until then the only correct client behaviour is to escalate, which cannot distinguish "hung" from
 "finished but did not exit".
 
-### C7 · Broker documentation gaps
-Two afternoon-sized traps: there is no HTTP topology route (`/topology` is read as a plugin name and
-404s after a 307, so readiness must come from the client's `rt.topology()`, which propagates
-asynchronously); and `--no-auth` disables *ingress auth only* — the broker still serves TLS and
-refuses to start without a cert and key. Both are documentation fixes, not code.
-
 ---
 
 ## D — needs investigation
@@ -450,9 +450,32 @@ either a turn id in that key or a `Turn` entity in tier 1, and then a route to r
 an appended caveats block, transmitted as one string with one `reply_source`; and task handles live in
 an in-memory dict, so `/api/tasks` empties on restart while the lake's Task rows persist.
 
+### D1a · One unexplained `-m live` failure, seen once
+`test_real_proteinmpnn_runs_and_its_samples_reach_the_adapter` failed once in a full `-m live` run
+that immediately followed the offline suite, two Vite builds and the jsdom tier. It then passed in
+isolation and in **five** further full runs, including a deliberate replay of the same sequence. The
+traceback was not captured — the run was `-q | tail -2` — which is the first thing to fix if it
+recurs.
+
+Not called fixed, and not dismissed. The honest state is: observed once, unexplained, 5/5 green
+since.
+
+It has more moving parts than any other test: a broker subprocess, an endpoint subprocess, a real
+torch process and a 600 s future. One structural race is worth naming because it fits the
+circumstances — `_free_port` (`tasks/hpc/local_orbit.py`) binds port 0, reads the assigned port and
+**closes the socket**, and the broker binds it only later. Anything can take the port in between,
+including another `LocalOrbitStack` doing exactly the same thing, and during the failing run a
+`dev.sh` backend was up with its own stack while each test span a throwaway one. Under load that
+window widens.
+
+**If it recurs:** run `-m live` with `--tb=long -s` and keep the broker log
+(`<tmp>/orbit/logs/broker.log`). If it is the port, the broker's log says the address is in use. The
+fix would be for `LocalOrbitStack` to hold the socket until the child inherits it, or to retry on a
+bind failure rather than assuming a chosen port stays free.
+
 ### D2 · The LLM classifier path is unmeasured
 Everything known about routing comes from `classify_rules`: the reported session, the whole reference
-campaign and all 124 offline tests run with `llm: false`. When a key is present, `CLASSIFY_SYSTEM`
+campaign and all 171 offline tests run with `llm: false`. When a key is present, `CLASSIFY_SYSTEM`
 (`coordinator.py`) decides instead and the rules are never consulted — so the phrasings fixed in the
 rule path ("label the active site residues", "run another round") are unverified there.
 
@@ -487,3 +510,22 @@ a moved line actually is; run it before presenting and after any significant edi
 self-maintaining: three citations in `CODE_FOR_DECK.md` had no anchor and drifted unnoticed until the
 deck was scanned for every `file:line` it prints. When adding a citation, add the anchor. `run.json` and
 `DECK_SCRIPT.md` are generated — see `CLAUDE.md`.
+
+### M2 · The built deck is behind its source, and the asks slide is two findings short
+`slides/designagent-codewalk.pptx` and `.pdf` are committed, and `build_deck.js` has moved since they
+were produced: the drifted anchors were corrected, and the test-tier counts went from 93/6 to 171/12.
+Rebuilding needs `pptxgenjs`, which is not installed anywhere in this tree
+(`NODE_PATH=<dir with pptxgenjs> node slides/build_deck.js`), so the source is right and the artifacts
+are stale. `check_anchors.py` passes either way — it checks the source's citations, not the rendered
+file.
+
+Separately, **slide 18 lists six findings and the backlog now has eight.** Missing: **C6** (PSI/J
+drops `outputs` and `stdin_text`, which is the one that forced the in-band staging protocol) and
+**C8** (asyncflow swallows SIGTERM, so the backend never exits). Both are findings against code whose
+authors are the intended audience, so leaving them off understates the case the slide exists to make.
+The slide's title — *"Six reproducibles, and one question"* — and its 2×3 grid both need changing, and
+a fourth row collides with the question box at y 5.42, so it is a layout decision rather than a data
+edit: three columns, tighter rows, or promoting two findings into the question panel.
+
+**Do both together** — rebuilding without adding C6 and C8 would produce a fresh artifact that is
+still wrong about the thing that matters.

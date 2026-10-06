@@ -126,7 +126,7 @@ browser ─SSE─ app.py ── graph/build.py ── nodes ── Deps ── T
 
 **Nodes reach the outside only through `Deps`** (`graph/deps.py`: settings, tasks, history,
 artifacts). Never import a store or an interface into a node. This is convention, not an enforced
-check, and it is the only reason 124 tests run with no network, no process pool and no endpoint — the
+check, and it is the only reason 171 tests run with no network, no process pool and no endpoint — the
 suite hands nodes an in-process `TaskManager` and a `tmp_path` lake.
 
 **Every interface's `submit()` returns immediately with a handle whose `future` resolves later.**

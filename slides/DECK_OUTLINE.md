@@ -5,7 +5,7 @@
 
 Because the middleware authors are in the room, this deck is weighted toward the **seam** — slides
 8, 9 and 10, the Task Interface contract and the two substrates below it — and it **ends with asks**
-rather than a summary. Two weeks on this stack produced six specific, reproducible findings against
+rather than a summary. Two weeks on this stack produced eight specific, reproducible findings against
 their code, and slide 18 states them with file and line.
 
 **Derived against `main` @ `e8467e6`** (2026-10-01). Companion files:
@@ -279,7 +279,7 @@ bit. The canvas was confirmed rendering in a browser on 2026-10-01; it was an op
 because the deck was built without one. Say so — some of the room may have seen the earlier version.
 
 ### 16 — Running it (19:05–20:20) · `S16-A`
-Five commands. The test-tier table and the split that matters: 93 offline, 6 live. Mention the two
+Five commands. The test-tier table and the split that matters: 171 offline, 12 live. Mention the two
 real classifier bugs the 18 parametrized cases caught — *"what is the lead design?"* classified as a
 design request, *"make it more stable"* classified as chat — because they argue for the rule-based
 path being visible rather than masked by an LLM.
