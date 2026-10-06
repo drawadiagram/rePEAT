@@ -62,6 +62,11 @@ cd frontend && E2E_LIVE=1 npm run test:e2e      # ...plus one real round trip
 .venv/bin/ruff check backend tests              # E/F/I, line-length 100
 ```
 
+`frontend/e2e/BROWSER_TESTS.md` is the by-hand tier: twelve user tests against a real endpoint,
+written functionally so they survive refactors, covering what neither jsdom nor Chromium can — that a
+real model round is distinguishable from a heuristic one by reading the screen. Run it after
+anything that changes what the UI attributes.
+
 `npm test` is jsdom only and needs nothing running: it covers the SSE reader's partial-frame buffer,
 `handleFrame`'s reducers, the trace disclosure, the task chips (including that a remote task names its
 interface and a local one does not), the settings panel's refusal to render a secret, and Markdown

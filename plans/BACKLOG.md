@@ -173,6 +173,43 @@ is interpreted rather than stored needs a reason before it goes there.
 surface is wider, or whether `orbit_psij_executor` and `orbit_broker_url` — a scheduler name and a
 URL the client will trust — deserve the same scrutiny.
 
+### A10 · A heuristic round never says so in its reply
+Measured in a browser with the endpoint turned off: the round completes, produces ranked designs, and
+the reply reads exactly like a real one — *"It was proposed because glutamine to glutamate avoids
+deamidation"*, no caveats block, no mention that these are rule-based proposals. The generator does
+label its own output (`"note": "heuristic proposals, not ProteinMPNN samples"`), but the note stays in
+the task record and `nodes/interpreter.py` never surfaces it, because nothing put it on the
+`warnings` channel: from the orchestrator's point of view nothing failed, so there was nothing to
+caveat.
+
+What a user is left with, all requiring prior knowledge: the chip is named `propose variants`
+rather than `proteinmpnn`, each design carries exactly one substitution, the rationale is a chemistry
+phrase instead of a sample and score, and there is no `mpnn score` column.
+
+This is the other half of **A3**. The label is honest where it is written and absent where it is
+read. The cheap fix is for the orchestrator to push a line onto `warnings` when it takes the
+heuristic branch *by configuration* rather than by failure — the fallback-after-failure path already
+does exactly that. The reason to think first: a user with no endpoint would then see the same caveat
+on every single round, which is noise that trains people to ignore the block. Possibly it belongs on
+the first round of a session only, or in the ensemble table as a provenance column (**A7**) instead
+of in prose.
+
+Reproduce from the browser: turn off the development-broker toggle in the credentials panel, start a
+new session, run a redesign. `frontend/e2e/BROWSER_TESTS.md` T10 is this, written up as a test with
+the gap stated.
+
+### A11 · The relabelling fallback body is unreachable in practice
+`CATALOG["proteinmpnn"]` points at `proteinmpnn_local_fallback`, which exists to relabel a heuristic
+round as *"no HPC endpoint was attached, so the job was never submitted"*. The orchestrator never
+reaches it: it guards on `hpc_available` **before** enqueuing, so it names `propose_variants` on the
+local interface rather than letting `interface_for` downgrade a `proteinmpnn` spec. The body therefore
+runs only if an endpoint detaches between planning and submission, or if something calls the catalog
+entry directly.
+
+Not harmful — the label is correct whenever it does appear, and the guard it duplicates is the right
+one — but it means the clearest wording of the heuristic-substitution message is the one users almost
+never see, which is worth knowing before anyone counts it as covering **A10**.
+
 ---
 
 ## B — developer experience

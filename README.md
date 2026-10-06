@@ -256,6 +256,13 @@ file alone collects nothing.
 Every e2e test fails on an uncaught page error. That is deliberate: the failure these were written
 after was a blank tab, which type-checks and curls perfectly well.
 
+- **By hand (`frontend/e2e/BROWSER_TESTS.md`)** — twelve user tests against a real backend with a
+  real endpoint attached. Neither layer above can answer the question they exist for: *can someone
+  sitting in front of this tell that a real model ran, and would they notice if it hadn't?* Each one
+  names the capability it verifies and what its failure looks like, and the file is explicit about
+  the four things a user currently cannot see — above all that a round with no endpoint attached
+  never says in its reply that its designs came from a rule table.
+
 ## Slides
 
 `slides/` holds a code-walk deck for a technical audience — architecture, the
