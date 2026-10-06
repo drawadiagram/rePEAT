@@ -73,7 +73,7 @@ ANCHORS: list[tuple[str, int, str]] = [
      "# Route node bodies through flowgentic's EXECUTION_BLOCK"),
     ("backend/designagent/graph/build.py", 54, "def wrap_node"),
     # B2 — the local Orbit stack
-    ("backend/designagent/tasks/hpc/local_orbit.py", 193, "async def _wait_for_endpoint"),
+    ("backend/designagent/tasks/hpc/local_orbit.py", 201, "async def _wait_for_endpoint"),
     # Cited in slide body text rather than in a code block's anchor label. These
     # were untracked until an edit to app.py shifted one of them by a line, which
     # nothing caught — a citation is a citation wherever it appears on the slide.

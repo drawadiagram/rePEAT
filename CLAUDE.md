@@ -31,6 +31,13 @@ needs it, so a fresh clone should not pay for it. It pins ProteinMPNN's revision
 broker. A 76-residue target takes a few seconds on CPU. It proves the model, not a scheduler, a
 queue, an allocation or a GPU — the local PSI/J executor forks a process (`plans/BACKLOG.md` A1).
 
+A child process that gets a path must get an absolute one. `LocalOrbitStack` resolves its work dir
+in `__init__` because `_spawn` runs the broker and endpoint with `cwd=work_dir`, and
+`orbit_work_dir` is the relative `data/orbit-local` by default — so a relative `--cert` resolved
+against the work dir twice and the broker exited "TLS cert not found". Every test passed an absolute
+`tmp_path`, so the suite could not see it; `DESIGNAGENT_ORBIT_LOCAL=true` from the repo root was
+broken the whole time.
+
 `config.yml` in the **current working directory** is read at `import flowgentic` time. Both
 `agent_execution` and `logger` keys must be present — flowgentic does `APP_SETTINGS["logger"]["level"]`
 with no fallback once it finds a file. Run everything from the repo root.
@@ -43,12 +50,12 @@ with no fallback once it finds a file. Run everything from the repo root.
 .venv/bin/python -m designagent --check-config --probe   # ...and try each credential
 cd frontend && npm run dev                      # Vite on :5173, proxies /api
 cd frontend && npm run build                    # tsc -b && vite build
-cd frontend && npm test                         # 32 vitest/jsdom tests, no servers
+cd frontend && npm test                         # 39 vitest/jsdom tests, no servers
 cd frontend && npm run test:e2e                 # 2 Playwright tests in a real browser
 cd frontend && E2E_LIVE=1 npm run test:e2e      # ...plus one real round trip
 
-.venv/bin/python -m pytest -q                   # 165 offline tests, no network
-.venv/bin/python -m pytest -q -m live           # 11 live tests; starts a real broker
+.venv/bin/python -m pytest -q                   # 169 offline tests, no network
+.venv/bin/python -m pytest -q -m live           # 12 live tests; starts a real broker
 .venv/bin/python -m pytest -q -m remote         # 5 tests against a real HPC endpoint
 .venv/bin/python -m pytest -q -m llm            # 4 tests against a real API key
 .venv/bin/python -m pytest tests/test_graph.py::test_design_loop_produces_lead_ensemble_and_artifacts -q
@@ -56,8 +63,9 @@ cd frontend && E2E_LIVE=1 npm run test:e2e      # ...plus one real round trip
 ```
 
 `npm test` is jsdom only and needs nothing running: it covers the SSE reader's partial-frame buffer,
-`handleFrame`'s reducers, the trace disclosure, the settings panel's refusal to render a secret, and
-Markdown sanitization. `npm run test:e2e` drives Chromium (one-time `npx playwright install
+`handleFrame`'s reducers, the trace disclosure, the task chips (including that a remote task names its
+interface and a local one does not), the settings panel's refusal to render a secret, and Markdown
+sanitization. `npm run test:e2e` drives Chromium (one-time `npx playwright install
 chromium`) and replays a canned stream through `page.route`, so it is deterministic and needs no
 backend; `E2E_LIVE=1` adds the networked turn. **Every e2e test fails on an uncaught page error** —
 that assertion is the one that catches a dead tab, which `tsc` cannot.
@@ -78,7 +86,7 @@ question with a measurement in `plans/BACKLOG.md`.
 Changing backend code moves line numbers the deck cites, so run `slides/check_anchors.py` after any
 edit — see Slides below.
 
-`addopts = "-m 'not live'"` in `pyproject.toml` deselects the 11 live tests by default, because they
+`addopts = "-m 'not live'"` in `pyproject.toml` deselects the 12 live tests by default, because they
 start a real broker. `-m live` on the command line overrides it; naming the file alone does not, and
 collects nothing.
 
@@ -261,6 +269,25 @@ created", for a job whose output shape is not known until it runs. Frames are no
 -lc` sources the login profile, and a stray `>` line is a valid FASTA header. `TaskManager`
 materializes the returned bytes into blob paths before anything persists them, so `_slim` never sees
 a megabyte. A spec declaring neither field is passed through unwrapped.
+
+### What the browser actually shows
+
+A design round's provenance is legible in three places, and nowhere else. The **task chip** names a
+task's `interface` when it is not `local` (`chat/TaskChips.tsx`), so a `proteinmpnn` chip reads
+`hpc`; expanding it shows a streaming log tail, which only the Orbit PSI/J path can produce
+(`supports_log_stream` is false on both local interfaces). The session summary artifact's
+**`## Tasks run`** section prints `` `proteinmpnn` (hpc): DONE `` straight from the Kuzu Task row
+(`artifacts/render.py`). And the **Ensemble table** carries an `mpnn score` column, whose only source
+is ProteinMPNN's negative log-likelihood. A design's `provenance.source` is plumbed end to end and
+rendered by nothing; `state.warnings` reaches the user only inside the reply and as a count in the
+trace disclosure.
+
+`SettingsPanel.tsx` builds its form from **hardcoded** `FIELDS` and `GROUPS`, hand-maintained against
+`CREDENTIAL_FIELDS` — a group the backend reports but the panel omits is dropped silently, which is
+how the `mpnn` group stayed invisible after being added server-side. `globus` still is.
+`tests/test_settings.py::test_every_reported_field_is_also_writable` pins the API half of that
+invariant: anything in `CREDENTIAL_FIELDS` must also be declared on `SettingsUpdate`, which is
+`extra="forbid"`.
 
 ## Who writes the text the user reads
 

@@ -231,6 +231,58 @@ def test_an_unknown_field_is_refused(client):
     assert client.put("/api/settings", json={"data_dir": "/etc"}).status_code == 422
 
 
+def test_every_reported_field_is_also_writable(client):
+    """`CREDENTIAL_FIELDS` and `SettingsUpdate` must not drift apart.
+
+    Reporting a field the API then refuses is how the `mpnn` group and three
+    `orbit` fields ended up readable but not settable: `SettingsUpdate` is
+    `extra="forbid"`, so a `PUT` naming one returned 422.
+    """
+    from designagent.app import SettingsUpdate
+    from designagent.config import CREDENTIAL_FIELDS
+
+    reported = {name for fields in CREDENTIAL_FIELDS.values() for name, _ in fields}
+    writable = set(SettingsUpdate.model_fields) - {"force"}
+    assert not (reported - writable), f"reported but not writable: {sorted(reported - writable)}"
+
+
+def test_put_applies_the_proteinmpnn_command(client, monkeypatch):
+    """The field the UI needs to point at a local CPU install."""
+
+    async def no_build(settings=None):
+        raise AssertionError("an mpnn change must not rebuild the pool")
+
+    monkeypatch.setattr(app_module, "build_runtime", no_build)
+
+    response = client.put(
+        "/api/settings",
+        json={"mpnn_command": "/venv/bin/python /sw/protein_mpnn_run.py",
+              "mpnn_sampling_temp": 0.2},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["applied"] is True
+    # The orchestrator reads these off `deps.settings` on every turn.
+    assert client.runtime.deps.settings.mpnn_command.endswith("protein_mpnn_run.py")
+    assert client.runtime.deps.settings.mpnn_sampling_temp == 0.2
+
+
+def test_the_staging_ceilings_are_settable(client, monkeypatch):
+    """`OrbitInterface` takes them at construction, so this restarts it."""
+
+    async def no_build(settings=None):
+        raise AssertionError("an orbit change must not rebuild the pool")
+
+    monkeypatch.setattr(app_module, "build_runtime", no_build)
+
+    response = client.put(
+        "/api/settings",
+        json={"orbit_artifact_max_bytes": 2_000_000, "orbit_job_gpus": 0},
+    )
+    assert response.status_code == 200, response.text
+    assert client.runtime.settings.orbit_artifact_max_bytes == 2_000_000
+    assert client.runtime.settings.orbit_job_gpus == 0
+
+
 def test_a_non_loopback_bind_requires_a_token(client):
     client.runtime.settings = client.runtime.settings.model_copy(
         update={"bind_host": "0.0.0.0"}

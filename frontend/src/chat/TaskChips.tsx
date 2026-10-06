@@ -8,6 +8,11 @@ import type { TaskChip } from "../lib/types";
  * Task duration is indeterminate, so each in-flight task shows its state and
  * elapsed time, plus a log tail where the interface can stream one (only the
  * Orbit PSI/J path can).
+ *
+ * The interface is shown only when it is not `local`. Most work is local, so
+ * labelling every chip would say nothing; the case worth seeing is a task that
+ * actually left this machine, which is otherwise visible only in the session
+ * summary artifact's "Tasks run" section after the turn has finished.
  */
 export default function TaskChips({ tasks }: { tasks: TaskChip[] }) {
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -28,6 +33,9 @@ export default function TaskChips({ tasks }: { tasks: TaskChip[] }) {
           >
             <span className="chip-dot" />
             <span className="chip-name">{task.label || task.task}</span>
+            {task.interface && task.interface !== "local" && (
+              <span className="chip-iface">{task.interface}</span>
+            )}
             <span className="chip-meta">
               {task.state.toLowerCase()} · {task.elapsed?.toFixed(1)}s
             </span>

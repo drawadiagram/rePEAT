@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 from designagent.config import Settings
@@ -326,3 +327,25 @@ async def test_a_task_outside_a_graph_run_has_no_node(deps):
     spec = TaskSpec(name="apply_mutations", params={"sequence": "MKV", "mutations": []})
     records = await manager.run_many([spec], session_id="s", campaign_id="c")
     assert manager.get(records[0]["id"]).snapshot()["node"] == ""
+
+
+def test_the_local_stack_hands_its_children_absolute_paths():
+    """A relative work dir used to make the broker unable to find its own cert.
+
+    `_spawn` runs the broker and endpoint with `cwd=work_dir`, so a relative
+    `--cert` resolves against the work dir a second time. `orbit_work_dir` is
+    `data/orbit-local` by default, so `DESIGNAGENT_ORBIT_LOCAL=true` from the
+    repo root died with "TLS cert not found:
+    data/orbit-local/broker_cert.pem" — the documented way to run the real model
+    locally. Every existing test passed an absolute `tmp_path`, so none of them
+    could see it.
+    """
+    from designagent.tasks.hpc.local_orbit import LocalOrbitStack
+
+    # The production value, and the thing that triggered it.
+    assert not Settings(anthropic_api_key="").orbit_work_dir.is_absolute()
+
+    stack = LocalOrbitStack(work_dir=Path("data/orbit-local"))
+    assert stack.work_dir.is_absolute()
+    assert stack._logs.is_absolute()
+    assert stack.work_dir.name == "orbit-local"

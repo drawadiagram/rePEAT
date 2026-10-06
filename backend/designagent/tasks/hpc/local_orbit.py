@@ -98,7 +98,15 @@ class LocalOrbitStack:
         self.port = port or _free_port()
         self.endpoint_name = endpoint_name
         self.plugins = plugins
-        self.work_dir = Path(work_dir) if work_dir else Path.cwd() / ".orbit-local"
+        # Resolved, not stored as given: `_spawn` runs the children with
+        # `cwd=work_dir`, so a relative `--cert` would resolve against the work
+        # dir itself. `orbit_work_dir` is `data/orbit-local` by default, which
+        # made the broker look for `data/orbit-local/data/orbit-local/...` and
+        # exit "TLS cert not found". Invisible to the tests, which pass an
+        # absolute `tmp_path`.
+        self.work_dir = (
+            Path(work_dir) if work_dir else Path.cwd() / ".orbit-local"
+        ).resolve()
         self.rhapsody_backend = rhapsody_backend
         self.cert: Path | None = None
         self.key: Path | None = None

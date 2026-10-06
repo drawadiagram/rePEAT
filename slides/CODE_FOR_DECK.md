@@ -149,7 +149,7 @@ and LangGraph's streaming are mutually exclusive, and that belongs in its README
 |---|---|---|
 | The terminal rhapsody event carries state and `exit_code` but **not `stdout`** | a completed `/bin/echo` task resolved with an empty result | `orbit.py:323–335` `_finish_task_enriched` re-fetches with `get_task` before settling the future |
 | A FAILED job reports **only a non-zero exit code** — no reason reaches the client | `handle.error` was empty for a job that exited 3 | `orbit.py:419–424` synthesises one from exit code, then stderr, then the log tail |
-| The broker has **no HTTP topology route** | `/topology` → 307 → 404, `Endpoint 'topology' unknown` (it reads as a plugin name) | readiness comes from the client's own `rt.topology()`, polled in `connect()`; the local stack greps the endpoint's log for `registered as '<name>'` (`local_orbit.py:193–212`) |
+| The broker has **no HTTP topology route** | `/topology` → 307 → 404, `Endpoint 'topology' unknown` (it reads as a plugin name) | readiness comes from the client's own `rt.topology()`, polled in `connect()`; the local stack greps the endpoint's log for `registered as '<name>'` (`local_orbit.py:201–220`) |
 | `--no-auth` disables **only ingress auth** — the broker still refuses to start without cert and key | broker exited at startup with `--no-auth` alone | `local_orbit.py:60–83` generates a throwaway self-signed pair, SAN `IP:127.0.0.1,DNS:localhost`, key `0600` |
 | All Orbit clients are **synchronous/blocking** | `RhapsodyClient` / `PSIJClient` methods block | every call goes through `asyncio.to_thread` (23 sites in `orbit.py`) |
 | Push callbacks arrive on a **listener thread** | — | `orbit.py:319–323` `_dispatch` hops to the loop with `call_soon_threadsafe` |
@@ -170,7 +170,7 @@ incremental tailing against a real local endpoint.
 python -m designagent --reload          # :8000, needs the __main__ guard (ProcessPoolExecutor)
 cd frontend && npm install && npm run dev   # :5173, proxies /api
 pytest -q                               # 93 tests, offline
-pytest -q -m live                       # 11 tests against a real localhost broker + endpoint
+pytest -q -m live                       # 12 tests against a real localhost broker + endpoint
 ```
 
 `uv sync` cannot work: the three middleware packages are local editable installs from `refcodes/`

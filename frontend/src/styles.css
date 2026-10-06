@@ -179,6 +179,18 @@ body {
   max-width: 22ch;
 }
 .chip-meta { color: var(--muted); white-space: nowrap; }
+.chip-iface {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 0 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 .chip-dot {
   width: 7px;
   height: 7px;

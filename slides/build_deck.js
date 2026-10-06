@@ -822,7 +822,7 @@ And the red block is the first of the findings. That is verbatim flowgentic. The
     M + 6.2, 4.6, 6.63, 0.55, { fontSize: 11, color: C.fail });
 
   card(s, M + 6.2, 5.2, 6.63, 1.1, "Proven, and only this far", [
-    "11 tests against a real localhost broker + endpoint: push states, incremental log tailing by offset, a failing job, cancelling a running one, that stdout comes back whole and unduplicated, and that declared inputs and outputs actually travel.",
+    "12 tests against a real localhost broker + endpoint: push states, incremental log tailing by offset, a failing job, cancelling a running one, that stdout comes back whole and unduplicated, that declared inputs and outputs actually travel, and one real ProteinMPNN run on CPU.",
     "Never run against a scheduler. That is the next real step.",
   ], { fill: C.panel, fs: 10.5 });
   footer(s, "tests/test_orbit_local.py — skipped unless the Orbit CLI scripts are runnable; LocalOrbitStack brings up broker and endpoint as subprocesses.");

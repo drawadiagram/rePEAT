@@ -410,6 +410,9 @@ class SettingsUpdate(BaseModel):
 
     anthropic_api_key: str | None = None
     model: str | None = None
+    # Pool-visible, so a change here recycles the workers; reported by
+    # `/api/settings` since before it was settable, which the drift test caught.
+    max_tokens: int | None = None
     fold_backend: Literal["esmatlas", "local", "hpc"] | None = None
 
     orbit_enabled: bool | None = None
@@ -423,6 +426,15 @@ class SettingsUpdate(BaseModel):
     orbit_account: str | None = None
     orbit_queue: str | None = None
     orbit_job_duration_sec: int | None = None
+    orbit_job_gpus: int | None = None
+    # Ceilings on the in-band staging channel (tasks/hpc/artifacts.py). Changing
+    # either restarts the Orbit interface, which takes them at construction.
+    orbit_artifact_max_bytes: int | None = None
+    orbit_job_output_max_bytes: int | None = None
+
+    mpnn_command: str | None = None
+    mpnn_prologue: str | None = None
+    mpnn_sampling_temp: float | None = None
 
     globus_enabled: bool | None = None
     globus_endpoint_id: str | None = None

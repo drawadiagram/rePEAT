@@ -133,6 +133,26 @@ everywhere — a site with a smaller limit will fail at submission rather than a
 **The real fix is upstream staging (C6)**, or a site-side input cache the job reads by path. Until
 then the guard is the honest behaviour: a named refusal beats a scheduler error.
 
+### A7 · A design's provenance is not visible in the UI
+`provenance.source` is set by the generator (`"proteinmpnn"` / `"heuristic"` / `"literature"` /
+`"user"`), carried into each design by `nodes/analyst.py`, and typed in the frontend
+(`lib/types.ts`) — and rendered by nothing. The Ensemble table rows (`nodes/interpreter.py`) and the
+Markdown/.docx summary (`artifacts/render.py`) both omit it, so the honest discriminator a reader
+needs is only inferable: a `mpnn score` column, or counting substitutions in `mutations`.
+
+Adding a `source` column to the Ensemble rows is a two-line change at `interpreter.py` and a
+`TableView` pin; the reason to pause is that a mixed round (ProteinMPNN plus a heuristic fallback)
+should probably say so in the reply too, not just in a table a user has to open. Related: the task
+chip now names a non-local `interface`, and the summary's `## Tasks run` prints it, so *where* a
+round ran is visible while *what proposed each design* is not.
+
+### A8 · `state.warnings` has no UI element of its own
+The channel is streamed (`"warnings"` is in `UI_STATE_KEYS`) and merged into the frontend's state,
+and then nothing renders it. Caveats reach the user only because `nodes/interpreter.py` appends a
+`**Caveats from this run:**` block to the reply text, capped at the first 5, plus a count in the
+`TurnTrace` disclosure. So a degraded turn whose reply the user skims looks normal, and caveats 6+
+are dropped silently.
+
 ---
 
 ## B — developer experience

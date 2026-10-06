@@ -17,6 +17,14 @@ import { isSecret } from "../lib/types";
  * can recycle the worker pool, because a task body reads its key from the
  * settings its process was given at fork — so the cost is stated before the
  * click, not after.
+ *
+ * `FIELDS` and `GROUPS` are hand-maintained against `CREDENTIAL_FIELDS` in
+ * `backend/designagent/config.py`, and nothing enforces that they agree: a group
+ * the backend reports but this file omits is dropped silently by the
+ * `GROUPS.map` below, which is how the `mpnn` group and three `orbit` fields
+ * stayed invisible after being added server-side. A field added here must also
+ * be declared on `SettingsUpdate` (`app.py`), which is `extra="forbid"`.
+ * `globus` is still reported and still not rendered.
  */
 
 type Field = {
@@ -74,6 +82,44 @@ const FIELDS: Field[] = [
     group: "orbit",
     kind: "bool",
   },
+  {
+    name: "orbit_job_gpus",
+    label: "GPUs per job",
+    group: "orbit",
+    kind: "number",
+    hint: "0 omits the request entirely, for a CPU-only endpoint",
+  },
+  {
+    name: "orbit_artifact_max_bytes",
+    label: "Max bytes per staged file",
+    group: "orbit",
+    kind: "number",
+  },
+  {
+    name: "orbit_job_output_max_bytes",
+    label: "Max bytes per job output",
+    group: "orbit",
+    kind: "number",
+  },
+
+  {
+    name: "mpnn_command",
+    label: "ProteinMPNN command",
+    group: "mpnn",
+    hint: "a command, not a path: ./scripts/setup_mpnn.sh --check prints one",
+  },
+  {
+    name: "mpnn_prologue",
+    label: "Prologue",
+    group: "mpnn",
+    hint: "shell run first at the far end, e.g. module load conda && conda activate …",
+  },
+  {
+    name: "mpnn_sampling_temp",
+    label: "Sampling temperature",
+    group: "mpnn",
+    kind: "number",
+  },
 ];
 
 const GROUPS: { id: string; title: string; note: string }[] = [
@@ -86,6 +132,11 @@ const GROUPS: { id: string; title: string; note: string }[] = [
     id: "orbit",
     title: "Remote HPC",
     note: "Applied without a restart: these are read only by the server process.",
+  },
+  {
+    id: "mpnn",
+    title: "ProteinMPNN",
+    note: "Used only when an endpoint is attached; without one the round falls back to the heuristic proposer and says so.",
   },
   { id: "fold", title: "Structure prediction", note: "" },
 ];
