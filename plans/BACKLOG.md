@@ -173,6 +173,14 @@ is interpreted rather than stored needs a reason before it goes there.
 surface is wider, or whether `orbit_psij_executor` and `orbit_broker_url` — a scheduler name and a
 URL the client will trust — deserve the same scrutiny.
 
+**On a multi-user host, loopback is not "only local processes".** On the `amarel3` login node
+(2026-10-07) about 86 users share `127.0.0.1`, and one of them already held `:8000`. There, the open
+default admits every user on the node to the write routes. Repro: start the backend there with no
+`DESIGNAGENT_ADMIN_TOKEN`; any other account on the node can `PUT /api/settings`. Until this is
+decided, `plans/AMAREL_ENDPOINT.md` §2.1 says to always set the token on a shared host. A cheap
+middle ground: have `--check-config` warn when bound to loopback with no token and other users are
+logged in.
+
 ### A10 · A heuristic round never says so in its reply
 Measured in a browser with the endpoint turned off: the round completes, produces ranked designs, and
 the reply reads exactly like a real one — *"It was proposed because glutamine to glutamate avoids
@@ -279,6 +287,25 @@ stage pushes a fresh one patched by `protocol/notebook.py` each time, which is w
 anyone reading `$PROJ/analysis/analyze_stabilization.ipynb` is reading a used notebook rather than
 the one that would run next.
 
+### A16 · The development broker runs `--no-auth`, which is unsafe on a shared host
+`LocalOrbitStack.start` (`tasks/hpc/local_orbit.py`) launches the broker with
+`--no-auth --host 127.0.0.1`, with a `psij`-enabled endpoint behind it. That stack is what
+`pytest -m live`, `DESIGNAGENT_ORBIT_LOCAL=true` (`runtime.py`) and `./scripts/dev.sh up` with an
+endpoint all start. On a workstation loopback is one user's; on an HPC login node such as `amarel3`
+it is everyone's, so for the stack's lifetime any user who finds the random port can submit jobs
+through it as the account that started it — and with `DESIGNAGENT_ORBIT_PSIJ_EXECUTOR=slurm`, on its
+allocation. Repro: on a login node, `DESIGNAGENT_ORBIT_LOCAL=true .venv/bin/python -m designagent`,
+then from another account `ss -ltn` shows the port. Not yet demonstrated end to end; the reasoning is
+from the flags.
+
+Upstream agrees on the stakes: `plans/security_token_mitigation.md` in the Orbit checkout describes
+psij submit on an unauthenticated ingress as arbitrary command execution on every connected endpoint,
+which is why its broker made auth the default. `--no-auth` is that escape hatch.
+
+Fix idea: generate a throwaway token per stack, write it `0600` into the work dir, and pass it to
+broker, endpoint and client instead of `--no-auth`. The broker already reads `--token`, so this is
+local to `local_orbit.py` and the client settings it hands back.
+
 ---
 
 ## B — developer experience
@@ -294,6 +321,14 @@ of those packages, and right now nothing records which.
 
 **Options:** git submodules pinned to a SHA; or a `refcodes/VERSIONS.md` recording each package's
 commit; or vendoring the three into the repo. The middle one is cheap and would do.
+
+**And a fourth package `setup.sh` does not install at all: `radical.orbit`.** `tasks/hpc/orbit.py`
+imports it lazily and `local_orbit._script` looks for its CLI scripts, but neither `setup.sh` nor
+`pyproject.toml` names it, so a venv that passes `--check` cannot use `hpc`, and `-m live` errors on
+"Orbit CLI scripts not found". The only revision now on record is the reference checkout on
+`amarel3`: `/home/mh1314/radical.orbit`, 0.8.0, branch `devel`, commit `c7ede0c` (2026-09-29).
+Installing it is not a plain `pip install -e`: its requirements pull `rhapsody-py` from PyPI, which
+would displace the editable `refcodes/rhapsody` — see `plans/AMAREL_ENDPOINT.md` §6, rung 0.
 
 ### B2 · Is `E,F,I` the right lint baseline?
 `ruff check backend tests` is clean at `E,F,I` and that is what `pyproject.toml` pins. The open
@@ -448,7 +483,10 @@ left the endpoint.
 hitting argv limits, and both job specs declare `outputs` for staging. Reproduce by submitting
 `fold_job_spec(...)` through `hpc` and watching the remote command read an empty stdin.
 
-**Still open upstream, and worked around in one place.** `refcodes/` is gitignored and an editable
+**Still open upstream, and worked around in one place.** Re-checked against `radical.orbit`
+`c7ede0c` (2026-10-07): `PluginPsij.submit_job` reads `executable`, `arguments`, `directory`,
+`environment`, `attributes`, `resources` and `custom_attributes`, and still neither `stdin_text` nor
+`outputs`. `refcodes/` is gitignored and an editable
 install with no recorded revision (**B1**), so a patch to `plugin_psij.py` is neither shippable nor
 verifiable by anyone else. The client therefore honours both fields in band, over the one channel the
 broker does carry whole: stdout. `tasks/hpc/artifacts.py` rewrites any spec declaring `inputs` or
@@ -477,7 +515,8 @@ wrapper becomes a fallback for older endpoints rather than the only path.
 ### C7 · Broker documentation gaps
 Two afternoon-sized traps: there is no HTTP topology route (`/topology` is read as a plugin name and
 404s after a 307, so readiness must come from the client's `rt.topology()`, which propagates
-asynchronously); and `--no-auth` disables *ingress auth only* — the broker still serves TLS and
+asynchronously) — **half-resolved at `c7ede0c`**, whose gateway serves token-gated `GET /endpoints`
+and `POST /endpoint/list`, so a readiness check exists, just not at `/topology`; and `--no-auth` disables *ingress auth only* — the broker still serves TLS and
 refuses to start without a cert and key. Both are documentation fixes, not code.
 
 ### C8 · asyncflow swallows SIGTERM, so the backend never exits on its own
@@ -568,6 +607,17 @@ is probably load-related rather than random.
 **Worth knowing:** whether it is rate limiting (then back off and retry), a size limit interacting
 with the 400 aa threshold, or genuinely random. One scripted run of 20 folds at varying concurrency
 would answer it.
+
+### D4 · `-m live` on an HPC login node is expected to lose its function-task test
+`LocalOrbitStack` starts its endpoint with `-p rhapsody,psij` (`tasks/hpc/local_orbit.py`). Orbit
+loads rhapsody only when `utils.host_role` reports `compute` or `standalone`
+(`plugin_rhapsody.py: is_enabled`, at `c7ede0c`); a login node with Slurm installed and no allocation
+is `login`, so rhapsody is skipped with an INFO line and the endpoint serves psij alone.
+`tests/test_orbit_local.py::test_executable_task_runs_and_returns_output` submits `kind="function"`,
+which `OrbitInterface._submit_task` refuses with "endpoint has no rhapsody plugin". Read from the
+code on `amarel3`, not run — the venv does not exist yet. Repro: rung 1 of
+`plans/AMAREL_ENDPOINT.md` on a login node, then again under `srun`, where it should pass. If
+confirmed, the test wants a skip naming the role rather than a failure.
 
 ---
 
