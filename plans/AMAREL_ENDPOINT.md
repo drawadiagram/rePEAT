@@ -1,4 +1,4 @@
-# Standing up an Orbit endpoint on Amarel
+# Standing up Orbit: endpoint on Amarel, broker on JetStream2
 
 What the enzyme-redesign protocol needs that is not code. Every heavy step of that protocol is
 site-bound — the UniRef30 database, the ProteinMPNN and HaloMPNN weights, the `aifold` /
@@ -7,39 +7,53 @@ runs through the `hpc` task interface, which means through an Orbit broker and a
 Amarel. Until that pair is up, `TaskManager.interface_for` has no `"hpc"` key and degrades to
 `local` with only a `log.info` (`tasks/manager.py:76-88`).
 
+**The decided layout (2026-10-07):** the Orbit **endpoint** runs on the Amarel login node `amarel3`;
+the **broker** and the **rePEAT agent** run on one JetStream2 VM. Nothing listens on Amarel. §2 has
+the full picture, §3 the JetStream2 half, §4 the Amarel half.
+
 This is a deployment record as much as a procedure: fill in what each rung of the ladder at the
 bottom actually returned, so the next person reads results rather than intentions.
 
-Status as of 2026-10-06: **nothing here has been run.** Every command below is derived from the
-Orbit CLIs and from `tasks/hpc/local_orbit.py`, which is the only working example of starting the
-pair, against a localhost broker. Treat the whole document as unverified until the ladder says
-otherwise.
+Status as of 2026-10-07: **nothing here has been run.** Every command below is derived from the
+Orbit CLIs and docs and from `tasks/hpc/local_orbit.py`, which is the only working example of
+starting the pair, against a localhost broker. Treat the whole document as unverified until the
+ladder says otherwise.
 
 ### Environment survey, 2026-10-07
 
-Taken read-only from a session **on `amarel3` itself** (`amarel3.amarel.rutgers.edu`, a login
-node, no `SLURM_JOB_ID`), with the repo at `/cache/home/mh1314/rePEAT`. Nothing was started. It
-changed the plan in three places: the agent can live on the login node too (§2, arrangement 0),
-loopback there is shared with every other user (§2.1), and port 8000 is already taken (§4).
+**Amarel**, taken read-only from a session on `amarel3` itself (`amarel3.amarel.rutgers.edu`, a login
+node, no `SLURM_JOB_ID`), with the repo at `/cache/home/mh1314/rePEAT`. Nothing was started.
 
 | Check | Result | Consequence |
 | --- | --- | --- |
-| host | `amarel3`, 64 cores, ~86 users logged in | agent, broker and endpoint can share one host — §2 (0) |
-| `.venv/`, `refcodes/` | **both absent** — a fresh clone | rung 0 of the ladder; `setup.sh` fails until `refcodes/` is placed (backlog **B1**) |
-| system python, `uv` | 3.9.21; `uv` in `~/.local/bin` | fine: `setup.sh` runs `uv venv --python 3.12` |
-| `~/.radical/orbit` | absent | §3 not yet done |
+| host | `amarel3`, 64 cores, ~86 users logged in | loopback is shared with every one of them — §2.1 |
+| outbound network | no proxy variables; TCP to an external host connected on 443, 8000 and 8443 | the endpoint can dial a JetStream2 broker directly, no tunnel |
+| egress address | `128.6.37.137`, reverse DNS `pool-128-6-37-137.nat.rutgers.edu` | a Rutgers **NAT pool**: the source address may change, so allow-list the range, not one IP — §3 |
+| Orbit install | `.venv/` and `refcodes/` absent; nothing for Orbit | §4 installs `radical.orbit` alone; the endpoint needs nothing else from this repo |
+| system python, `uv` | 3.9.21; `uv` in `~/.local/bin` | a 3.12 venv via `uv` — Orbit needs ≥3.10 |
+| `~/.radical/orbit` | absent | §4 |
 | Slurm | `sbatch`/`sacct`/`squeue` on `PATH`; `sacctmgr` association `general`, qos `normal` | §5 values; the group `g_sdk94_1` and partition `p_sdk94_1` suggest a lab allocation may be the one to charge |
 | partitions | `main`* `gpu` `mem` `nonpre` `cmain` `cgpu` `cmem` `p_sdk94_1`, all 3-day limits but the last | `protocol_gpu_queue=gpu` matches a real partition |
-| `127.0.0.1:8000` | **LISTENing, held by another user** | the backend's default port *and* the broker's are taken — §4 |
+| `127.0.0.1:8000` | LISTENing, held by another user | matters only to the dev stack, if anyone runs it on Amarel |
 | `apptainer`, `module` | present; `/projects/community/modulefiles` offers `alphafold/vs3.0.0-pgarias` | a candidate for `protocol_af3_modules`, unverified |
 | keep-alive | `tmux`, `screen` present; `systemd --user` runs but `Linger=no` | §4 |
-| `$HOME`, `/scratch/<netid>` | both `0700` | cert, key and token files stay private |
-| Orbit source | reference checkout at `/home/mh1314/radical.orbit`: 0.8.0, branch `devel`, commit `c7ede0c` (2026-09-29), clean | §1's flags verified against it; four corrections below (§1, §4, §6) |
+| `$HOME`, `/scratch/<netid>` | both `0700` | cert and token files stay private |
 
-> `refcodes/` is gitignored and holds no recorded revision (backlog **B1**). On 2026-10-07 the flags
-> below were checked against the reference checkout at `/home/mh1314/radical.orbit` (0.8.0, `devel`,
-> `c7ede0c`) and every one matched. Re-read `--help` against any other revision. Upstream's own
-> `DEPLOYMENT.md` in that checkout is the companion to this document.
+**Orbit source:** reference checkout at `/home/mh1314/radical.orbit` — 0.8.0, branch `devel`, commit
+`c7ede0c` (2026-09-29), clean. Every flag in §1 was checked against it and matched. `refcodes/` holds
+no recorded revision (backlog **B1**), so re-read `--help` against any other revision. Upstream's own
+`DEPLOYMENT.md` in that checkout is the companion to this document.
+
+**JetStream2:** fill in when the VM exists.
+
+| Item | Value |
+| --- | --- |
+| allocation | |
+| instance name / flavor / image | / `m3.quad` / Ubuntu 24.04 |
+| DNS name | `<instance>.<allocation>.projects.jetstream-cloud.org` |
+| floating IP | |
+| broker port | `8443` |
+| cert generated (expires +365 d) | |
 
 ---
 
@@ -65,11 +79,11 @@ the broker**, and so is this agent. That single fact decides the topology (§2).
 | Flag | Notes |
 | --- | --- |
 | `--name`, `-n` | **Set it explicitly.** Defaults to `socket.gethostname()`; the source comments that a serving endpoint wants a stable, recoverable name. This is what `DESIGNAGENT_ORBIT_ENDPOINT` must match. |
-| `--url`, `-u` | CLI > `$RADICAL_ORBIT_BROKER_URL`. **No file fallback** — unlike the cert and token. |
+| `--url`, `-u` | CLI > `$RADICAL_ORBIT_BROKER_URL`. **No file fallback** — unlike the cert and token. `https://` is rewritten to `wss://`. |
 | `--cert`, `-c` | CLI > `$RADICAL_ORBIT_BROKER_CERT` > `~/.radical/orbit/broker_cert.pem` |
 | `--token`, `-t` | same resolution as the broker's |
 | `--plugins`, `-p` | **must include `psij`**, which submits every batch job. Use **`psij,sysinfo`** (below). Default `default` expands by host role (`plugin_host_base.py`) |
-| `--tunnel` | `none` \| `forward` \| `reverse` — see §2 |
+| `--tunnel` | `none` \| `forward` \| `reverse` — only for an endpoint inside an allocation (§2.3) |
 | `--tunnel-via HOST` | login host for `forward`; falls back to `$SLURM_SUBMIT_HOST` |
 | `--log-level`, `-l` | or `RADICAL_ORBIT_LOG_LVL`, falling back to `RADICAL_LOG_LVL`; `DEBUG` before a first run is worth it |
 | `$RADICAL_ORBIT_PSIJ_DIR` | where PSI/J keeps job stdout (`output/`) and generated submit scripts (`work/`). Default `~/.radical/orbit/psij` — **set it to `/scratch/<netid>/orbit-psij`**; upstream moved it after a full home quota failed every submit on Perlmutter |
@@ -81,7 +95,7 @@ only when `utils.host_role` says `compute` (inside an allocation) or `standalone
 On `amarel3` Slurm is detected and there is no allocation, so the role is `login` and rhapsody is
 skipped with one INFO line (`[PluginHost] Skipping plugin (not applicable here)`). PSI/J loads on
 every host. That costs this path nothing: every `hpc` submission here is `kind="job"`
-(`nodes/orchestrator.py`, `nodes/protocol.py`), which goes to psij. It does cost ladder rung 1 (§6).
+(`nodes/orchestrator.py`, `nodes/protocol.py`), which goes to psij.
 
 **Why `psij,sysinfo` and not the default.** On a login node `default` is
 `psij,staging,sysinfo,queue_info`. Upstream's `plans/security_token_mitigation.md` describes psij
@@ -89,9 +103,8 @@ submit as arbitrary command execution and staging as able to create files under 
 behind the token, but nothing here uses `staging`, so it need not be exposed. `sysinfo` adds the
 `host_role` route, which reports the role and batch system the endpoint actually detected.
 
-Note the asymmetry that makes a clean deployment possible: cert and token both fall back to files
-under `~/.radical/orbit/`, so once those are placed, neither process needs a flag for them. Only
-`--url`, `--name` and `--plugins` have to be passed.
+Cert and token both fall back to files under `~/.radical/orbit/`, so once those are placed, neither
+process needs a flag for them. Only `--url`, `--name` and `--plugins` have to be passed.
 
 **Every path must be absolute.** `LocalOrbitStack` resolves its work dir in `__init__` for exactly
 this reason: `_spawn` runs the children with `cwd=work_dir`, so a relative `--cert` resolved against
@@ -101,148 +114,169 @@ the work dir twice, and the broker exited "TLS cert not found" (the trap recorde
 
 ## 2 · Topology: who dials whom
 
-Both the endpoint and this agent must reach the broker. Amarel login nodes do not generally accept
-inbound connections, which rules out the naive arrangement. Four options, best first:
-
-**(0) Everything on `amarel3`: agent, broker and endpoint.** When the agent itself runs on the login
-node — as it does when this repo is checked out there — no process needs to cross the network to
-reach the broker. The broker binds loopback, the endpoint and the backend both dial
-`https://127.0.0.1:<port>`, and `~/.radical/orbit` is already where both look, so nothing is copied.
-The ssh forward moves to the **browser**: the laptop runs
-`ssh -N -L 8080:127.0.0.1:<backend port> <netid>@amarel3.hpc.rutgers.edu` and opens
-`http://127.0.0.1:8080`. The price is that the agent's own process pool now runs on a shared login
-node, so keep `DESIGNAGENT_POOL_WORKERS` small; nothing heavy runs in it on this path, since every
-protocol step is a batch job. **Start here when the agent runs on Amarel**, and read §2.1 first.
-
-**(a) Broker beside the endpoint on `amarel3`, agent reaches it over an ssh local forward.**
-The broker binds loopback on the login node; the workstation runs
-`ssh -N -L 8443:127.0.0.1:8443 <netid>@amarel3.hpc.rutgers.edu` and sets
-`RADICAL_ORBIT_BROKER_URL=https://127.0.0.1:8443`. Nothing is exposed to the campus network, the
-endpoint's connection never leaves the host, and the only moving part is an ssh session the user
-already knows how to open. **Start here when the agent runs on a workstation.**
-
-**(b) Orbit's own tunnel modes.** The endpoint supports `--tunnel forward`, which opens `ssh -L`
-from a compute node to the login host (`--tunnel-via`, defaulting to `$SLURM_SUBMIT_HOST`), and
-`--tunnel reverse`, which waits for a parent-side `ssh -R` and reads
-`~/.radical/orbit/tunnels/<name>.port` off the shared filesystem. These exist for the case where the
-endpoint runs *inside an allocation* rather than on a login node — the one arrangement in which Orbit
-is started from a job script (§2.2). Note what that costs us. The protocol's transfer jobs submit with
-`executor: "local"`, so they run on the endpoint's host: inside the allocation, using its cores, and
-killed with it. `$PROJ` and `/scratch/<netid>` are cluster-wide on Amarel, so visibility is probably
-not the problem (unverified from a compute node); lifetime is. The endpoint dies at the allocation's
-walltime — at most 3 days on `main` — and a multi-day protocol outlives that.
-**Prefer a login node, and reach for the tunnel modes only if site policy forbids it.**
-
-**(c) Broker on a third host both can reach.** Correct, and the most work: it needs a host with a
-stable address, a real certificate story, and the ingress token distributed to two more places.
-Only worth it if several people share one endpoint.
-
-### 2.1 · Loopback is not private on a shared login node
-
-This repo treats `127.0.0.1` as "only me" in three places, and on `amarel3` it is every logged-in
-user (about 86 at the survey). None of this is new code; it is the same code on a different kind of
-host.
-
-- **The development broker runs `--no-auth`.** `LocalOrbitStack` (`tasks/hpc/local_orbit.py`) starts
-  its broker with `--no-auth --host 127.0.0.1` on a random port, and an endpoint with the `psij`
-  plugin behind it. That is what `pytest -m live`, `DESIGNAGENT_ORBIT_LOCAL=true` and
-  `./scripts/dev.sh up` with an endpoint all start. On a shared host, any user who finds the port
-  can submit through it — as you, on your allocation — for as long as it runs. Rungs 1 and 2 of the
-  ladder start exactly this. Run them short-lived and attended, or inside an `srun` allocation where
-  the node's loopback is shared with far fewer people (backlog **A16**).
-- **Settings writes are open on loopback.** `_authorize_write` (`app.py`) admits any loopback caller
-  when `DESIGNAGENT_ADMIN_TOKEN` is unset, and the read routes are open regardless. On `amarel3`,
-  **always set `DESIGNAGENT_ADMIN_TOKEN`** (backlog **A9**).
-- **The real broker of §4 is safe only because auth is on.** Never pass `--no-auth` to it here.
-
----
-
-### 2.2 · Is Orbit started inside an Amarel job script? No — and if it ever is
-
-There are three kinds of process, and only the last runs under Slurm:
-
-| Process | Where | Started by | Lifetime |
+| Process | Host | Kept alive by | Connects to |
 | --- | --- | --- | --- |
-| broker | `amarel3` login node, loopback | the operator, by hand, in `tmux` (§4) | until stopped |
-| endpoint | `amarel3` login node | the operator, by hand, in `tmux` (§4) | until stopped |
-| protocol jobs (hhblits, MPNN, AF3, …) | compute nodes | the endpoint's `psij` plugin, on a `submit_job` from the agent | one job each |
+| broker | JetStream2 VM, `0.0.0.0:8443` | a systemd service (§3) | nothing — **the only listening port in the deployment** |
+| agent (rePEAT backend) | the same VM, `127.0.0.1:8000` | `tmux` or a systemd service (§3) | the broker at `https://127.0.0.1:8443` |
+| endpoint | `amarel3` login node | `tmux` (§4) | the broker at `https://<vm-dns>:8443`, outbound |
+| protocol jobs | Amarel compute nodes | Slurm, one job each | nothing |
+| browser | the user's laptop | — | the agent, over `ssh -L` to the VM |
 
-**In arrangements (0) and (a), no Orbit code runs inside any job.** The batch scripts are generated by
-PSI/J on the endpoint from the specs in `protocol/specs.py` (the skill's own `#SBATCH` headers are
-dead on this path), and each contains only that step's `bash -lc` body. A job never connects to the
-broker: the endpoint submits it with `sbatch`, polls it through Slurm, and reads its stdout file from
-the shared filesystem. So the external caller — the agent's backend — needs exactly four things, all
-fixed for the life of the deployment, and nothing per job:
+This is Orbit's intended pattern, not an adaptation of it. Upstream's `DEPLOYMENT.md` puts the broker
+on a "public-facing" host under systemd and the endpoint on "one per cluster or login node",
+and says the reason: "endpoints initiate the outbound WebSocket connection to the broker. No inbound
+ports need to be opened on the HPC firewall." `docs/machine_guide.md` gives the same order for the
+PsiJ path: start the broker "somewhere reachable from the machine", then the endpoint on the login
+node. The survey confirmed the one thing this layout needs from Amarel — outbound TCP from `amarel3`
+to an arbitrary port.
 
-| What the caller needs | Setting | Where it comes from |
+The broker holds no job state; sessions live in the endpoint. The agent sits beside the broker
+because it is the broker's only other client, the protocol's scripts are read on the agent's host
+(§3), and on a single-user VM the agent's loopback assumptions hold (§2.1).
+
+### 2.1 · Exposure
+
+- **The broker's port faces the internet**, so the token is the gate. Auth is on by default and must
+  stay on: **never `--no-auth`** on this broker. Narrow the port with a host firewall to the Rutgers
+  range the endpoint egresses from (§3), and keep the key on the VM.
+- **The agent's backend stays on loopback.** It ships no CORS middleware, and `_authorize_write`
+  (`app.py`) opens settings writes to loopback callers when `DESIGNAGENT_ADMIN_TOKEN` is unset. On a
+  VM only we log into, loopback is ours, which is what that design assumes; set the token anyway.
+  Never bind the backend to a public address; the browser reaches it over `ssh -L`.
+- **Nothing listens on `amarel3`.** The shared-loopback problem found in the survey — about 86 users
+  on one `127.0.0.1` — now matters only to the dev stack (`pytest -m live`,
+  `DESIGNAGENT_ORBIT_LOCAL=true`), which starts a `--no-auth` broker (backlog **A16**). Run that on
+  the VM (§6), not on Amarel.
+
+### 2.2 · Is Orbit started inside an Amarel job script? No
+
+**No Orbit code runs inside any Slurm job.** The endpoint is a long-lived login-node process. The batch
+scripts are generated by PSI/J on the endpoint from the specs in `protocol/specs.py` (the skill's own
+`#SBATCH` headers are dead on this path), and each contains only that step's `bash -lc` body. A job
+never connects to the broker: the endpoint submits it with `sbatch`, polls it through Slurm, and reads
+its stdout file from the shared filesystem — which is why `RADICAL_ORBIT_PSIJ_DIR` must be on one
+the compute nodes write to.
+
+So the agent needs exactly four things, all fixed for the life of the deployment, and nothing per job:
+
+| What the agent needs | Setting | On the VM |
 | --- | --- | --- |
-| broker URL, as reachable *from the caller* | `RADICAL_ORBIT_BROKER_URL` | `https://127.0.0.1:<port>`: the broker itself in (0), the local end of `ssh -L` in (a) |
-| broker cert, to pin | `RADICAL_ORBIT_BROKER_CERT` | `~/.radical/orbit/broker_cert.pem` — same file in (0), copied in (a) |
-| ingress token | `RADICAL_ORBIT_BROKER_TOKEN` or the token file | `~/.radical/orbit/broker.token` — same file in (0), copied in (a) |
-| endpoint name | `DESIGNAGENT_ORBIT_ENDPOINT` | the endpoint's `--name` (`amarel3`) |
+| broker URL, as reachable from the agent | `RADICAL_ORBIT_BROKER_URL` | `https://127.0.0.1:8443` |
+| broker cert, to pin | `RADICAL_ORBIT_BROKER_CERT` | `~/.radical/orbit/broker_cert.pem` |
+| ingress token | `RADICAL_ORBIT_BROKER_TOKEN` or the token file | `~/.radical/orbit/broker.token` |
+| endpoint name | `DESIGNAGENT_ORBIT_ENDPOINT` | `amarel3`, the endpoint's `--name` |
 
 plus the scheduler choices the agent puts on each spec (`DESIGNAGENT_ORBIT_PSIJ_EXECUTOR`,
-`_ACCOUNT`, `_QUEUE`; §5). The caller never needs a compute node's hostname, a job's address or a
-port inside the cluster; a job's Slurm id comes back to it in `handle.meta["native_id"]`.
+`_ACCOUNT`, `_QUEUE`; §5). The agent never needs a compute node's hostname or a port inside the
+cluster; a job's Slurm id comes back to it in `handle.meta["native_id"]`. The endpoint needs three of
+the same things — URL (the VM's public name), cert and token — copied to `amarel3` (§4).
 
-**Arrangement (b) is the one case where Orbit starts inside a job script**: an `sbatch` script
-whose payload is the endpoint itself, launched by the operator (upstream's `DEPLOYMENT.md` has a
-template, and `examples/amsc.py` submits one through PSI/J). Only the endpoint moves; the broker
-stays on the login node. Two things go *into* that script that the login-node endpoint does not need:
+### 2.3 · Fallback: the endpoint inside an allocation
+
+Only if site policy forbids a long-lived login-node process. Then Orbit *is* started from a job
+script: an `sbatch` script whose payload is the endpoint (upstream `DEPLOYMENT.md` has a template).
+The broker does not move. Costs: transfer specs run with `executor: "local"`, so they run inside the
+allocation and die with it; and the endpoint itself dies at the walltime — at most 3 days on `main` —
+which a multi-day protocol outlives.
 
 ```bash
 #!/bin/bash
 #SBATCH --partition=main --time=3-00:00:00 --cpus-per-task=4 --mem=16G
-# --name:       fixed, because the default is the compute node's hostname
-# -p:           psij named explicitly, because the compute-node default set lacks it
-# --url:        the broker as seen from amarel3, which is where the tunnel lands
-# --tunnel-via: explicit, because $SLURM_SUBMIT_HOST may be another login node
+# --name: fixed, because the default is the compute node's hostname
+# -p:     psij named explicitly, because the compute-node default set lacks it
 export RADICAL_ORBIT_PSIJ_DIR=/scratch/$USER/orbit-psij
 radical-orbit-endpoint-wrapper.sh \
     --name amarel-alloc \
     -p psij,sysinfo,queue_info \
-    --url https://127.0.0.1:8443 \
-    --tunnel forward --tunnel-via amarel3
+    --url https://<vm-dns>:8443
 ```
 
-`--tunnel forward` opens `ssh -L` from the compute node to `amarel3` and connects through it, so the
-broker can stay on loopback; it needs passwordless ssh from compute nodes to `amarel3` (the user's
-own key is in `authorized_keys`; whether Amarel allows compute→login ssh is unverified). The tunnel's
-port is a rendezvous between the endpoint and itself, written to
-`~/.radical/orbit/tunnels/<name>.port`; the caller does not need it. Cert and token are read from
-`~/.radical/orbit/` on the shared home, so nothing is copied into the job.
+No tunnel, *if* compute nodes have outbound access like `amarel3` does — untested. If they do not,
+add `--tunnel forward --tunnel-via amarel3` and `--url` stays the same: the `ssh -L` lands on
+`amarel3`, which can reach the VM. That needs passwordless ssh from compute nodes to `amarel3` (the
+user's key is in `authorized_keys`; whether Amarel allows compute→login ssh is unverified).
 
-What the caller needs in (b) is the **same four settings** — the caller only ever talks to the broker,
-so moving the endpoint changes none of them except the name. What is *new* is information about the
-endpoint's own job, which the login-node endpoint did not have:
+The agent's four settings do not change except the endpoint name. What is new is information about
+the endpoint's own job:
 
-| New information | Why the caller needs it | How it can get it |
+| New information | Why the agent needs it | How it can get it |
 | --- | --- | --- |
-| the endpoint is up | queue wait is unbounded; a round planned before registration silently takes the heuristic branch | `GET /endpoints` (§4), or `rt.topology()` |
+| the endpoint is up | queue wait is unbounded; a round planned before registration silently takes the heuristic branch | `GET /endpoints` (§3), or `rt.topology()` |
 | the allocation's end time | work submitted near the end is lost: `executor: "local"` transfer jobs die with the allocation, and Slurm jobs it submitted survive but their handles do not | `queue_info`'s `job_allocation` route returns `end_time`; `sysinfo`'s `host_role` returns the allocation's `job_id` |
 | the endpoint job's Slurm id | to extend, cancel, or tell it apart from the protocol's own jobs in `sacct` | `sysinfo`'s `host_role` |
 | that the endpoint restarted | Orbit does not persist sessions: a new endpoint has none of the old handles (upstream `DEPLOYMENT.md`, "Session Persistence") | a fresh `registered as` line; the protocol recovers by re-fetching from `$PROJ`, not by re-attaching (backlog **A14**) |
 
-The first is already handled the same way as on a login node. **The other three are not read by
-anything in this repo**: `OrbitInterface` asks the broker for the topology and nothing else, so an
-agent connected to a job-hosted endpoint would not know when it expires. That is a reason to stay on a
-login node, not a gap to fix first; if (b) is ever chosen, `queue_info` is in the plugin list above so
-that the information is at least one request away.
+**The last three are not read by anything in this repo**: `OrbitInterface` asks the broker for the
+topology and nothing else. That is a reason to stay on the login node, not a gap to fix first.
 
-## 3 · TLS and the token
+---
 
-A self-signed pair is the supported shape, and **hostname matching is disabled for pinned certs** —
-the CN does not need to match the broker host, which removes the usual self-signed pain. Endpoints
-and clients pin the *cert*; the key never leaves the broker host.
+## 3 · JetStream2: the broker and agent host
 
-On the broker host:
+JetStream2 facts below are from [docs.jetstream-cloud.org](https://docs.jetstream-cloud.org)
+(instance flavors, firewalls, the general FAQ on DNS names), read 2026-10-07.
+
+**1. Launch.** In Exosphere: Ubuntu 24.04, **`m3.quad`** (4 vCPU, 15 GB, 20 GB disk, **4 SU/hour**,
+about 2,900 SU per month left running). `m3.small` (2 vCPU, 6 GB, 2 SU/h) would carry the broker alone
+but is tight for the agent: LangGraph, a process pool, Kuzu and a frontend build. Keep the public IP —
+the DNS name `<instance>.<allocation>.projects.jetstream-cloud.org` resolves to the floating IP and
+does not work without one. An active VM is charged whether or not it is used; a **shelved** one is
+charged nothing, and usage reports lag 12–24 hours. Record the instance in the survey table.
+
+**2. Firewall.** Jetstream2 enables no host firewall, and Exosphere's default security group is
+permissive. Use UFW (the docs' recommendation; keep SSH open or you lock yourself out):
+
+```bash
+sudo ufw allow ssh
+sudo ufw allow from 128.6.0.0/16 to any port 8443 proto tcp   # Rutgers; amarel3 egresses via NAT
+sudo ufw enable
+```
+
+`128.6.0.0/16` is Rutgers' block (`whois`: "Rutgers, The State University") and covers the NAT
+pool the survey saw (`128.6.37.137`); widen it only if the endpoint's address turns out to come from
+elsewhere. The
+allow-list is defence in depth, not the gate — the token is. The agent reaches the broker over
+loopback, which UFW does not filter. Exosphere's web shell and desktop need extra ports (the docs list
+them); add them only if used. If the VM was launched from Horizon or the CLI, tighten the security
+group to the same two rules.
+
+**3. Install**, as the VM's login user (`exouser` on Exosphere images; adjust paths if not):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+git clone https://github.com/drawadiagram/rePEAT && cd rePEAT
+# place refcodes/ (radical.asyncflow, rhapsody, flowgentic) — backlog B1
+./scripts/setup.sh
+git clone https://github.com/radical-cybertools/radical.orbit ~/radical.orbit
+git -C ~/radical.orbit checkout c7ede0c        # the revision this document was checked against
+uv pip install --python .venv --no-deps -e ~/radical.orbit
+uv pip install --python .venv psij-python websockets websocket-client msgpack cloudpickle
+./scripts/setup.sh --check
+# the skill repository, for protocol_scripts_dir (§5)
+```
+
+`setup.sh` installs asyncflow, rhapsody and flowgentic and never `radical.orbit`; `pyproject.toml`
+does not list it, and `tasks/hpc/orbit.py` imports it lazily, so the gap stays invisible until `hpc`
+is switched on (backlog **B1**). `--no-deps` because Orbit requires `rhapsody-py` from PyPI, which
+would displace the editable `refcodes/rhapsody`; install the rest of the checkout's `requirements.txt`
+by name, then confirm `uv pip show rhapsody-py` still points at `refcodes/`.
+
+**The skill checkout belongs on the VM.** `read_protocol_file` (`graph/nodes/protocol.py`) reads
+`protocol_scripts_dir` on the agent's own host and pushes each script to the endpoint in band. The
+`protocol_*` *paths* (`proj_root`, `scratch_root`, the conda envs, the databases) are the opposite:
+cluster paths, checked only to be absolute (`protocol/site.py`) and never touched on the VM.
+
+**4. Credentials**, on the VM. A self-signed pair is the supported shape, and **hostname matching is
+disabled for pinned certs** (`runtime.py`), so one cert serves the agent dialling `127.0.0.1` and the
+endpoint dialling the DNS name. Endpoints and clients pin the *cert*; the key never leaves the VM.
 
 ```bash
 mkdir -p ~/.radical/orbit
 openssl req -x509 -newkey rsa:4096 -nodes \
     -keyout ~/.radical/orbit/broker_key.pem \
     -out    ~/.radical/orbit/broker_cert.pem \
-    -days 365 -subj "/CN=$(hostname -f)"
+    -days 365 -subj "/CN=<vm-dns>" \
+    -addext "subjectAltName=DNS:<vm-dns>,IP:127.0.0.1"
 chmod 600 ~/.radical/orbit/broker_key.pem      # the broker refuses to start otherwise
 
 python3 -c "import secrets; print(secrets.token_urlsafe(32))" \
@@ -250,52 +284,40 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))" \
 chmod 600 ~/.radical/orbit/broker.token
 ```
 
-Then copy `broker_cert.pem` and `broker.token` to `~/.radical/orbit/` on every connecting host — in
-arrangement (a) that is the workstation only, since the broker and endpoint share a home directory;
-in arrangement (0), nothing. Upstream `DEPLOYMENT.md` ("Credential staging") has push-style commands,
-and the broker prints pull-style one-liners in its startup banner.
-Auth is **on by default** and the token is never generated by the software; `~/.radical/orbit` is
-treated as operator-owned configuration. Do not pass `--no-auth`: the dev stack passes it, and it
-disables the ingress gate only — the broker still needs a cert and key either way.
+The token is never generated by the software; `~/.radical/orbit` is operator-owned configuration.
+The cert expires in 365 days — record the date in the survey table. Rotating the token means
+re-copying it to `amarel3` (§4); an endpoint whose reconnect is rejected exits non-zero rather than
+waiting.
 
-The cert expires in 365 days. Note the date here when it is generated.
+**5. The broker as a system service.** The VM gives us root, which `amarel3` does not, so the broker
+gets a real unit (adapted from upstream `DEPLOYMENT.md`):
 
----
+```ini
+# /etc/systemd/system/orbit-broker.service
+[Unit]
+Description=Orbit broker
+After=network.target
 
-## 4 · Starting the pair
+[Service]
+User=exouser
+WorkingDirectory=/home/exouser
+Environment=RADICAL_ORBIT_LOG_LVL=INFO
+ExecStart=/home/exouser/rePEAT/.venv/bin/radical-orbit-broker.py --host 0.0.0.0 --port 8443 -p sysinfo
+Restart=on-failure
+RestartSec=5s
 
-**Pick ports first.** The survey found `127.0.0.1:8000` already held by another user, and nothing
-reserves `8443` either. Check, then record what was chosen:
-
-```bash
-ss -ltnH | awk '{print $4}' | grep -E ':(8443|8001)$'   # empty means free, for now
+[Install]
+WantedBy=multi-user.target
 ```
 
-The backend's default `--port 8000` is taken too, so run it on another port. `dev.sh up --port N`
-then skips the frontend, because Vite's proxy target is fixed at `:8000` (`scripts/dev.sh`); on
-`amarel3` either run the backend alone and use the API, or run Vite by hand with its proxy target
-changed. Built frontend assets served some other way are not set up in this repo.
+Cert, key and token resolve from `~exouser/.radical/orbit/`. `-p sysinfo` keeps the broker's own
+plugin set small: its default adds `staging`, `task_dispatcher`, `federation` and the IRI/SFAPI
+connectors, none of which this deployment uses (unverified that a narrower set changes nothing for
+routing — check at rung 0b). `sudo systemctl enable --now orbit-broker`, then
+`journalctl -u orbit-broker`; the startup banner prints the credential-staging one-liners.
 
-On `amarel3`, in the venv that has `radical.orbit` installed:
-
-```bash
-# broker: loopback only, for arrangement (a)
-radical-orbit-broker.py --host 127.0.0.1 --port 8443 &
-
-# endpoint: psij submits the jobs; rhapsody would be skipped here anyway (§1)
-export RADICAL_ORBIT_PSIJ_DIR=/scratch/$USER/orbit-psij
-radical-orbit-endpoint.py \
-    --name amarel3 -p psij,sysinfo \
-    --url https://127.0.0.1:8443 &
-```
-
-`radical-orbit-endpoint-wrapper.sh` is the better entry point when the endpoint is launched from
-somewhere that may scrub the interpreter (PSI/J, IRI, a batch script): it resolves the venv from its
-own location and prepends both `purelib` and `platlib` to `PYTHONPATH`.
-
-**Readiness.** `/topology` is still not a route (it reads as a plugin name, backlog **C7**), but at
-`c7ede0c` the gateway serves `GET /endpoints`, token-gated like every capability route. Three checks,
-any of which will do:
+**Readiness**, from the VM. `/topology` is still not a route (backlog **C7**), but the gateway serves
+`GET /endpoints`, token-gated like every capability route:
 
 ```bash
 curl -s --cacert ~/.radical/orbit/broker_cert.pem \
@@ -303,51 +325,97 @@ curl -s --cacert ~/.radical/orbit/broker_cert.pem \
      https://127.0.0.1:8443/endpoints        # expect amarel3, "connected": true, plugins incl. psij
 ```
 
-- the endpoint's own log line `registered as '<name>'`, in `~/.radical/orbit/logs/<name>.log` —
-  which is what `LocalOrbitStack._wait_for_endpoint` greps for (and which also lists the plugins
-  that actually loaded);
-- the client's `rt.topology()`, which is what `OrbitInterface.connect()` polls.
+`GET /endpoints` does not exist with `--no-gateway`; don't pass it. The client's `rt.topology()`,
+which `OrbitInterface.connect()` polls, is the other check.
 
-`GET /endpoints` does not exist with `--no-gateway`; don't pass it here.
+**6. The agent.** Backend on the VM's loopback, with the §5 environment. Port 8000 is free on a fresh
+VM, so `./scripts/dev.sh up` brings up the frontend too — on `amarel3` it could not. The browser
+reaches both from the laptop:
 
-And the ordering trap from `CLAUDE.md`: **the endpoint registers a few seconds after the broker's
-port opens.** A round planned before then silently takes the heuristic branch. `dev.sh up` waits for
-`hpc: true` for this reason.
+```bash
+ssh -N -L 5173:127.0.0.1:5173 -L 8000:127.0.0.1:8000 exouser@<vm-dns>
+```
+
+And the ordering trap from `CLAUDE.md`: **an endpoint registers a few seconds after it connects**, and
+a round planned before then silently takes the heuristic branch. Start the endpoint (§4) before the
+backend, or let `dev.sh up` wait for `hpc: true`.
+
+---
+
+## 4 · Amarel: the endpoint
+
+**Install Orbit only.** The endpoint needs nothing from this repository — no `refcodes/`, no
+`setup.sh`. In a venv of its own:
+
+```bash
+uv venv --python 3.12 ~/orbit-venv
+uv pip install --python ~/orbit-venv -e /home/mh1314/radical.orbit   # at c7ede0c
+```
+
+Here the full dependency set is fine — there is no `refcodes/rhapsody` to displace, and rhapsody does
+not load on a login node anyway (§1).
+
+**Credentials**, pulled from the VM. The key stays there.
+
+```bash
+mkdir -p ~/.radical/orbit && chmod 700 ~/.radical/orbit
+scp exouser@<vm-dns>:.radical/orbit/{broker_cert.pem,broker.token} ~/.radical/orbit/
+chmod 600 ~/.radical/orbit/broker.token
+```
+
+**Start it**, in `tmux` on `amarel3`:
+
+```bash
+export RADICAL_ORBIT_PSIJ_DIR=/scratch/$USER/orbit-psij
+~/orbit-venv/bin/radical-orbit-endpoint.py \
+    --name amarel3 -p psij,sysinfo \
+    --url https://<vm-dns>:8443
+```
+
+It logs `registered as 'amarel3'` to `~/.radical/orbit/logs/amarel3.log`, with the plugins that
+actually loaded — that line is what `LocalOrbitStack._wait_for_endpoint` greps for. Then check from
+the VM with `GET /endpoints` (§3).
+
+`radical-orbit-endpoint-wrapper.sh` is the better entry point when the endpoint is launched from
+somewhere that may scrub the interpreter (PSI/J, a batch script): it resolves the venv from its own
+location and sets up `PATH` and `PYTHONPATH`. Started by hand in `tmux`, the plain script is enough.
 
 **Keeping it alive.** The endpoint must outlive the login session, and sites do reap long-lived
-login-node processes. On `amarel3` use **`tmux`** (installed). A user systemd unit is not an option
-as things stand: `systemd --user` runs, but lingering is off (`loginctl show-user` reports
-`Linger=no`), so the unit stops at logout, and enabling it needs an administrator. Note also that
-`amarel3` is one of several login nodes: a tmux session lives only on the node it was started on, so
-reconnect to `amarel3` by name, not through a round-robin alias. Record here which was used, and
-how to tell it died: the absence of a fresh `registered as` line after a restart, or
-`--check-config --probe` failing to find the endpoint.
+login-node processes. Use **`tmux`** (installed). A user systemd unit is not an option as things
+stand: `systemd --user` runs, but lingering is off (`loginctl show-user` reports `Linger=no`), so the
+unit stops at logout, and enabling it needs an administrator. `amarel3` is one of several login nodes
+and a tmux session lives only on the node it was started on, so reconnect to `amarel3` by name, not
+through a round-robin alias. How to tell it died: `GET /endpoints` no longer lists it, or no fresh
+`registered as` line after a restart. An endpoint restart loses its sessions, and with them every
+in-flight handle; the protocol recovers by re-fetching from `$PROJ` (backlog **A14**).
 
 ---
 
 ## 5 · The settings this produces
 
-An env block to paste or put in a direnv file. These are environment-only
-settings by design: each names a path or shell the server will run on the endpoint under the site's
-allocation, so none is remotely writable (`tests/test_settings.py::NOT_REMOTELY_WRITABLE`).
+**On the VM**, for the agent. These are environment-only settings by design: each names a path or
+shell the server will run on the endpoint under the site's allocation, so none is remotely writable
+(`tests/test_settings.py::NOT_REMOTELY_WRITABLE`).
 
 ```bash
 export DESIGNAGENT_ORBIT_ENABLED=true
-export RADICAL_ORBIT_BROKER_URL=https://127.0.0.1:8443   # (0): the broker itself; (a): the ssh -L end
+export RADICAL_ORBIT_BROKER_URL=https://127.0.0.1:8443   # the broker, on this VM
 export RADICAL_ORBIT_BROKER_CERT=$HOME/.radical/orbit/broker_cert.pem
-export RADICAL_ORBIT_BROKER_TOKEN=...                    # or leave it to the token file
+# RADICAL_ORBIT_BROKER_TOKEN: unset, so ~/.radical/orbit/broker.token is read
 export DESIGNAGENT_ORBIT_ENDPOINT=amarel3                # must equal the endpoint's --name
 export DESIGNAGENT_ORBIT_PSIJ_EXECUTOR=slurm
 export DESIGNAGENT_ORBIT_ACCOUNT=general                 # from sacctmgr; confirm it is the one to charge
 export DESIGNAGENT_ORBIT_QUEUE=main
 export DESIGNAGENT_ORBIT_JOB_GPUS=0                      # the protocol's specs ask per job
-```
-
-In arrangement (0), add the token that closes §2.1's write route, and keep the pool small:
-
-```bash
 export DESIGNAGENT_ADMIN_TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
-export DESIGNAGENT_POOL_WORKERS=2
+
+# cluster paths — on Amarel, never read on this VM
+export DESIGNAGENT_PROTOCOL_PROJ_ROOT=/projects/...      # absolute
+export DESIGNAGENT_PROTOCOL_SCRATCH_ROOT=/scratch
+# ...the conda envs, MPNN path and weights, UniRef DB, AF3 modules and image likewise
+
+# a path on this VM
+export DESIGNAGENT_PROTOCOL_SCRIPTS_DIR=$HOME/<skill checkout>/scripts
 ```
 
 `ACCOUNT=general` is what `sacctmgr show assoc user=$USER` returned at the survey; the
@@ -358,41 +426,36 @@ and hhblits and the MPNN jobs need none. Check the lot with
 `.venv/bin/python -m designagent --check-config --probe` before spending a queue slot — it masks
 secrets and tries each credential.
 
+**On `amarel3`**, for the endpoint: only `RADICAL_ORBIT_PSIJ_DIR` (§4). Cert and token are read from
+`~/.radical/orbit/`, and the URL is on the command line.
+
 ---
 
 ## 6 · Acceptance ladder
 
-Each rung is a command, and each has a result to record. **Rung 0's Orbit install is not in `setup.sh`.** That script installs asyncflow, rhapsody and
-flowgentic and never `radical.orbit`; `pyproject.toml` does not list it, and `tasks/hpc/orbit.py`
-imports it lazily, so the gap stays invisible until `hpc` is switched on (backlog **B1**). `--no-deps`
-because Orbit requires `rhapsody-py` from PyPI, which would displace the editable `refcodes/rhapsody`;
-install what else `requirements.txt` in the checkout names (`psij-python`, `websockets`,
-`websocket-client`, …) by name, then confirm `uv pip show rhapsody-py` still points at `refcodes/`.
-Symlinking the checkout as `refcodes/radical.orbit` also works for the CLI scripts —
-`local_orbit._script` searches there — but not for the import.
+Each rung is a command, and each has a result to record. Do not skip to the bottom: rungs 1 and 2
+cost nothing in queue time.
 
-**Rung 1 on a login node.** `LocalOrbitStack` asks for `rhapsody,psij`, and
-`test_executable_task_runs_and_returns_output` submits a `kind="function"` task, which needs
-rhapsody. Read from the code, not run: on `amarel3` itself rhapsody is skipped (§1) and that test
-should fail with "endpoint has no rhapsody plugin". Inside `srun` the role is `compute`, both plugins
-load, and §2.1's shared-loopback exposure shrinks to one node — so run rungs 1 and 2 there
+**Rungs 1 and 2 run on the VM.** They start the dev stack — a `--no-auth` broker and an endpoint on
+loopback (`LocalOrbitStack`). On the VM loopback is private and there is no Slurm, so the host role
+is `standalone` and both `rhapsody` and `psij` load. On `amarel3` neither holds: loopback is shared
+with every logged-in user (backlog **A16**), and the role is `login`, so rhapsody is skipped and
+`test_executable_task_runs_and_returns_output` should fail with "endpoint has no rhapsody plugin"
 (backlog **D4**).
 
-Do not skip to the bottom: the whole point
-of the first two is that they cost nothing — in queue time. On a shared login node they are not free
-of risk: both start a `--no-auth` broker (§2.1).
+| # | Where | Command | Proves | Result |
+| --- | --- | --- | --- | --- |
+| 0a | VM | §3 steps 1–3, ending `./scripts/setup.sh --check` and `.venv/bin/python -c "import radical.orbit"` | the agent's venv exists and can import Orbit | |
+| 0b | VM | `systemctl status orbit-broker`; `GET /endpoints` (§3) returns `{"endpoints": [], …}` | the broker is up, TLS and the token work | |
+| 0c | amarel3 → VM | start the endpoint (§4); `GET /endpoints` lists `amarel3`, `connected: true`, with `psij` | the endpoint reaches the broker across the internet | |
+| 1 | VM | `.venv/bin/python -m pytest -q -m live` | the client path against a localhost broker we start ourselves | |
+| 2 | VM | `DESIGNAGENT_ORBIT_LOCAL=true .venv/bin/python -m pytest -q -m remote` | the remote tier's assertions, rehearsed with no allocation | |
+| 3 | VM | `.venv/bin/python -m designagent --check-config --probe` | the agent's credentials reach the real broker and the endpoint is visible | |
+| 4 | VM | `.venv/bin/python -m pytest -q -m remote` | submit → poll → logs → cancel across a real scheduler. **This is backlog A1's question.** | |
+| 5 | VM | one real hhblits run | a 12-hour walltime, 0 GPUs, 32 GiB, and a `directory` that persists | |
+| 6 | VM | the full protocol spine | everything else | |
 
-| # | Command | Proves | Result |
-| --- | --- | --- | --- |
-| 0 | place `refcodes/`, then `./scripts/setup.sh`; then `uv pip install --python .venv --no-deps -e /home/mh1314/radical.orbit` and its deps that are missing; then `./scripts/setup.sh --check` | the venv exists and can import `radical.orbit`; nothing below runs without it | 2026-10-07: not started — `refcodes/` and `.venv/` absent on `amarel3` |
-| 1 | `.venv/bin/python -m pytest -q -m live` — **inside `srun`** | the client path against a localhost broker we start ourselves | |
-| 2 | `DESIGNAGENT_ORBIT_LOCAL=true .venv/bin/python -m pytest -q -m remote` | the remote tier's assertions, rehearsed with no allocation | |
-| 3 | `.venv/bin/python -m designagent --check-config --probe` | the credentials reach the real broker and the endpoint is visible | |
-| 4 | `.venv/bin/python -m pytest -q -m remote` | submit → poll → logs → cancel across a real scheduler. **This is backlog A1's question.** | |
-| 5 | one real hhblits run | a 12-hour walltime, 0 GPUs, 32 GiB, and a `directory` that persists | |
-| 6 | the full protocol spine | everything else | |
-
-Three things to write down from rung 4, because each is the first evidence we will have of it:
+Four things to write down from rung 4, because each is the first evidence we will have of it:
 
 - **the Slurm `native_id`** reported back in `handle.meta` — the only link between a PSI/J handle and
   `sacct`, and therefore the only route to the lab notebook's `### Jobs` table now that the skill's
@@ -402,8 +465,10 @@ Three things to write down from rung 4, because each is the first evidence we wi
   our own `custom_attributes`, and a surprise there surfaces as a scheduler rejection rather than a
   Python error. At `c7ede0c` the Slurm backend does not override it and the base returns `{}`
   (`batch_system.py`), so on Amarel nothing should be merged — confirm with `sysinfo`'s `host_role`
-  (expect `scheduler: slurm`, `psij_executor: slurm`) and with a kept submit script;
+  (expect `role: login`, `scheduler: slurm`, `psij_executor: slurm`) and with a kept submit script;
 - **whether `directory` is honoured.** It is forwarded by `to_psij_spec` and set on the PSI/J spec by
   the broker's plugin, and the Slurm template emits `#SBATCH --chdir=`, but no caller in this repo
   sets it and no test exercises it. The protocol's compute jobs depend on it entirely — and Slurm
-  fails a job whose `--chdir` does not exist before anything runs, so `$PROJ` must be created first.
+  fails a job whose `--chdir` does not exist before anything runs, so `$PROJ` must be created first;
+- **how long a known-size output takes to come back.** Job stdout and in-band staged files now
+  travel `amarel3` → JetStream2 over the internet (backlog **D5**).

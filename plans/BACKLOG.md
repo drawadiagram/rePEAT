@@ -176,8 +176,9 @@ URL the client will trust — deserve the same scrutiny.
 **On a multi-user host, loopback is not "only local processes".** On the `amarel3` login node
 (2026-10-07) about 86 users share `127.0.0.1`, and one of them already held `:8000`. There, the open
 default admits every user on the node to the write routes. Repro: start the backend there with no
-`DESIGNAGENT_ADMIN_TOKEN`; any other account on the node can `PUT /api/settings`. Until this is
-decided, `plans/AMAREL_ENDPOINT.md` §2.1 says to always set the token on a shared host. A cheap
+`DESIGNAGENT_ADMIN_TOKEN`; any other account on the node can `PUT /api/settings`. The deployment in
+`plans/AMAREL_ENDPOINT.md` sidesteps it by running the agent on a single-user JetStream2 VM and
+setting the token anyway (§2.1); the question remains for anyone who runs the backend on a shared host. A cheap
 middle ground: have `--check-config` warn when bound to loopback with no token and other users are
 logged in.
 
@@ -306,6 +307,10 @@ Fix idea: generate a throwaway token per stack, write it `0600` into the work di
 broker, endpoint and client instead of `--no-auth`. The broker already reads `--token`, so this is
 local to `local_orbit.py` and the client settings it hands back.
 
+**Not on the production path.** The deployed broker runs on a JetStream2 VM with auth on, and
+`plans/AMAREL_ENDPOINT.md` runs ladder rungs 1–2 on that VM, where loopback is private. The entry
+stands for anyone who runs the dev stack on a login node.
+
 ---
 
 ## B — developer experience
@@ -328,7 +333,7 @@ imports it lazily and `local_orbit._script` looks for its CLI scripts, but neith
 "Orbit CLI scripts not found". The only revision now on record is the reference checkout on
 `amarel3`: `/home/mh1314/radical.orbit`, 0.8.0, branch `devel`, commit `c7ede0c` (2026-09-29).
 Installing it is not a plain `pip install -e`: its requirements pull `rhapsody-py` from PyPI, which
-would displace the editable `refcodes/rhapsody` — see `plans/AMAREL_ENDPOINT.md` §6, rung 0.
+would displace the editable `refcodes/rhapsody` — see `plans/AMAREL_ENDPOINT.md` §3, step 3.
 
 ### B2 · Is `E,F,I` the right lint baseline?
 `ruff check backend tests` is clean at `E,F,I` and that is what `pyproject.toml` pins. The open
@@ -615,9 +620,22 @@ loads rhapsody only when `utils.host_role` reports `compute` or `standalone`
 is `login`, so rhapsody is skipped with an INFO line and the endpoint serves psij alone.
 `tests/test_orbit_local.py::test_executable_task_runs_and_returns_output` submits `kind="function"`,
 which `OrbitInterface._submit_task` refuses with "endpoint has no rhapsody plugin". Read from the
-code on `amarel3`, not run — the venv does not exist yet. Repro: rung 1 of
-`plans/AMAREL_ENDPOINT.md` on a login node, then again under `srun`, where it should pass. If
-confirmed, the test wants a skip naming the role rather than a failure.
+code on `amarel3`, not run — the venv does not exist yet. Repro: `pytest -m live` on a login node,
+then again under `srun`, where it should pass. If confirmed, the test wants a skip naming the role
+rather than a failure.
+
+The deployment ladder avoids it: `plans/AMAREL_ENDPOINT.md` runs rungs 1–2 on the JetStream2 VM, which
+has no batch system, so the role is `standalone` and rhapsody loads.
+
+### D5 · Job output now crosses the internet, at an unmeasured rate
+With the broker and agent on JetStream2 and the endpoint on `amarel3` (`plans/AMAREL_ENDPOINT.md` §2),
+every job's stdout — and with it every in-band staged file (`tasks/hpc/artifacts.py`) — travels
+endpoint → broker → agent over WSS between Rutgers and Indiana, where the dev stack only ever moved it
+over loopback. The size is bounded by `orbit_artifact_max_bytes` and `orbit_job_output_max_bytes`; the
+time is not measured, and `_read_whole_stdout` and the task timeouts were tuned on loopback. Repro: at
+rung 4, a job that stages out a file of known size (the `-m live` staging tests are the template),
+timed end to end. If it is slow, the protocol's large outputs (AF3 models) should stay in `$PROJ` and
+come back only as summaries — which `af3_collect` already does.
 
 ---
 
