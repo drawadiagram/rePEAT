@@ -24,15 +24,15 @@ ROOT = Path(__file__).resolve().parent.parent
 # (path, line, expected first line) — keep in sync with CODE_FOR_DECK.md.
 ANCHORS: list[tuple[str, int, str]] = [
     # S4 — the loop
-    ("backend/designagent/graph/build.py", 145, "destinations = {"),
-    ("backend/designagent/graph/nodes/coordinator.py", 93, "def classify_rules"),
+    ("backend/designagent/graph/build.py", 147, "destinations = {"),
+    ("backend/designagent/graph/nodes/coordinator.py", 145, "def classify_rules"),
     # S6 — state
-    ("backend/designagent/graph/state.py", 169, "class DesignState"),
-    ("backend/designagent/graph/state.py", 117, "def merge_artifacts"),
+    ("backend/designagent/graph/state.py", 211, "class DesignState"),
+    ("backend/designagent/graph/state.py", 159, "def merge_artifacts"),
     # S7 — the orchestrator's blob write
-    ("backend/designagent/graph/nodes/orchestrator.py", 291,
+    ("backend/designagent/graph/nodes/orchestrator.py", 292,
      'summary["structure_path"] = deps.history.write_blob('),
-    ("backend/designagent/graph/nodes/orchestrator.py", 313, "return Command("),
+    ("backend/designagent/graph/nodes/orchestrator.py", 314, "return Command("),
     # S8 — the task contract
     ("backend/designagent/tasks/base.py", 22, "class TaskState"),
     ("backend/designagent/tasks/base.py", 62, "@dataclass(frozen=True)"),
@@ -48,10 +48,10 @@ ANCHORS: list[tuple[str, int, str]] = [
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 23,
      "max_attempts: int = Field("),
     # S10 — Orbit
-    ("backend/designagent/tasks/hpc/orbit.py", 319, "def _dispatch"),
-    ("backend/designagent/tasks/hpc/orbit.py", 344,
+    ("backend/designagent/tasks/hpc/orbit.py", 328, "def _dispatch"),
+    ("backend/designagent/tasks/hpc/orbit.py", 353,
      "# The terminal event carries state and exit_code but not"),
-    ("backend/designagent/tasks/hpc/orbit.py", 419,
+    ("backend/designagent/tasks/hpc/orbit.py", 428,
      "if state is TaskState.FAILED and not error:"),
     ("backend/designagent/tasks/hpc/base.py", 80, "async def drain_logs"),
     # S11 — Globus
@@ -71,7 +71,7 @@ ANCHORS: list[tuple[str, int, str]] = [
     # S17 / B1 — the wrap_nodes deviation
     ("backend/designagent/config.py", 65,
      "# Route node bodies through flowgentic's EXECUTION_BLOCK"),
-    ("backend/designagent/graph/build.py", 54, "def wrap_node"),
+    ("backend/designagent/graph/build.py", 55, "def wrap_node"),
     # B2 — the local Orbit stack
     ("backend/designagent/tasks/hpc/local_orbit.py", 201, "async def _wait_for_endpoint"),
     # Cited in slide body text rather than in a code block's anchor label. These
@@ -88,7 +88,7 @@ ANCHORS: list[tuple[str, int, str]] = [
     # anchor here, so they drifted silently when runtime.py and orbit.py grew.
     ("backend/designagent/runtime.py", 179, "async def _make_backend"),
     ("backend/designagent/runtime.py", 208, "retryable_exceptions=(ConnectionError, OSError),"),
-    ("backend/designagent/tasks/hpc/orbit.py", 336, "def _apply_task_status"),
+    ("backend/designagent/tasks/hpc/orbit.py", 345, "def _apply_task_status"),
 ]
 
 

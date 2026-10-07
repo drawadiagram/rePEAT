@@ -15,6 +15,7 @@ from langgraph.types import Command
 
 from ...llm import complete_json
 from ...tasks.base import TaskSpec
+from ...tasks.jobspec import batch_timeout, job_params
 from ...tasks.registry import describe
 from ...tools.esmfold import ESMATLAS_MAX_LEN, fold_job_spec
 from ...tools.proteinmpnn import mpnn_job_spec, variants_from_mpnn_fasta
@@ -163,7 +164,7 @@ def make_orchestrator(deps: Deps):
                 # and does nothing.
                 job = _mpnn_job(deps, reference, n_variants, caveats)
             if job is not None:
-                params.update(_job_params(deps, job))
+                params.update(job_params(deps.settings, job))
                 work.append(_item("proteinmpnn", "hpc", params))
             else:
                 work.append(_item("propose_variants", "local", params))
@@ -197,7 +198,7 @@ def make_orchestrator(deps: Deps):
             specs,
             session_id=session_id,
             campaign_id=campaign_id,
-            timeout=_batch_timeout(deps, specs),
+            timeout=batch_timeout(deps.settings, specs),
         )
 
         # --- fold every candidate produced ---
@@ -252,7 +253,7 @@ def make_orchestrator(deps: Deps):
             }
             if fold_backend == "hpc":
                 params.update(
-                    _job_params(deps, fold_job_spec(variant["sequence"], name=design_id))
+                    job_params(deps.settings, fold_job_spec(variant["sequence"], name=design_id))
                 )
             fold_specs.append(
                 TaskSpec(
@@ -268,7 +269,7 @@ def make_orchestrator(deps: Deps):
             fold_specs,
             session_id=session_id,
             campaign_id=campaign_id,
-            timeout=_batch_timeout(deps, fold_specs),
+            timeout=batch_timeout(deps.settings, fold_specs),
         )
 
         # Coordinates go to a blob here, not into state: a checkpoint carrying
@@ -510,43 +511,6 @@ async def _heuristic_fallback(
     if not variants:
         return None
     return {"item": {**item, "status": "done"}, "variants": variants}
-
-
-def _job_params(deps: Deps, job_spec: dict[str, Any]) -> dict[str, Any]:
-    """Carry a job spec and the site's scheduler details to a remote interface.
-
-    `OrbitInterface._submit_job` reads `job_spec` and `executor` out of the spec's
-    params; everything in `job_spec` that the site decides — the allocation, the
-    queue, the walltime — comes from settings rather than from the tool module,
-    which cannot know them.
-    """
-    settings = deps.settings
-    spec = {**job_spec, "duration_sec": settings.orbit_job_duration_sec}
-    if settings.orbit_account:
-        spec["account"] = settings.orbit_account
-    if settings.orbit_queue:
-        spec["queue"] = settings.orbit_queue
-    # How many GPUs a job gets is the site's business too, and omitting the key
-    # is not the same as sending zero: `to_psij_spec` is presence-based, and the
-    # endpoint answers HTTP 500 for a resource field it does not expect.
-    resources = {k: v for k, v in (spec.get("resources") or {}).items() if k != "gpus"}
-    if settings.orbit_job_gpus > 0:
-        resources["gpus"] = settings.orbit_job_gpus
-    spec["resources"] = resources
-    return {"job_spec": spec, "executor": settings.orbit_psij_executor}
-
-
-def _batch_timeout(deps: Deps, specs: list[TaskSpec]) -> float | None:
-    """The manager's ceiling for a batch, widened when it contains a real job.
-
-    `task_timeout_sec` defaults to 900 s, which is shorter than a job's own
-    walltime: a queued job would be failed by us before the scheduler had started
-    it. A queued job is not a late job.
-    """
-    base = deps.settings.task_timeout_sec
-    if base is None or not any(spec.kind == "job" for spec in specs):
-        return base
-    return max(base, deps.settings.orbit_job_duration_sec + 300)
 
 
 def _fold_backend(deps: Deps, variants: list[dict]) -> str:

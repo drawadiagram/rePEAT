@@ -210,6 +210,75 @@ Not harmful — the label is correct whenever it does appear, and the guard it d
 one — but it means the clearest wording of the heuristic-substitution message is the one users almost
 never see, which is worth knowing before anyone counts it as covering **A10**.
 
+### A12 · The skill's `add_fixed_positions.py` crashes on its own upstream's sentinel
+`backend/designagent/protocol/fixed_positions.py` is a port of
+`enzyme-redesign-protocol/scripts/amarel/conservation/add_fixed_positions.py`, and the port
+deliberately diverges in one place. When a conservation level finds nothing conserved,
+`hhblits_search.py` writes `{"<model>": {"A": "-"}}` rather than an empty list. The script then does
+`sorted(set(positions) | add_residues)` with `positions == "-"`, so `set("-")` is `{"-"}` and the
+sort raises `TypeError: '<' not supported between instances of 'str' and 'int'`.
+
+Reproduce:
+
+```bash
+printf '%s\n' '{"m": {"A": "-"}}' > in.jsonl
+python3 add_fixed_positions.py in.jsonl "1-L-5-6-CD-10-11-IDR-12" out.jsonl
+```
+
+The port reads the sentinel as "nothing conserved" and emits the domain-and-termini set, which is
+what the pipeline means by it. Pinned by
+`tests/test_protocol_fixed_positions.py::test_the_nothing_conserved_sentinel_is_read_as_an_empty_set`.
+
+**Why it matters anyway:** the two implementations now disagree, so a by-hand run of the skill and a
+run through the agent can produce different fixed sets for the same conservation output. The fix
+belongs upstream in the skill repo; until it lands, a by-hand run that hits an empty level fails
+loudly rather than silently, which is the better of the two failure modes but is not the same answer.
+
+### A13 · The protocol's deliverables that are not produced, and what cannot be brought back
+`graph/nodes/protocol.py` runs the enzyme-redesign protocol, and four of the skill's outputs are
+missing. Each is listed so nobody counts the node as covering the whole skill.
+
+**The three PyMOL `.pse` sessions** (Steps 4, 6 and 11) need PyMOL's own python, which this backend
+does not have. The skill calls them a "standard deliverable" and says "always build" one. A Mol* view
+spec through `tools/molviz_agent.py::sanitize_spec` is the intended substitute for the on-screen
+check, and the reply has to **say** the `.pse` files were not made — a silent substitution is exactly
+what the "keep that label honest" rule exists to prevent.
+
+**The FoldSeek upload (Step 3) stays manual**, by the skill's own instruction ("try nothing
+automated"), so a campaign with no `PAPERS` cannot complete unattended: `stage_structure` ends by
+giving the user the portal URL and waiting.
+
+**Step 10b's alignment page and Step 12's comparison are unimplemented.** 10b would also exceed the
+staging ceilings even if run: the HTML plus a vendored 3Dmol is megabytes.
+
+**The ceilings bite on the deliverables, not the data.** `orbit_artifact_max_bytes` is 1 MiB per file
+and `orbit_job_output_max_bytes` 4 MiB per job, so the `.a3m`, the notebook's plot PNGs, the AF3
+`.cif` models and the vendored Open Sans faces all stay on the cluster and the user gets a path.
+`protocol/notebook.py::analysis_outputs` deliberately fetches no PNG for this reason. The skill's
+"pull summary plots locally" is the one instruction the node cannot honour.
+
+### A14 · A restart orphans the protocol's in-flight jobs
+`af3_collect` is filesystem-shaped precisely because re-attaching cannot be built from this repo
+(three blockers, all in `refcodes/`: `connect()` calls `register_session()` with no sid so every
+start is a new session; `close()` ends in `shutil.rmtree` of the stdout directory; and the endpoint
+exposes no attach route for its `psij.Job` objects). So the *results* survive a restart — the output
+tree is still there and re-reading it is the normal path.
+
+**What does not survive is control.** A backend restart during Step 11 leaves N GPU jobs running with
+nothing able to cancel them, and they keep burning the allocation to completion. `protocol.native_ids`
+records the scheduler ids, so `scancel` by hand is possible; nothing automates it.
+
+**No notification channel either.** HHblits is 15-20 minutes and AlphaFold3 is an hour per design,
+both of which end the turn by design, and there is no way for the agent to tell the user a stage
+finished — they have to come back and ask. The most-wanted follow-on.
+
+### A15 · `jupyter nbconvert --inplace` mutates the notebook it ran
+Step 10 runs the scoring notebook with `--execute --inplace`, so the copy in `$PROJ/analysis` carries
+the executed outputs afterwards. A rerun is therefore not reproducible from that copy; the install
+stage pushes a fresh one patched by `protocol/notebook.py` each time, which is why it works, but
+anyone reading `$PROJ/analysis/analyze_stabilization.ipynb` is reading a used notebook rather than
+the one that would run next.
+
 ---
 
 ## B — developer experience

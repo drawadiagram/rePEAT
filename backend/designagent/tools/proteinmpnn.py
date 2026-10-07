@@ -182,8 +182,11 @@ def mpnn_job_spec(
         "inputs": {"in.pdb": backbone},
         "outputs": ["seqs/*.fa"],
         "prologue": prologue,
+        # GPUs and the walltime come from settings via `tasks/jobspec.py`: how
+        # many a site will give a job, and how long it will let one run, is not
+        # something this module can know. A spec that *does* declare either is
+        # taken at its word, so leaving them out is how this one defers.
         "resources": {"node_count": 1, "processes": 1},
-        "duration_sec": 1800,
     }
 
 

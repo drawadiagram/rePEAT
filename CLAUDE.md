@@ -66,9 +66,9 @@ cd frontend && npm test                         # 39 vitest/jsdom tests, no serv
 cd frontend && npm run test:e2e                 # 2 Playwright tests in a real browser
 cd frontend && E2E_LIVE=1 npm run test:e2e      # ...plus one real round trip
 
-.venv/bin/python -m pytest -q                   # 171 offline tests, no network
+.venv/bin/python -m pytest -q                   # 398 offline tests, no network
 .venv/bin/python -m pytest -q -m live           # 12 live tests; starts a real broker
-.venv/bin/python -m pytest -q -m remote         # 5 tests against a real HPC endpoint
+.venv/bin/python -m pytest -q -m remote         # 8 tests against a real HPC endpoint
 .venv/bin/python -m pytest -q -m llm            # 4 tests against a real API key
 .venv/bin/python -m pytest tests/test_graph.py::test_design_loop_produces_lead_ensemble_and_artifacts -q
 .venv/bin/ruff check backend tests              # E/F/I, line-length 100
@@ -92,6 +92,12 @@ that assertion is the one that catches a dead tab, which `tsc` cannot.
 money. `remote` rehearses against `DESIGNAGENT_ORBIT_LOCAL=true` and otherwise
 reads a real broker from the environment; `llm` needs `ANTHROPIC_API_KEY` and is
 the only thing that measures the LLM classifier and the LLM summary.
+
+Three of the `remote` tests exist for the protocol and cover plumbing no offline
+test can reach: that a job's `directory` is honoured, that `custom_attributes`
+is accepted rather than answered with an HTTP 500, and that a file stages back
+out of a project directory. All three pass against the development stack; none
+has met a real scheduler.
 
 **The lint is clean and should stay that way** — `E,F,I` at line-length 100, pinned in
 `pyproject.toml` so the rule set does not drift with the ruff version. Two places not to "fix": the
@@ -126,7 +132,7 @@ browser ─SSE─ app.py ── graph/build.py ── nodes ── Deps ── T
 
 **Nodes reach the outside only through `Deps`** (`graph/deps.py`: settings, tasks, history,
 artifacts). Never import a store or an interface into a node. This is convention, not an enforced
-check, and it is the only reason 171 tests run with no network, no process pool and no endpoint — the
+check, and it is the only reason 398 tests run with no network, no process pool and no endpoint — the
 suite hands nodes an in-process `TaskManager` and a `tmp_path` lake.
 
 **Every interface's `submit()` returns immediately with a handle whose `future` resolves later.**
@@ -207,6 +213,56 @@ the `warnings` state channel, which the interpreter appends to its reply as "Cav
 **Kuzu takes an exclusive file lock.** A running backend holds it, so read `data/lake/graph` by
 copying it aside (see `slides/run_model.py`). Tiers 2 and 3 are a plain SQLite file and Parquet, and
 can be read in place.
+
+### The protocol node
+
+`graph/nodes/protocol.py` runs the enzyme-redesign protocol — the multi-day cluster pipeline from the
+`enzyme-redesign-protocol` skill — as **one stage per turn**. It is the only node that answers the
+user every turn and never routes onward, and the only one whose state has to survive the checkpoint
+to be useful. Five things about it are not obvious:
+
+**The turn boundary is the checkpoint mechanism.** The skill names three points where the run must
+stop and wait for a human. There is no `interrupt()` anywhere in this repo, so instead a stage sets
+`protocol.awaiting` and returns; the next message answers it. `STAGES` maps a stage to what it runs
+and `ANSWERS` maps an `awaiting` key to how a reply is read — two tables, so each entry is testable
+on its own. Consequence: **`coordinator` routes to `protocol` on `awaiting` before classifying
+intent at all**, because "liu", "310,364" and "go" all classify as `chat`, which would answer from
+session state and leave the campaign waiting forever. `ESCAPE_WORDS` is the way out.
+
+**Two job modes, and which one a step uses is the decision that matters.** `artifacts.wrap` rewrites
+any spec declaring `inputs`/`outputs` into a `bash -lc` script working in a `mktemp -d` that its own
+`trap` deletes, and globs the outputs *there*. So compute specs declare **neither** and set
+`directory` to a `$PROJ` subdirectory — their files persist for the next stage and their stdout is
+the job's stdout, which the task chip tails. Transfer specs (`push_job_spec`, `fetch_job_spec`)
+declare both, name **absolute** sources, and run on the `local` PSI/J executor: on the endpoint host,
+no queue slot. Unwrapped does not mean "no shell" — every spec is still `bash -lc`, because that is
+where `module` is defined. Parameters never ride in `environment`: the Slurm template renders
+`export name=value` unquoted, so `--sampling_temp "0.1 0.2 0.3"` could not travel there.
+
+**The skill's `#SBATCH` headers are dead on this path**, because PSI/J generates its own submit
+script. `protocol/specs.py` is therefore the source of truth for every walltime, core count and
+memory figure, and `ResourceSpecV1.memory` is in **bytes** — `{"memory": 32}` renders `--mem=0K`,
+which Slurm reads as the whole node, so everything goes through `gib()`. Two things are lost in the
+move: `--requeue`, so a preempted job is just a failure, and the per-job `slurm.%N.%j.out` names, so
+the lab notebook's job table comes from `handle.meta["native_id"]` plus `sacct`.
+
+**Progress is read from the filesystem, never from a handle.** Handles and pollers are in-memory, a
+`close()` deletes the stdout directory, and `register_session()` mints a fresh id every start — so
+re-attaching to an in-flight job cannot be built without changing `refcodes/`. `af3_collect`
+therefore consults no handle: it lists the output tree and reads the small summary files, which makes
+it idempotent, restart-proof and identical whether the submit was minutes or days ago. The general
+form: **the data outlives the handle, so recovery is a re-fetch, not a re-attach.**
+
+**Everything from a chat message is validated before it reaches a script.** `NAME`, `UNIPROT`,
+`DOMAINS`, `CAT_RES` and the netid end up inside a `bash -lc` body, in argv and in `$PROJ` paths that
+the endpoint writes to under the site's allocation. `protocol/inputs.py` rejects rather than
+sanitizes, and the `protocol_*` settings are environment-only for the same reason `mpnn_command` is.
+Guarding the settings and not the inputs would have been the wrong half.
+
+The protocol's own scripts stay in the skill repository and are read through `protocol_scripts_dir`,
+not vendored: copying them in would fork them, and `plans/BACKLOG.md` already records one place where
+this repo's port and the skill's original disagree. `plans/AMAREL_ENDPOINT.md` is the deployment
+prerequisite — nothing here runs until a broker and an endpoint exist.
 
 ### Deliberate deviations
 
@@ -301,7 +357,9 @@ trace disclosure.
 
 `SettingsPanel.tsx` builds its form from **hardcoded** `FIELDS` and `GROUPS`, hand-maintained against
 `CREDENTIAL_FIELDS` — a group the backend reports but the panel omits is dropped silently, which is
-how the `mpnn` group stayed invisible after being added server-side. `globus` still is.
+how the `mpnn` group stayed invisible after being added server-side, and `globus` still is —
+`test_every_reported_credential_group_reaches_the_settings_panel` now reads the component and
+fails on a group that is reported but unrendered, with the exceptions named.
 
 **Reported is not the same as writable, and the direction matters.** `PUT /api/settings` is
 unauthenticated on loopback by design (`_authorize_write`), so the write surface is a security
@@ -338,11 +396,31 @@ shows it under the reply.
 | a chat answer | `describe_state` (`nodes/coordinator.py`) or the LLM | `coordinator:describe_state` / `coordinator:llm` |
 | the markdown/docx artifact | `summary_markdown` / `summary_docx` (`artifacts/render.py`) | — (an artifact) |
 
+Every stage of the protocol node authors its own sentence, and all of them are rule-based — a stage
+is reporting a measurement, so none of this text comes from a model. The value is
+`protocol:<stage or answer>:<what it is>`, grep-able to the function:
+
+| Text | Written by | `reply_source` |
+| --- | --- | --- |
+| the campaign's input form, and the conservation question | `stage_intake` (`nodes/protocol.py`) | `protocol:stage_intake:ask_inputs` / `:ask_method` |
+| `Loaded AF-… 785 residues … pLDDT mean 88.0.` | `stage_structure` | `protocol:stage_structure:summary_line` |
+| `Conservation done. cpos50: 1284 designable.` | `stage_conservation` | `protocol:stage_conservation:summary` |
+| `Redesign done. cpos50_halo: 48 designs…` | `stage_mpnn` | `protocol:stage_mpnn:summary` |
+| the selected-design list and the GPU-hour cost | `stage_score` | `protocol:stage_score:selection` |
+| `3 of 10 designs have finished folding.` | `stage_af3_collect` | `protocol:stage_af3_collect:in_progress` / `:complete` |
+| `No HPC endpoint is attached, so no job was submitted.` | `unavailable` | `protocol:unavailable:no_endpoint` / `:site_unconfigured` |
+| a refused answer at a checkpoint | whichever `answer_*` raised `InvalidInput` | `protocol:invalid_input` |
+| `NOTEBOOK.md` | `protocol/notes.py`, appended per stage under one artifact id | — (an artifact) |
+
 ## Backlog
 
 Open issues and their evidence live in `plans/BACKLOG.md`. Add to it when you find something worth
 fixing later rather than leaving it in a commit message; each entry names the file and how to
 reproduce.
+
+`plans/AMAREL_ENDPOINT.md` is the other document in `plans/`: how to stand up the Orbit broker and
+endpoint the protocol needs, with an acceptance ladder whose rungs are meant to be filled in with
+what they actually returned. Nothing in it has been run yet, and it says so.
 
 ## Slides
 

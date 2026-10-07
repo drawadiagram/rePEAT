@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from ..tools import (
+    afdb,
     chemgraph_agent,
     esmfold,
     literature,
@@ -49,6 +50,14 @@ CATALOG: dict[str, TaskDef] = {
         "pdb_structure", pdb.pdb_structure, "query",
         "Download experimental coordinates for a PDB entry.",
         produces="structure",
+    ),
+    "afdb_structure": TaskDef(
+        "afdb_structure", afdb.afdb_structure, "query",
+        "Download an AlphaFold DB model for a UniProt accession.",
+        produces="structure",
+        # The enzyme-redesign protocol's Step 1 picks this itself from the
+        # campaign's UniProt id; there is nothing for a planner to decide.
+        planner_selectable=False,
     ),
     "uniprot_lookup": TaskDef(
         "uniprot_lookup", uniprot.uniprot_lookup, "query",

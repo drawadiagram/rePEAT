@@ -92,10 +92,11 @@ def fold_job_spec(sequence: str, *, name: str = "fold") -> dict[str, Any]:
         ],
         "stdin_text": f">query\n{sequence}\n",
         "outputs": ["model.pdb"],
-        # GPUs come from settings via `_job_params`: how many a site will
-        # give a job is not something this module can know.
+        # GPUs and the walltime come from settings via `tasks/jobspec.py`: how
+        # many a site will give a job, and how long it will let one run, is not
+        # something this module can know. A spec that *does* declare either is
+        # taken at its word, so leaving them out is how this one defers.
         "resources": {"node_count": 1, "processes": 1},
-        "duration_sec": 1800,
     }
 
 

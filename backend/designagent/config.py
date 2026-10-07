@@ -115,6 +115,38 @@ class Settings(BaseSettings):
     mpnn_prologue: str = ""
     mpnn_sampling_temp: float = 0.1
 
+    # --- the enzyme-redesign protocol's far end ---
+    # Where the campaign's files and tools live on the cluster. Every one of
+    # these names a path or a shell word the server will run on the endpoint,
+    # under the site's allocation, which is the same reason `mpnn_command` and
+    # `mpnn_prologue` are refused over the settings API: all of them are
+    # reported and none is remotely writable. See `protocol/site.py`, and
+    # `plans/AMAREL_ENDPOINT.md` for how they are obtained.
+    protocol_proj_root: str = ""
+    protocol_scratch_root: str = "/scratch"
+    # Conda environments, used by putting their `bin` on PATH rather than by
+    # `conda activate`: a login shell reads `.bash_profile`, not `.bashrc`, so
+    # `conda` may not be a shell function at the far end at all.
+    protocol_conda_aifold: str = ""
+    protocol_conda_analysis: str = ""
+    protocol_mpnn_path: str = ""
+    protocol_mpnn_weights: str = ""
+    protocol_uniref_db: str = ""
+    # Comma-separated `module load` lines for AlphaFold3, not a list: the same
+    # reason `orbit_rhapsody_backends` is a string -- pydantic-settings would
+    # demand JSON in the environment variable.
+    protocol_af3_modules: str = ""
+    protocol_af3_image: str = "alphafold3.sif"
+    protocol_gpu_queue: str = "gpu"
+    # A Slurm `--constraint` word. It has no PSI/J resource field, so it travels
+    # in `custom_attributes`; see `tasks/hpc/orbit.py::to_psij_spec`.
+    protocol_gpu_constraint: str = ""
+    # Where the skill's own scripts are checked out, so the install stage can
+    # carry them to the cluster. They are deliberately not vendored here:
+    # copying them in would fork them, and `plans/BACKLOG.md` already records
+    # one place where this repository's port and the skill's original disagree.
+    protocol_scripts_dir: str = ""
+
     # --- Globus Compute ---
     # Implemented and unit-tested with an injected executor; never run against a
     # live endpoint. Needs `globus-compute-sdk`, which is not a dependency.
@@ -161,6 +193,13 @@ class Settings(BaseSettings):
         """None, not [], so Orbit falls through to the endpoint's own default."""
         names = [p.strip() for p in self.orbit_rhapsody_backends.split(",") if p.strip()]
         return names or None
+
+    @property
+    def af3_modules(self) -> tuple[str, ...]:
+        """The AlphaFold3 `module load` lines, split out of the one setting."""
+        return tuple(
+            line.strip() for line in self.protocol_af3_modules.split(",") if line.strip()
+        )
 
     # --- derived paths -------------------------------------------------
     @property
@@ -363,6 +402,20 @@ CREDENTIAL_FIELDS: dict[str, tuple[tuple[str, bool], ...]] = {
         ("mpnn_command", False),
         ("mpnn_prologue", False),
         ("mpnn_sampling_temp", False),
+    ),
+    "protocol": (
+        ("protocol_proj_root", False),
+        ("protocol_scratch_root", False),
+        ("protocol_conda_aifold", False),
+        ("protocol_conda_analysis", False),
+        ("protocol_mpnn_path", False),
+        ("protocol_mpnn_weights", False),
+        ("protocol_uniref_db", False),
+        ("protocol_af3_modules", False),
+        ("protocol_af3_image", False),
+        ("protocol_gpu_queue", False),
+        ("protocol_gpu_constraint", False),
+        ("protocol_scripts_dir", False),
     ),
     "globus": (
         ("globus_enabled", False),

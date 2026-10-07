@@ -179,23 +179,23 @@ async def test_a_queued_job_can_be_cancelled(orbit, remote_settings):
 
 async def test_the_manager_routes_hpc_work_to_this_endpoint(orbit, remote_settings):
     """The graph's view: `interface_for` must pick hpc, with a real job spec."""
-    from designagent.graph.deps import Deps
     from designagent.tasks.manager import TaskManager
 
     manager = TaskManager(hpc=orbit)
     assert manager.hpc_available
 
-    # _job_params is what turns `to_psij_spec({})` — /bin/true — into a command.
-    from designagent.graph.nodes.orchestrator import _batch_timeout, _job_params
+    # job_params is what turns `to_psij_spec({})` — /bin/true — into a command.
+    from designagent.tasks.jobspec import batch_timeout, job_params
 
-    deps = Deps(settings=remote_settings, tasks=manager, history=None, artifacts=None)
-    params = _job_params(deps, {"executable": "/bin/echo", "arguments": ["routed"]})
+    params = job_params(
+        remote_settings, {"executable": "/bin/echo", "arguments": ["routed"]}
+    )
     assert params["executor"] == remote_settings.orbit_psij_executor
     assert params["job_spec"]["duration_sec"] == remote_settings.orbit_job_duration_sec
 
     spec = TaskSpec(name="proteinmpnn", kind="job", params={**params, "_interface": "hpc"})
     # The timeout must outlast the job's own walltime, or we fail a queued job.
-    assert (_batch_timeout(deps, [spec]) or 0) > remote_settings.orbit_job_duration_sec
+    assert (batch_timeout(remote_settings, [spec]) or 0) > remote_settings.orbit_job_duration_sec
 
     name, interface = manager.interface_for(spec)
     assert name == "hpc"
@@ -203,3 +203,97 @@ async def test_the_manager_routes_hpc_work_to_this_endpoint(orbit, remote_settin
     result = await asyncio.wait_for(handle.future, timeout=JOB_TIMEOUT)
     assert result["state"] == "DONE", result
     assert "routed" in (result.get("stdout") or "")
+
+
+# --- what the protocol's job specs depend on, and nothing offline can prove ---
+#
+# Three pieces of plumbing the enzyme-redesign protocol rests on, each of which
+# had no test and no caller before it: a working directory that persists between
+# stages, a scheduler flag PSI/J has no field for, and a file coming back out of
+# a project directory. All three rehearse against the development stack
+# (`DESIGNAGENT_ORBIT_LOCAL=true`) before a queue slot is spent.
+
+
+async def test_a_jobs_working_directory_is_honoured(orbit, remote_settings, tmp_path):
+    """`directory` is what makes a compute stage's files persist.
+
+    It is forwarded by `to_psij_spec` and set on the PSI/J spec by the broker's
+    plugin, and the Slurm template emits `#SBATCH --chdir=` — but nothing in
+    this repo set it until the protocol did, so this is its first exercise.
+    """
+    from designagent.tasks.jobspec import job_params
+
+    work = tmp_path / "proj" / "conservation"
+    work.mkdir(parents=True)
+    params = job_params(
+        remote_settings,
+        {
+            "executable": "/bin/bash",
+            "arguments": ["-lc", "pwd; echo marker > landed.txt"],
+            "directory": str(work),
+            "duration_sec": 600,
+        },
+    )
+    handle = await orbit.submit(TaskSpec(name="chdir", kind="job", params=params))
+    result = await asyncio.wait_for(handle.future, timeout=JOB_TIMEOUT)
+    assert result["state"] == "DONE", result
+    assert str(work) in (result.get("stdout") or ""), result.get("stdout")
+    # And the file is still there afterwards, which is the whole point.
+    assert (work / "landed.txt").read_text().strip() == "marker"
+
+
+async def test_custom_attributes_are_accepted_by_the_endpoint(orbit, remote_settings):
+    """AlphaFold3's `--constraint` has no PSI/J resource field.
+
+    It rides in a top-level `custom_attributes`, which the far end merges under
+    the site's own defaults. Nesting it in `attributes` instead submits cleanly
+    and drops the flag, so what matters here is that this shape is *accepted*:
+    an unknown `resources` key answers HTTP 500, and a scheduler that cannot
+    satisfy a constraint rejects the job rather than ignoring it.
+    """
+    from designagent.tasks.jobspec import job_params
+
+    params = job_params(
+        remote_settings,
+        {
+            "executable": "/bin/echo",
+            "arguments": ["constrained"],
+            "duration_sec": 600,
+            # Keyed for whichever executor the site runs; on the `local`
+            # executor of the development stack these render nothing, which is
+            # exactly the "accepted and harmless" case being checked.
+            "custom_attributes": {"slurm.requeue": ""},
+        },
+    )
+    assert "custom_attributes" in params["job_spec"]
+    handle = await orbit.submit(TaskSpec(name="constrained", kind="job", params=params))
+    result = await asyncio.wait_for(handle.future, timeout=JOB_TIMEOUT)
+    assert result["state"] == "DONE", result
+    assert "constrained" in (result.get("stdout") or "")
+
+
+async def test_a_file_comes_back_out_of_a_project_directory(orbit, remote_settings, tmp_path):
+    """The protocol's fetch: absolute sources, in-band staging, prefixed names.
+
+    Exercises `protocol/specs.py::fetch_job_spec` end to end over a real broker,
+    including the part the offline tests cannot: that `outputs: ["**"]` and the
+    client-side reader agree across the wire.
+    """
+    from designagent.protocol.specs import fetch_job_spec
+    from designagent.tasks.jobspec import job_params
+
+    proj = tmp_path / "proj" / "mpnn" / "cpos50" / "seqs"
+    proj.mkdir(parents=True)
+    payload = ">design\n" + "MKV" * 300 + "\n"
+    (proj / "model.fa").write_text(payload)
+
+    spec = fetch_job_spec([("soluble_cpos50", f"{proj}/*.fa")])
+    params = job_params(remote_settings, spec)
+    handle = await orbit.submit(TaskSpec(name="fetch", kind="job", params=params))
+    result = await asyncio.wait_for(handle.future, timeout=JOB_TIMEOUT)
+    assert result["state"] == "DONE", result
+    artifacts = result.get("artifacts") or {}
+    assert "soluble_cpos50/model.fa" in artifacts, sorted(artifacts)
+    got = artifacts["soluble_cpos50/model.fa"]
+    text = got.decode() if isinstance(got, bytes) else got
+    assert text == payload

@@ -89,6 +89,15 @@ def to_psij_spec(spec: dict[str, Any]) -> dict[str, Any]:
         out["environment"] = spec["environment"]
     if spec.get("directory"):
         out["directory"] = spec["directory"]
+    # Scheduler flags PSI/J has no field for -- `--constraint`, `--gres` -- ride
+    # here, keyed `"<executor>.<flag>"`, and the far end renders one `#SBATCH`
+    # line per entry. It has to be a *top-level* key: the endpoint reads only
+    # `duration`, `queue_name`, `account` and `reservation_id` out of
+    # `attributes` and discards the rest, so nesting it there looks right,
+    # submits cleanly and drops the flag. Note the asymmetry with `resources`,
+    # where an unknown key raises instead (hence PSIJ_RESOURCE_KEYS above).
+    if spec.get("custom_attributes"):
+        out["custom_attributes"] = dict(spec["custom_attributes"])
     return out
 
 

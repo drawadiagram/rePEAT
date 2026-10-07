@@ -31,6 +31,7 @@ from .nodes.coordinator import make_coordinator
 from .nodes.initializer import make_initializer
 from .nodes.interpreter import make_interpreter
 from .nodes.orchestrator import make_orchestrator
+from .nodes.protocol import make_protocol
 from .state import DesignState
 
 log = logging.getLogger(__name__)
@@ -141,13 +142,19 @@ def build_graph(
         "orchestrator": make_orchestrator,
         "analyst": make_analyst,
         "interpreter": make_interpreter,
+        "protocol": make_protocol,
     }
     destinations = {
-        "coordinator": ("initializer", "orchestrator", "analyst", "interpreter", END),
+        "coordinator": (
+            "initializer", "orchestrator", "analyst", "interpreter", "protocol", END,
+        ),
         "initializer": ("orchestrator", END),
         "orchestrator": ("analyst", "interpreter", END),
         "analyst": ("orchestrator", "interpreter", END),
         "interpreter": (END,),
+        # The protocol answers the user every turn: one stage runs, then the
+        # turn ends and the next message carries the campaign forward.
+        "protocol": (END,),
     }
 
     for name, factory in factories.items():

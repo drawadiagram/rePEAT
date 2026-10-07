@@ -20,13 +20,13 @@ Priority: ★ must show · ○ show if time. ~20 lines is the legible maximum at
 
 | ID | Slide | Source | Lines | Fidelity | Pri |
 |---|---|---|---|---|---|
-| S4-A | 4 | `backend/designagent/graph/build.py:145–162` | 16 | VERBATIM | ★ |
-| S4-B | 4 | `backend/designagent/graph/nodes/coordinator.py:93–125` | 20 | TRIMMED | ★ |
-| S6-A | 6 | `backend/designagent/graph/state.py:169–198` | 20 | TRIMMED | ★ |
-| S6-B | 6 | `backend/designagent/graph/state.py:117–162` (reducers) | 16 | TRIMMED | ○ |
+| S4-A | 4 | `backend/designagent/graph/build.py:147–164` | 16 | VERBATIM | ★ |
+| S4-B | 4 | `backend/designagent/graph/nodes/coordinator.py:145–177` | 20 | TRIMMED | ★ |
+| S6-A | 6 | `backend/designagent/graph/state.py:211–240` | 20 | TRIMMED | ★ |
+| S6-B | 6 | `backend/designagent/graph/state.py:159–204` (reducers) | 16 | TRIMMED | ○ |
 | S6-C | 6 | `tests/test_graph.py::test_structures_are_not_carried_in_state` | 12 | TRIMMED | ★ |
 | S7-A | 7 | `backend/designagent/graph/nodes/orchestrator.py:273–297` | 19 | TRIMMED | ★ |
-| S7-B | 7 | `backend/designagent/graph/nodes/orchestrator.py:313–329` | 17 | VERBATIM | ○ |
+| S7-B | 7 | `backend/designagent/graph/nodes/orchestrator.py:314–330` | 17 | VERBATIM | ○ |
 | S8-A | 8 | `backend/designagent/tasks/base.py:22–34, 62–67, 70–83` | 20 | TRIMMED | ★ |
 | S8-B | 8 | `backend/designagent/tasks/base.py:92–120` (`TaskHandle`) | 18 | TRIMMED | ★ |
 | S8-C | 8 | `backend/designagent/tasks/base.py:148–186` (the ABC) | 20 | TRIMMED | ★★ |
@@ -36,8 +36,8 @@ Priority: ★ must show · ○ show if time. ~20 lines is the legible maximum at
 | S9-B | 9 | `backend/designagent/tasks/local.py:58–63` | 6 | VERBATIM | ★ |
 | S9-C | 9 | `refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py:73–84` | 12 | **VERBATIM — the bug** | ★★ |
 | S9-D | 9 | `refcodes/flowgentic/.../fault_tolerance.py:23–37` (the defaults) | 15 | TRIMMED | ★ |
-| S10-A | 10 | `backend/designagent/tasks/hpc/orbit.py:319–334` | 16 | VERBATIM | ★★ |
-| S10-B | 10 | `backend/designagent/tasks/hpc/orbit.py:336–360` | 20 | TRIMMED | ★★ |
+| S10-A | 10 | `backend/designagent/tasks/hpc/orbit.py:328–343` | 16 | VERBATIM | ★★ |
+| S10-B | 10 | `backend/designagent/tasks/hpc/orbit.py:345–369` | 20 | TRIMMED | ★★ |
 | S10-C | 10 | `backend/designagent/tasks/hpc/base.py:80–103` (`drain_logs`) | 20 | TRIMMED | ★ |
 | S10-D | 10 | `backend/designagent/tasks/hpc/orbit.py:400–426` (`_finish_job`) | 20 | TRIMMED | ★ |
 | S11-A | 11 | `backend/designagent/tasks/hpc/globus.py:31–36` (capabilities) | 6 | VERBATIM | ★ |
@@ -148,11 +148,11 @@ and LangGraph's streaming are mutually exclusive, and that belongs in its README
 | Finding | Evidence | Workaround |
 |---|---|---|
 | The terminal rhapsody event carries state and `exit_code` but **not `stdout`** | a completed `/bin/echo` task resolved with an empty result | `orbit.py:323–335` `_finish_task_enriched` re-fetches with `get_task` before settling the future |
-| A FAILED job reports **only a non-zero exit code** — no reason reaches the client | `handle.error` was empty for a job that exited 3 | `orbit.py:419–424` synthesises one from exit code, then stderr, then the log tail |
+| A FAILED job reports **only a non-zero exit code** — no reason reaches the client | `handle.error` was empty for a job that exited 3 | `orbit.py:428–433` synthesises one from exit code, then stderr, then the log tail |
 | The broker has **no HTTP topology route** | `/topology` → 307 → 404, `Endpoint 'topology' unknown` (it reads as a plugin name) | readiness comes from the client's own `rt.topology()`, polled in `connect()`; the local stack greps the endpoint's log for `registered as '<name>'` (`local_orbit.py:201–220`) |
 | `--no-auth` disables **only ingress auth** — the broker still refuses to start without cert and key | broker exited at startup with `--no-auth` alone | `local_orbit.py:60–83` generates a throwaway self-signed pair, SAN `IP:127.0.0.1,DNS:localhost`, key `0600` |
 | All Orbit clients are **synchronous/blocking** | `RhapsodyClient` / `PSIJClient` methods block | every call goes through `asyncio.to_thread` (23 sites in `orbit.py`) |
-| Push callbacks arrive on a **listener thread** | — | `orbit.py:319–323` `_dispatch` hops to the loop with `call_soon_threadsafe` |
+| Push callbacks arrive on a **listener thread** | — | `orbit.py:328–332` `_dispatch` hops to the loop with `call_soon_threadsafe` |
 
 Not a complaint, worth saying out loud: offset-based log tailing via `PSIJClient.get_job_status(job_id,
 stdout_offset, stderr_offset)` is the **only** streaming mechanism either backend offers, and it

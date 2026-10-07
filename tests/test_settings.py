@@ -241,6 +241,26 @@ NOT_REMOTELY_WRITABLE = {
     # user locally, and on the endpoint under the site's allocation remotely.
     "mpnn_command",
     "mpnn_prologue",
+    # The protocol's far end, for the same reason. Each names a path the server
+    # will `cd` into, a `module load` line, a conda environment whose `bin` goes
+    # on `PATH`, or a `--constraint` word -- all of them interpolated into a
+    # `bash -lc` script that runs on the endpoint under the site's allocation
+    # (`protocol/specs.py`). `protocol/inputs.py` validates everything that
+    # reaches those scripts from a chat message; these come from the
+    # environment, and letting them come from an unauthenticated HTTP route
+    # instead would reopen the hole from the other side.
+    "protocol_proj_root",
+    "protocol_scratch_root",
+    "protocol_conda_aifold",
+    "protocol_conda_analysis",
+    "protocol_mpnn_path",
+    "protocol_mpnn_weights",
+    "protocol_uniref_db",
+    "protocol_af3_modules",
+    "protocol_af3_image",
+    "protocol_gpu_queue",
+    "protocol_gpu_constraint",
+    "protocol_scripts_dir",
 }
 
 
@@ -269,6 +289,61 @@ def test_the_only_unwritable_reported_fields_are_the_declared_ones(client):
     assert reported - writable == NOT_REMOTELY_WRITABLE
 
 
+#: Credential groups the settings panel deliberately does not render. `globus`
+#: is unimplemented against a live endpoint (backlog A2), so offering a form for
+#: it would invite configuring something that has never worked.
+GROUPS_NOT_IN_THE_PANEL = {"globus"}
+
+
+def test_every_reported_credential_group_reaches_the_settings_panel():
+    """The drift that has already happened twice.
+
+    `SettingsPanel.tsx` builds its form from a hardcoded `GROUPS`, so a group
+    added server-side is **dropped silently** -- no error, no empty section,
+    nothing in the UI at all. That is how `mpnn` stayed invisible after it was
+    added, and why `globus` still is. Reading the component here is crude, but
+    it is the only place both halves of the contract are visible at once.
+    """
+    from pathlib import Path
+
+    from designagent.config import CREDENTIAL_FIELDS
+
+    panel = Path(__file__).resolve().parents[1] / "frontend/src/settings/SettingsPanel.tsx"
+    text = panel.read_text()
+    rendered = {group for group in CREDENTIAL_FIELDS if f'id: "{group}"' in text}
+    missing = set(CREDENTIAL_FIELDS) - rendered - GROUPS_NOT_IN_THE_PANEL
+    assert not missing, f"reported by the backend but invisible in the UI: {sorted(missing)}"
+    # And the converse, so an abandoned group does not linger as a dead form.
+    assert rendered & GROUPS_NOT_IN_THE_PANEL == set()
+
+
+def test_every_reported_setting_has_an_env_example_line():
+    """`.env.example` is the only place a reader learns a setting exists.
+
+    An environment-only setting that is reported but undocumented is one nobody
+    can set, which for the protocol's paths means a stage that refuses and no
+    obvious way to fix it. This was audited by hand once and promptly broken by
+    the next twelve fields, so it is a test now.
+
+    Names are resolved through each field's alias, because several do not take
+    the `DESIGNAGENT_` prefix: the Orbit broker reads `RADICAL_ORBIT_*` and the
+    API key is the provider's own `ANTHROPIC_API_KEY`.
+    """
+    from pathlib import Path
+
+    from designagent.config import CREDENTIAL_FIELDS, Settings
+
+    example = (Path(__file__).resolve().parents[1] / ".env.example").read_text()
+    missing = []
+    for fields in CREDENTIAL_FIELDS.values():
+        for name, _ in fields:
+            field = Settings.model_fields[name]
+            env_name = field.alias or f"DESIGNAGENT_{name.upper()}"
+            if f"{env_name}=" not in example:
+                missing.append(env_name)
+    assert not missing, f"reported but undocumented in .env.example: {sorted(missing)}"
+
+
 def test_shell_bearing_settings_are_refused_over_http(client):
     """The settings route must not become a way to run commands.
 
@@ -279,11 +354,17 @@ def test_shell_bearing_settings_are_refused_over_http(client):
     for field, payload in (
         ("mpnn_command", "/bin/sh -c 'touch /tmp/pwned'"),
         ("mpnn_prologue", "touch /tmp/pwned"),
+        # The protocol's far end is the same surface: `protocol_conda_aifold`
+        # goes on `PATH` ahead of everything, and the module lines are run.
+        ("protocol_conda_aifold", "/tmp/evil"),
+        ("protocol_af3_modules", "module load x, touch /tmp/pwned"),
+        ("protocol_proj_root", "/tmp/elsewhere"),
     ):
         response = client.put("/api/settings", json={field: payload})
         assert response.status_code == 422, f"{field} was accepted: {response.text}"
-    # And the running process kept its own value.
+    # And the running process kept its own values.
     assert client.runtime.settings.mpnn_prologue == ""
+    assert client.runtime.settings.protocol_conda_aifold == ""
 
 
 def test_put_applies_the_proteinmpnn_sampling_temperature(client, monkeypatch):

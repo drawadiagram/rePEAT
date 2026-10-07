@@ -270,7 +270,7 @@ So treat the science as a demo and the plumbing as the deliverable. The plumbing
     ["Tasks return futures, never results", "Every interface's submit() places the work and returns a handle. Nothing in the graph awaits a task at submission time.", "tasks/base.py:159"],
     ["Task duration is not the interface's business", "The same handle covers a 40 ms REST call and a queued batch job. Only the capability flags differ.", "tasks/base.py:62"],
     ["Status is a stream, not a return value", "Nodes emit progress over LangGraph's custom channel; the manager fans task events onto the same SSE stream.", "graph/deps.py · app.py:124"],
-    ["State holds references, not payloads", "Coordinates go to a content-addressed blob and travel as a path, because every checkpoint is serialized.", "orchestrator.py:291"],
+    ["State holds references, not payloads", "Coordinates go to a content-addressed blob and travel as a path, because every checkpoint is serialized.", "orchestrator.py:292"],
     ["Every layer has a floor", "No key, no endpoint, no graph DB: each degrades to something that still answers, and says so.", "runtime.py · analyst.py:166"],
   ];
   const cw = [3.45, 6.6, 2.28];
@@ -358,7 +358,7 @@ The honest flip side is at the bottom: if the agent were allowed to block, you w
     '  "interpreter":  (END,),',
     '}',
     'builder.add_edge(START, "coordinator")   # the only static edge',
-  ], M, 5.5, 7.4, 1.45, { anchor: "graph/build.py:145–162  ·  VERBATIM" });
+  ], M, 5.5, 7.4, 1.45, { anchor: "graph/build.py:147–164  ·  VERBATIM" });
 
   card(s, M + 7.7, 5.5, 5.13, 1.45, "Why no conditional edges", [
     "A node returns Command(goto=…, update=…): the decision and the state write are one atomic return.",
@@ -479,7 +479,7 @@ Two things in the rail. The rule that nodes only ever reach through Deps is what
     '    intent · round · session_id · goal · status',
     '    warnings:        Annotated[list[str], merge_warnings]',
     '    target_hints · requested_mutations · pending_results',
-  ], M, 1.55, 7.0, 2.55, { anchor: "graph/state.py:169–198  ·  TRIMMED", fs: 10 });
+  ], M, 1.55, 7.0, 2.55, { anchor: "graph/state.py:211–240  ·  TRIMMED", fs: 10 });
 
   card(s, M, 4.25, 7.0, 1.3, "Four reducers, each for a reason", [
     "merge_artifacts — append, dedupe by id, last write wins: the analyst replaces a viz each round.",
@@ -501,7 +501,7 @@ Two things in the rail. The rule that nodes only ever reach through Deps is what
   code(s, [
     'summary["structure_path"] = deps.history.write_blob(',
     '    structure, suffix=".pdb", prefix=summary["design_id"])',
-  ], M + 7.3, 3.15, 5.53, 0.6, { anchor: "orchestrator.py:291–295  ·  TRIMMED", fs: 10 });
+  ], M + 7.3, 3.15, 5.53, 0.6, { anchor: "orchestrator.py:292–296  ·  TRIMMED", fs: 10 });
   code(s, [
     'def test_structures_are_not_carried_in_state(...):',
     '    blob = json.dumps(jsonable(out), default=str)',
@@ -792,7 +792,7 @@ And the red block is the first of the findings. That is verbatim flowgentic. The
     '    if self._loop is None or self._loop.is_closed():',
     '        return',
     '    self._loop.call_soon_threadsafe(fn, *args)',
-  ], M, 5.05, 5.9, 0.95, { anchor: "tasks/hpc/orbit.py:319–323  ·  VERBATIM", fs: 10 });
+  ], M, 5.05, 5.9, 0.95, { anchor: "tasks/hpc/orbit.py:328–332  ·  VERBATIM", fs: 10 });
 
   s.addShape(pres.shapes.RECTANGLE, { x: M + 6.2, y: 1.5, w: 6.63, h: 0.38,
     fill: { color: C.fail }, line: { color: C.fail } });
@@ -809,14 +809,14 @@ And the red block is the first of the findings. That is verbatim flowgentic. The
     '    merged = {**info, **{k: v for k, v in data.items()',
     '                         if v not in (None, "")}}',
   ], M + 6.2, 1.97, 6.63, 1.55,
-    { anchor: "tasks/hpc/orbit.py:344–357  ·  TRIMMED", fs: 10, fill: "3A1F1C" });
+    { anchor: "tasks/hpc/orbit.py:353–366  ·  TRIMMED", fs: 10, fill: "3A1F1C" });
   code(s, [
     'if state is TaskState.FAILED and not error:',
     '    error = (f"exit code {exit_code}" if exit_code not in (None, 0)',
     '             else (data.get("stderr")',
     '                   or handle.log_tail[-500:] or "job failed"))',
   ], M + 6.2, 3.65, 6.63, 0.82,
-    { anchor: "tasks/hpc/orbit.py:419–424  ·  TRIMMED", fs: 10, fill: "3A1F1C" });
+    { anchor: "tasks/hpc/orbit.py:428–433  ·  TRIMMED", fs: 10, fill: "3A1F1C" });
   text(s, "A completed task's result came back empty until the re-fetch. A job that exited 3 " +
     "reported no reason at all — only the code — so FAILED always synthesises an explanation.",
     M + 6.2, 4.6, 6.63, 0.55, { fontSize: 11, color: C.fail });

@@ -10,7 +10,7 @@ from typing import Annotated, Any, Literal, TypedDict
 
 from langgraph.graph import add_messages
 
-Intent = Literal["chat", "initialize", "design", "summarize", "visualize"]
+Intent = Literal["chat", "initialize", "design", "summarize", "visualize", "protocol"]
 WorkStatus = Literal["pending", "running", "done", "failed", "canceled"]
 
 
@@ -111,6 +111,48 @@ class ArtifactRef(TypedDict, total=False):
     created_at: str
 
 
+class ProtocolState(TypedDict, total=False):
+    """A multi-turn enzyme-redesign campaign, between its stages.
+
+    One stage runs per turn. The three places the skill says to STOP and wait
+    for the user are expressed as turn boundaries: a stage that needs an answer
+    sets `awaiting` and returns, and the next message answers it. That is why
+    this has to survive the checkpoint intact — and why `coordinator` routes
+    here on `awaiting` *before* classifying intent, since "yes, 310 and 364"
+    classifies as `chat`.
+
+    Numbers only. The trimmed structure, the FASTAs and the CSVs go to
+    `history.write_blob` and travel as paths, like everything else
+    (`test_structures_are_not_carried_in_state`). Residue positions and job ids
+    are small and are the whole point of the record.
+
+    Every position here is in the **trimmed** chain's numbering; `offset` says
+    what it was shifted by. See `protocol/trim.py`.
+    """
+
+    stage: str  # the stage that runs next; see graph/nodes/protocol.py STAGES
+    awaiting: str  # what the user has to answer before `stage` may run
+    name: str
+    uniprot: str
+    netid: str
+    domains: str  # the trimmed domain string
+    offset: int  # signal-peptide length, 0 if the chain was already mature
+    cat_res: list[int]
+    tag: str  # "" for cpos, "liu_" for conservation_liu
+    method: str
+    levels: list[int]
+    model_stem: str  # names almost every file in the campaign
+    structure_path: str  # blob path of the trimmed PDB
+    notebook_id: str  # the NOTEBOOK.md artifact, appended to every stage
+    # Scheduler ids of jobs submitted and not yet accounted for. In-memory
+    # handles do not survive a restart, so these are what `sacct` is asked
+    # about, and AlphaFold3 progress is read from the filesystem rather than
+    # from a handle. See graph/nodes/protocol.py.
+    native_ids: list[str]
+    designs: list[str]  # AlphaFold3 job names, one per selected design
+    installed: bool  # whether $PROJ exists; every compute stage needs it first
+
+
 # --- reducers --------------------------------------------------------------
 
 
@@ -198,6 +240,10 @@ class DesignState(TypedDict, total=False):
     target_hints: Annotated[dict[str, str], replace]
     # Mutations the user asked for by name, e.g. ["A42V"].
     requested_mutations: Annotated[list[str], replace]
+    # An enzyme-redesign campaign in progress, one stage per turn. `replace`
+    # like everything else, so a stage returns the whole dict rather than a
+    # delta — see `ProtocolState` for why it has to survive the checkpoint.
+    protocol: Annotated[ProtocolState, replace]
     # Raw task records passed from the orchestrator to the analyst for one
     # round. Cleared once the analyst has consumed them.
     pending_results: Annotated[dict[str, Any], replace]

@@ -29,6 +29,10 @@ Choose exactly one intent:
   design     - the user wants variants proposed, folded, scored or optimized
   visualize  - the user wants to see a structure or a view changed
   summarize  - the user wants a summary, report or document of the work so far
+  protocol   - the user asked for the full enzyme redesign/stabilization
+               protocol: the multi-day cluster pipeline (AFDB -> FoldSeek ->
+               HHblits conservation -> ProteinMPNN/HaloMPNN -> scoring ->
+               AlphaFold3). Not an ordinary design round.
   chat       - anything else: questions about existing results, clarification,
                general conversation
 
@@ -88,6 +92,54 @@ MUTATION_RE = re.compile(r"\b([ACDEFGHIKLMNPQRSTVWY]\d{1,4}[ACDEFGHIKLMNPQRSTVWY
 def _has_word(text: str, words: tuple[str, ...]) -> bool:
     """Whole-word match, so "design" does not fire on "designed by"."""
     return any(re.search(rf"\b{re.escape(word)}", text) for word in words)
+
+
+# Asking for the full enzyme-redesign protocol, which is a different thing from
+# a design round: it runs on the cluster, takes days, and stops for the user
+# three times. Nothing here overlaps ACTION_WORDS, so an ordinary "redesign this
+# lipase" still means one round through the orchestrator.
+PROTOCOL_WORDS = (
+    "enzyme redesign protocol",
+    "redesign protocol",
+    "stabilization protocol",
+    "stabilisation protocol",
+    "full protocol",
+    "run the protocol",
+    "hhblits",
+    "halompnn",
+    "conservation protocol",
+)
+
+# How a user leaves a campaign that is waiting on them. Explicit, because the
+# alternative is being unable to ask anything else until the protocol finishes.
+ESCAPE_WORDS = (
+    "cancel the protocol",
+    "stop the protocol",
+    "abandon the protocol",
+    "forget the protocol",
+    "quit the protocol",
+    "exit the protocol",
+)
+
+
+def _wants_protocol(text: str, protocol: dict[str, Any]) -> bool:
+    """Whether to start or resume the full protocol."""
+    low = text.lower()
+    if any(phrase in low for phrase in PROTOCOL_WORDS):
+        return True
+    # An campaign mid-flight but not waiting on an answer: "continue", "carry
+    # on", "what is the status" all mean the next stage.
+    stage = protocol.get("stage", "")
+    if stage and stage != "done":
+        return bool(
+            re.search(r"\b(continue|carry on|resume|next stage|keep going)\b", low)
+        )
+    return False
+
+
+def _wants_out(text: str) -> bool:
+    low = text.lower()
+    return any(phrase in low for phrase in ESCAPE_WORDS)
 
 
 def classify_rules(text: str, state: DesignState) -> dict[str, Any]:
@@ -209,6 +261,23 @@ def make_coordinator(deps: Deps):
         text = last_user_text(state)
         status("Reading your request…", node="coordinator")
 
+        # A redesign campaign waiting on an answer owns the turn, whatever the
+        # message looks like. This has to come before classification: "liu",
+        # "310,364" and "go" all classify as `chat`, which would answer from
+        # session state and leave the campaign waiting forever. The escape is
+        # explicit, so a user is never trapped in a protocol they want out of.
+        protocol = state.get("protocol") or {}
+        if protocol.get("awaiting") and not _wants_out(text):
+            return Command(
+                goto="protocol",
+                update={"intent": "protocol", "status": "Continuing the protocol…"},
+            )
+        if _wants_protocol(text, protocol):
+            return Command(
+                goto="protocol",
+                update={"intent": "protocol", "status": "Enzyme redesign protocol"},
+            )
+
         decision: dict[str, Any] | None = None
         caveats: list[str] = []
         if deps.settings.llm_available and text:
@@ -223,7 +292,9 @@ def make_coordinator(deps: Deps):
             decision = classify_rules(text, state)
 
         intent = str(decision.get("intent", "chat")).lower()
-        if intent not in ("initialize", "design", "visualize", "summarize", "chat"):
+        if intent not in (
+            "initialize", "design", "visualize", "summarize", "chat", "protocol"
+        ):
             intent = "chat"
 
         has_reference = bool((state.get("reference_design") or {}).get("sequence"))
@@ -290,6 +361,7 @@ def make_coordinator(deps: Deps):
             "design": "orchestrator",
             "visualize": "analyst",
             "summarize": "interpreter",
+            "protocol": "protocol",
         }[intent]
         update["status"] = f"Planning: {intent}"
         if caveats:

@@ -257,6 +257,57 @@ def test_to_psij_spec_defaults_are_auto_discoverable():
     assert spec["attributes"]["queue_name"] is None
 
 
+def test_to_psij_spec_forwards_custom_attributes_at_the_top_level():
+    # The only route for a scheduler flag PSI/J has no field for. AlphaFold3
+    # needs `--constraint=ampere|adalovelace`, and the far end renders one
+    # #SBATCH line per entry.
+    spec = to_psij_spec(
+        {
+            "executable": "/bin/true",
+            "custom_attributes": {
+                "slurm.constraint": "ampere|adalovelace",
+                "slurm.gres": "gpu:1",
+            },
+        }
+    )
+    assert spec["custom_attributes"] == {
+        "slurm.constraint": "ampere|adalovelace",
+        "slurm.gres": "gpu:1",
+    }
+    # Top level, not nested under `attributes` -- see the next test for why.
+    assert "custom_attributes" not in spec["attributes"]
+
+
+def test_to_psij_spec_omits_custom_attributes_when_there_are_none():
+    # Presence-based, like `resources`: sending an empty dict is not the same as
+    # not sending the key, and the endpoint merges site defaults under ours.
+    assert "custom_attributes" not in to_psij_spec({"executable": "/bin/true"})
+    assert "custom_attributes" not in to_psij_spec(
+        {"executable": "/bin/true", "custom_attributes": {}}
+    )
+
+
+def test_an_unknown_attributes_key_is_passed_on_and_silently_dropped_downstream():
+    # Documenting a trap, not endorsing it. `attributes` is forwarded whole, so
+    # this submits cleanly -- but the endpoint reads only duration, queue_name,
+    # account and reservation_id out of it and discards everything else. A
+    # scheduler flag put here is lost with no error, which is why
+    # `custom_attributes` is a top-level key instead. Contrast `resources`,
+    # where an unknown key raises at the far end.
+    spec = to_psij_spec(
+        {"executable": "/bin/true", "attributes": {"constraint": "ampere"}}
+    )
+    assert spec["attributes"]["constraint"] == "ampere"
+
+
+def test_to_psij_spec_forwards_a_working_directory():
+    # The protocol's compute jobs depend on this entirely: it is how a job's
+    # files persist in $PROJ for the next step instead of landing in a temp dir.
+    spec = to_psij_spec({"executable": "/bin/true", "directory": "/projects/x/AlyFRB"})
+    assert spec["directory"] == "/projects/x/AlyFRB"
+    assert "directory" not in to_psij_spec({"executable": "/bin/true"})
+
+
 # --- Globus adapter (offline, injected executor) --------------------------
 
 

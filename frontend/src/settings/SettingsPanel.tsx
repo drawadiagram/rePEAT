@@ -132,6 +132,95 @@ const FIELDS: Field[] = [
     group: "mpnn",
     kind: "number",
   },
+
+  // Every one of these is read-only for the same reason the two above are: it
+  // names a path the server will cd into, a module to load, or a conda
+  // environment whose bin goes on PATH, all of it inside a `bash -lc` script
+  // that runs on the endpoint under the site's allocation.
+  {
+    name: "protocol_proj_root",
+    label: "Project root",
+    group: "protocol",
+    readonly: true,
+    hint: "environment only — absolute path on the cluster; campaigns go in <root>/<name>",
+  },
+  {
+    name: "protocol_scratch_root",
+    label: "Scratch root",
+    group: "protocol",
+    readonly: true,
+    hint: "environment only — AlphaFold3 writes to <root>/<netid>/af3/<name>",
+  },
+  {
+    name: "protocol_conda_aifold",
+    label: "Conservation / MPNN environment",
+    group: "protocol",
+    readonly: true,
+    hint: "environment only — its bin goes on PATH",
+  },
+  {
+    name: "protocol_conda_analysis",
+    label: "Analysis environment",
+    group: "protocol",
+    readonly: true,
+    hint: "environment only — runs the scoring notebook",
+  },
+  {
+    name: "protocol_mpnn_path",
+    label: "ProteinMPNN checkout",
+    group: "protocol",
+    readonly: true,
+    hint: "environment only",
+  },
+  {
+    name: "protocol_mpnn_weights",
+    label: "HaloMPNN weights",
+    group: "protocol",
+    readonly: true,
+    hint: "environment only — needed for the HaloMPNN half of each round",
+  },
+  {
+    name: "protocol_uniref_db",
+    label: "UniRef30 database",
+    group: "protocol",
+    readonly: true,
+    hint: "environment only — what HHblits searches",
+  },
+  {
+    name: "protocol_af3_modules",
+    label: "AlphaFold3 modules",
+    group: "protocol",
+    readonly: true,
+    hint: "environment only — comma separated module load lines",
+  },
+  {
+    name: "protocol_af3_image",
+    label: "AlphaFold3 image",
+    group: "protocol",
+    readonly: true,
+    hint: "environment only — found under $CONTAINERDIR",
+  },
+  {
+    name: "protocol_gpu_queue",
+    label: "GPU queue",
+    group: "protocol",
+    readonly: true,
+    hint: "environment only",
+  },
+  {
+    name: "protocol_gpu_constraint",
+    label: "GPU constraint",
+    group: "protocol",
+    readonly: true,
+    hint: "environment only — a Slurm --constraint word, e.g. ampere|adalovelace",
+  },
+  {
+    name: "protocol_scripts_dir",
+    label: "Skill scripts checkout",
+    group: "protocol",
+    readonly: true,
+    hint: "environment only — the enzyme-redesign-protocol repo's scripts/ directory",
+  },
 ];
 
 const GROUPS: { id: string; title: string; note: string }[] = [
@@ -149,6 +238,11 @@ const GROUPS: { id: string; title: string; note: string }[] = [
     id: "mpnn",
     title: "ProteinMPNN",
     note: "Used only when an endpoint is attached; without one the round falls back to the heuristic proposer and says so. The command and prologue name shell to run, so they are environment-only and shown here read-only.",
+  },
+  {
+    id: "protocol",
+    title: "Enzyme redesign protocol",
+    note: "Where the campaign's files and tools live on the cluster. All of it names paths or shell the server runs on the endpoint, so it is environment-only and shown here read-only. See plans/AMAREL_ENDPOINT.md.",
   },
   { id: "fold", title: "Structure prediction", note: "" },
 ];
