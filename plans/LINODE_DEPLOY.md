@@ -17,9 +17,12 @@ broker/endpoint/token, Slurm account).
 
 Facts from the survey that shape the plan:
 
-- **The host is undersized.** It has 1 vCPU and 961 MB of RAM, while the document puts the floor at
-  4 GB. The user chose to **resize first**. A Linode resize keeps the IPv4, so the cert SAN and the
-  endpoint's `--url` stay valid.
+- **The host is a Linode 4 GB, and that is final** (resized 2026-10-08 from a 1 GB Nanode): 2 vCPU
+  (AMD EPYC 7642), 3.9 GB RAM, 79 GB disk, 496 MB swap partition. That is AMAREL_ENDPOINT.md's stated
+  *floor*, not its recommended 8 GB, so memory is the budget this plan is written against (see
+  "Resource budget" below). The resize kept 97.107.137.219, so the cert SAN and the endpoint's
+  `--url` are unaffected. The host also has a global IPv6 (`2600:3c03::…`); Caddy listens on it, the
+  broker does not need to.
 - **`refcodes/` will be copied over by the user** with scp (backlog B1).
 - **There is no identity concept anywhere.** The only gate is one shared `admin_token`, checked by
   `_authorize_write` (`app.py:470`) on just the three settings-write routes.
@@ -47,12 +50,20 @@ The work is split into phases so the UI is reachable early without ever being op
 
 ## Phase 0 — Host and broker (follows AMAREL_ENDPOINT.md §3; no code changes)
 
-1. **Resize** to Linode 4 GB or 8 GB in Cloud Manager, then confirm with `free -m` and `nproc`.
+1. **Resize — done.** Linode 4 GB, confirmed with `nproc` (2) and `free -m` (3915 MB). Record it in
+   AMAREL_ENDPOINT.md's Linode table, whose "Linode 8 GB" row is now wrong. Then fit the host to it:
+   - Add a 2 GB swapfile next to the 496 MB partition. It absorbs the frontend build and a burst
+     of turns rather than inviting the OOM killer, and costs nothing with 72 GB free.
+   - **`DESIGNAGENT_POOL_WORKERS=2`**, not the default 4: one per vCPU. Measure each worker's RSS
+     after first start and record it.
+   - **Do not run `setup_mpnn.sh` here**, and keep `fold_backend` at `esmatlas` or `hpc`. Real
+     ProteinMPNN and folding run on Amarel; torch has no room on this host.
 2. **Cloud Firewall:** inbound default Drop.
    - TCP 22 from the admin's addresses.
    - TCP 8443 from `128.6.0.0/16`.
    - **TCP 80 and 443 from anywhere.** These are new; 80 is needed for the ACME challenge and to
      redirect.
+   - Apply each rule to IPv4 *and* IPv6. Caddy binds both.
    - Mirror the same rules in UFW, allowing ssh first.
 3. **User and packages.**
    - Create an `orbit` user, as in §3.3.
@@ -84,21 +95,32 @@ with `ORBIT_LOCAL`) and 3 (`--check-config --probe`). Fill in the survey's Linod
 This phase gets the app on the IP safely before any app code changes. It is an interim gate; Phase 2
 replaces it.
 
-- **Frontend:** `cd frontend && npm ci && npm run build`. Caddy serves `frontend/dist`; the backend
-  serves no static files today.
+- **Frontend:** `cd frontend && npm ci && npm run build`, then copy the build to `/srv/repeat/www`.
+  The backend serves no static files today, so Caddy does. **Caddy cannot read `/home/orbit`**:
+  Ubuntu 24.04 creates home directories `0750` (`HOME_MODE` in `/etc/login.defs`) and Caddy runs as
+  its own user, so serving `frontend/dist` in place returns 403 on every file. Copying keeps the home
+  directory private.
+- **Kuzu's buffer pool — one small code change.** `lake/graph.py:62` opens `kuzu.Database(path)` with
+  no `buffer_pool_size`. Kuzu's default is a fraction of physical RAM (about 80% in the versions
+  checked; confirm against the installed one), which is most of this host. Add an environment-only
+  setting, e.g. `DESIGNAGENT_KUZU_BUFFER_POOL_MB=256`, pass it through, and report it in
+  `--check-config`.
 - **`/etc/caddy/Caddyfile`:**
   - Site `97-107-137-219.ip.linodeusercontent.com`, which gets an automatic Let's Encrypt cert.
     `http://97.107.137.219` redirects there.
   - `basic_auth` with a bcrypt hash made by `caddy hash-password`.
   - `handle /api/*` → `reverse_proxy 127.0.0.1:8000 { flush_interval -1 }` (SSE must not buffer).
-  - Everything else: `root * /home/orbit/rePEAT/frontend/dist`, `try_files {path} /index.html`,
+  - Everything else: `root * /srv/repeat/www`, `try_files {path} /index.html`,
     `file_server`.
   - Security headers: HSTS, `X-Content-Type-Options`, `frame-ancestors 'none'`. Add **no CORS
     headers**: the rule in `_authorize_write` still holds.
 - **Backend unit `/etc/systemd/system/repeat-backend.service`:**
   - `User=orbit`, `WorkingDirectory=/home/orbit/rePEAT`, because `config.yml` and `.env` are read
     from the cwd.
+  - `MemoryMax=2.5G`, so a runaway turn is killed by the unit's own limit before the broker or sshd
+    feel it.
   - `EnvironmentFile=/etc/repeat/backend.env` (0600, owned by orbit) holding the §5 values,
+    `DESIGNAGENT_POOL_WORKERS=2`,
     `ANTHROPIC_API_KEY`, and **`DESIGNAGENT_ADMIN_TOKEN` (mandatory, because of the proxy-loopback
     hole above)**.
   - `ExecStart=.venv/bin/python -m designagent --host 127.0.0.1 --port 8000`.
@@ -114,9 +136,33 @@ replaces it.
   - Add a backlog entry, "A17 · behind a same-host proxy `bound_to_loopback` is true for every
     caller", repro included.
 
+**The deploy checkout is not the development checkout.** Development happens as root in
+`/root/rePEAT`; the service runs from `/home/orbit/rePEAT`. A deploy is `git pull` in the second,
+from GitHub after a push. Pulling straight from `/root/rePEAT` would need the orbit user to read
+root's home. Then rebuild and copy the frontend, and `systemctl restart repeat-backend`.
+
 **Check:** `curl -I https://97-107-137-219.ip.linodeusercontent.com` returns 401 without
 credentials. In a browser with credentials, one chat turn streams. `PUT /api/settings` without
 `X-Designagent-Admin` returns 403.
+
+## Resource budget (Linode 4 GB: 2 vCPU, 3.9 GB RAM)
+
+Estimates to replace with measured RSS at the end of Phase 1. These numbers are planning figures,
+not observations.
+
+| Process | Expected | Lever |
+| --- | --- | --- |
+| backend main (uvicorn, LangGraph, langchain, Kuzu) | 0.5–0.8 GB | Kuzu buffer pool setting |
+| pool workers ×2 | 0.2–0.4 GB each | `DESIGNAGENT_POOL_WORKERS` |
+| broker | < 0.1 GB per broker | Phase 3 adds one per user |
+| Caddy | < 0.05 GB | — |
+| `npm run build` (transient) | ~1 GB | the swapfile; or stop the backend while building |
+| `pytest -m live` (transient, Phase 0) | a second broker, endpoint and pool | run before the service is up |
+
+That leaves about 1.5 GB of headroom with one user, enough for a small lab under Phase 2. **Treat
+an 8 GB resize as the answer if measured RSS says otherwise; do not trim workers below 2.**
+Phase 2's per-user `OrbitInterface`s add one listener thread and connection each, which is small.
+The idle close in 2c is what keeps them bounded.
 
 ## Phase 2 — Per-user logins and per-user secrets (code)
 
@@ -177,10 +223,17 @@ credentials. In a browser with credentials, one chat turn streams. `PUT /api/set
 
 ### 2c. Threading a user's credentials through a turn without globals
 - **Graph nodes:**
-  - `app.py` resolves `effective = operator_settings.model_copy(update=user_creds)` per turn and
-    passes it as `config["configurable"]["settings"]`.
-  - `Deps` gains `settings_for(config)`, used where nodes read `deps.settings` today (coordinator,
-    interpreter, initializer, orchestrator, protocol).
+  - `app.py` puts **only `user_id`** in `config["configurable"]`, never a credential.
+    - LangGraph's checkpointer can copy `configurable` values into checkpoint metadata. Whether the
+      pinned version does must be checked, not assumed; either way a secret placed there could land
+      in the checkpoint store.
+    - The same rule as `test_structures_are_not_carried_in_state`: nothing that must not persist
+      rides through the graph's own plumbing.
+  - `Deps` gains `settings_for(config)`. It looks up `user_id` in an in-process credentials cache,
+    decrypted on login and dropped on logout or credential change, and returns
+    `operator_settings.model_copy(update=user_creds)`.
+  - Use it wherever nodes read `deps.settings` today: coordinator, interpreter, initializer,
+    orchestrator and protocol.
   - `llm.complete`/`build_llm` already take a `settings` argument (`llm.py:38-70`), so the change is
     to pass the effective settings through. The `deps.llm_caveat` path is unchanged.
 - **Pool workers:**
