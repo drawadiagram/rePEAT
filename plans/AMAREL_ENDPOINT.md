@@ -14,10 +14,11 @@ Amarel. §2 has the full picture, §3 the Linode half, §4 the Amarel half.
 This is a deployment record as much as a procedure: fill in what each rung of the ladder at the
 bottom actually returned, so the next person reads results rather than intentions.
 
-Status as of 2026-10-07: **nothing here has been run.** Every command below is derived from the
-Orbit CLIs and docs and from `tasks/hpc/local_orbit.py`, which is the only working example of
-starting the pair, against a localhost broker. Treat the whole document as unverified until the
-ladder says otherwise.
+Status as of 2026-10-08: **only the Amarel side's startup has been run** — `~/orbit-venv` is built
+and `scripts/amarel_endpoint.sh selftest` passes on a login node against a throwaway loopback broker
+(rung 0-pre). No Linode VM exists yet, so nothing has crossed the internet. Every other command
+below is derived from the Orbit CLIs and docs and from `tasks/hpc/local_orbit.py`. Treat the rest of
+the document as unverified until the ladder says otherwise.
 
 ### Environment survey, 2026-10-07
 
@@ -361,8 +362,25 @@ backend, or let `dev.sh up` wait for `hpc: true`.
 
 ## 4 · Amarel: the endpoint
 
+**`scripts/amarel_endpoint.sh` does all of this section** — `install`, `check`, `start` (in tmux),
+`status`, `stop`, `logs`, and `selftest`. The commands below are what it runs, for reading or for
+doing by hand. It needs only `ORBIT_BROKER_URL`; the endpoint name defaults to `amarel3` and
+everything else to the values here.
+
+```bash
+./scripts/amarel_endpoint.sh selftest          # no broker needed: a throwaway one on loopback
+export ORBIT_BROKER_URL=https://<linode-ip>:8443
+./scripts/amarel_endpoint.sh check             # venv, cert, token, PSI/J dir, sbatch, port probe
+./scripts/amarel_endpoint.sh start             # refuses if check fails; waits for registration
+```
+
+`check` probes the broker's TCP port because a broker that is down or firewalled does not fail the
+endpoint's startup — it shows up as a reconnect loop in the log. `selftest` keeps auth on with a
+one-off token and a random port, since loopback on a login node is shared (backlog **A9**), checks
+that a wrong token gets 401, and removes its processes and files on exit.
+
 **Install Orbit only.** The endpoint needs nothing from this repository — no `refcodes/`, no
-`setup.sh`. In a venv of its own:
+`setup.sh`. In a venv of its own (`amarel_endpoint.sh install`):
 
 ```bash
 uv venv --python 3.12 ~/orbit-venv
@@ -464,6 +482,7 @@ with every logged-in user (backlog **A16**), and the role is `login`, so rhapsod
 | --- | --- | --- | --- | --- |
 | 0a | VM | §3 steps 1–3, ending `./scripts/setup.sh --check` and `.venv/bin/python -c "import radical.orbit"` | the agent's venv exists and can import Orbit | |
 | 0b | VM | `systemctl status orbit-broker`; `GET /endpoints` (§3) returns `{"endpoints": [], …}` | the broker is up, TLS and the token work | |
+| 0-pre | login node | `./scripts/amarel_endpoint.sh selftest` | the endpoint starts with `psij,sysinfo` and registers; auth is on | 2026-10-08, `amarel4`, Orbit 0.8.0 @ `c7ede0c`, Python 3.12: registered in 1 s with `plugins=['psij', 'sysinfo']`; `GET /endpoints` listed it `connected: true`; wrong token → 401. tmux `start`/`status`/`stop` also exercised: after `stop` the broker no longer lists it |
 | 0c | amarel3 → VM | start the endpoint (§4); `GET /endpoints` lists `amarel3`, `connected: true`, with `psij` | the endpoint reaches the broker across the internet | |
 | 1 | VM | `.venv/bin/python -m pytest -q -m live` | the client path against a localhost broker we start ourselves | |
 | 2 | VM | `DESIGNAGENT_ORBIT_LOCAL=true .venv/bin/python -m pytest -q -m remote` | the remote tier's assertions, rehearsed with no allocation | |

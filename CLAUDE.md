@@ -57,6 +57,7 @@ with no fallback once it finds a file. Run everything from the repo root.
 ./scripts/dev.sh up                             # backend + frontend, endpoint if installed
 ./scripts/dev.sh up --no-mpnn                   # no endpoint: the heuristic path
 ./scripts/dev.sh down | status | restart | logs
+./scripts/amarel_endpoint.sh selftest           # Orbit endpoint on Amarel; also check|start|stop
 .venv/bin/python -m designagent --reload        # backend on :8000
 .venv/bin/python -m designagent --check-config  # effective config, secrets masked
 .venv/bin/python -m designagent --check-config --probe   # ...and try each credential
@@ -420,7 +421,8 @@ reproduce.
 
 `plans/AMAREL_ENDPOINT.md` is the other document in `plans/`: how to stand up the Orbit broker and
 endpoint the protocol needs, with an acceptance ladder whose rungs are meant to be filled in with
-what they actually returned. Nothing in it has been run yet, and it says so.
+what they actually returned. Only the Amarel endpoint's startup has been run (against a throwaway
+loopback broker, via `scripts/amarel_endpoint.sh selftest`); the ladder records what it returned.
 
 ## Slides
 
