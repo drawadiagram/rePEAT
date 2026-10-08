@@ -419,10 +419,16 @@ Open issues and their evidence live in `plans/BACKLOG.md`. Add to it when you fi
 fixing later rather than leaving it in a commit message; each entry names the file and how to
 reproduce.
 
-`plans/AMAREL_ENDPOINT.md` is the other document in `plans/`: how to stand up the Orbit broker and
-endpoint the protocol needs, with an acceptance ladder whose rungs are meant to be filled in with
-what they actually returned. Only the Amarel endpoint's startup has been run (against a throwaway
-loopback broker, via `scripts/amarel_endpoint.sh selftest`); the ladder records what it returned.
+`plans/AMAREL_ENDPOINT.md` is how to stand up the Orbit broker and endpoint the protocol needs, with
+an acceptance ladder whose rungs are meant to be filled in with what they actually returned. Only the
+Amarel endpoint's startup has been run (against a throwaway loopback broker, via
+`scripts/amarel_endpoint.sh selftest`); the ladder records what it returned.
+
+`plans/LINODE_DEPLOY.md` is the phased plan for the Linode (97.107.137.219) that hosts the broker and
+the agent: host setup, the UI exposed by IP behind Caddy, then per-user logins and per-user secrets.
+It records one trap worth knowing before touching auth: behind a same-host proxy, `bound_to_loopback`
+is true for every caller, so the loopback-open settings routes are open to the internet unless
+`DESIGNAGENT_ADMIN_TOKEN` is set.
 
 ## Slides
 
