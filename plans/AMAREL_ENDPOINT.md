@@ -1,4 +1,4 @@
-# Standing up Orbit: endpoint on Amarel, broker on JetStream2
+# Standing up Orbit: endpoint on Amarel, broker on a Linode VM
 
 What the enzyme-redesign protocol needs that is not code. Every heavy step of that protocol is
 site-bound — the UniRef30 database, the ProteinMPNN and HaloMPNN weights, the `aifold` /
@@ -7,9 +7,9 @@ runs through the `hpc` task interface, which means through an Orbit broker and a
 Amarel. Until that pair is up, `TaskManager.interface_for` has no `"hpc"` key and degrades to
 `local` with only a `log.info` (`tasks/manager.py:76-88`).
 
-**The decided layout (2026-10-07):** the Orbit **endpoint** runs on the Amarel login node `amarel3`;
-the **broker** and the **rePEAT agent** run on one JetStream2 VM. Nothing listens on Amarel. §2 has
-the full picture, §3 the JetStream2 half, §4 the Amarel half.
+**The decided layout (2026-10-08):** the Orbit **endpoint** runs on the Amarel login node `amarel3`;
+the **broker** and the **rePEAT agent** run on one Linode (Akamai Cloud) VM. Nothing listens on
+Amarel. §2 has the full picture, §3 the Linode half, §4 the Amarel half.
 
 This is a deployment record as much as a procedure: fill in what each rung of the ladder at the
 bottom actually returned, so the next person reads results rather than intentions.
@@ -27,7 +27,7 @@ node, no `SLURM_JOB_ID`), with the repo at `/cache/home/mh1314/rePEAT`. Nothing 
 | Check | Result | Consequence |
 | --- | --- | --- |
 | host | `amarel3`, 64 cores, ~86 users logged in | loopback is shared with every one of them — §2.1 |
-| outbound network | no proxy variables; TCP to an external host connected on 443, 8000 and 8443 | the endpoint can dial a JetStream2 broker directly, no tunnel |
+| outbound network | no proxy variables; TCP to an external host connected on 443, 8000 and 8443 | the endpoint can dial a cloud broker directly, no tunnel |
 | egress address | `128.6.37.137`, reverse DNS `pool-128-6-37-137.nat.rutgers.edu` | a Rutgers **NAT pool**: the source address may change, so allow-list the range, not one IP — §3 |
 | Orbit install | `.venv/` and `refcodes/` absent; nothing for Orbit | §4 installs `radical.orbit` alone; the endpoint needs nothing else from this repo |
 | system python, `uv` | 3.9.21; `uv` in `~/.local/bin` | a 3.12 venv via `uv` — Orbit needs ≥3.10 |
@@ -44,14 +44,14 @@ node, no `SLURM_JOB_ID`), with the repo at `/cache/home/mh1314/rePEAT`. Nothing 
 no recorded revision (backlog **B1**), so re-read `--help` against any other revision. Upstream's own
 `DEPLOYMENT.md` in that checkout is the companion to this document.
 
-**JetStream2:** fill in when the VM exists.
+**Linode:** fill in when the VM exists.
 
 | Item | Value |
 | --- | --- |
-| allocation | |
-| instance name / flavor / image | / `m3.quad` / Ubuntu 24.04 |
-| DNS name | `<instance>.<allocation>.projects.jetstream-cloud.org` |
-| floating IP | |
+| label / region | / Newark, NJ |
+| plan / image | Linode 8 GB / Ubuntu 24.04 LTS |
+| public IPv4 (`<linode-ip>`) | |
+| Cloud Firewall | |
 | broker port | `8443` |
 | cert generated (expires +365 d) | |
 
@@ -116,9 +116,9 @@ the work dir twice, and the broker exited "TLS cert not found" (the trap recorde
 
 | Process | Host | Kept alive by | Connects to |
 | --- | --- | --- | --- |
-| broker | JetStream2 VM, `0.0.0.0:8443` | a systemd service (§3) | nothing — **the only listening port in the deployment** |
+| broker | Linode VM, `0.0.0.0:8443` | a systemd service (§3) | nothing — **the only listening port in the deployment** |
 | agent (rePEAT backend) | the same VM, `127.0.0.1:8000` | `tmux` or a systemd service (§3) | the broker at `https://127.0.0.1:8443` |
-| endpoint | `amarel3` login node | `tmux` (§4) | the broker at `https://<vm-dns>:8443`, outbound |
+| endpoint | `amarel3` login node | `tmux` (§4) | the broker at `https://<linode-ip>:8443`, outbound |
 | protocol jobs | Amarel compute nodes | Slurm, one job each | nothing |
 | browser | the user's laptop | — | the agent, over `ssh -L` to the VM |
 
@@ -137,8 +137,8 @@ because it is the broker's only other client, the protocol's scripts are read on
 ### 2.1 · Exposure
 
 - **The broker's port faces the internet**, so the token is the gate. Auth is on by default and must
-  stay on: **never `--no-auth`** on this broker. Narrow the port with a host firewall to the Rutgers
-  range the endpoint egresses from (§3), and keep the key on the VM.
+  stay on: **never `--no-auth`** on this broker. Narrow the port with a Linode Cloud Firewall to the
+  Rutgers range the endpoint egresses from (§3), and keep the key on the VM.
 - **The agent's backend stays on loopback.** It ships no CORS middleware, and `_authorize_write`
   (`app.py`) opens settings writes to loopback callers when `DESIGNAGENT_ADMIN_TOKEN` is unset. On a
   VM only we log into, loopback is ours, which is what that design assumes; set the token anyway.
@@ -169,7 +169,7 @@ So the agent needs exactly four things, all fixed for the life of the deployment
 plus the scheduler choices the agent puts on each spec (`DESIGNAGENT_ORBIT_PSIJ_EXECUTOR`,
 `_ACCOUNT`, `_QUEUE`; §5). The agent never needs a compute node's hostname or a port inside the
 cluster; a job's Slurm id comes back to it in `handle.meta["native_id"]`. The endpoint needs three of
-the same things — URL (the VM's public name), cert and token — copied to `amarel3` (§4).
+the same things — URL (the VM's public IP), cert and token — copied to `amarel3` (§4).
 
 ### 2.3 · Fallback: the endpoint inside an allocation
 
@@ -188,7 +188,7 @@ export RADICAL_ORBIT_PSIJ_DIR=/scratch/$USER/orbit-psij
 radical-orbit-endpoint-wrapper.sh \
     --name amarel-alloc \
     -p psij,sysinfo,queue_info \
-    --url https://<vm-dns>:8443
+    --url https://<linode-ip>:8443
 ```
 
 No tunnel, *if* compute nodes have outbound access like `amarel3` does — untested. If they do not,
@@ -211,38 +211,55 @@ topology and nothing else. That is a reason to stay on the login node, not a gap
 
 ---
 
-## 3 · JetStream2: the broker and agent host
+## 3 · Linode: the broker and agent host
 
-JetStream2 facts below are from [docs.jetstream-cloud.org](https://docs.jetstream-cloud.org)
-(instance flavors, firewalls, the general FAQ on DNS names), read 2026-10-07.
+Linode (Akamai Cloud) facts below are from Akamai's pricing page and TechDocs (Cloud Firewall, rDNS,
+billing), read 2026-10-08. Prices move; re-check `akamai.com/cloud/pricing` before buying.
 
-**1. Launch.** In Exosphere: Ubuntu 24.04, **`m3.quad`** (4 vCPU, 15 GB, 20 GB disk, **4 SU/hour**,
-about 2,900 SU per month left running). `m3.small` (2 vCPU, 6 GB, 2 SU/h) would carry the broker alone
-but is tight for the agent: LangGraph, a process pool, Kuzu and a frontend build. Keep the public IP —
-the DNS name `<instance>.<allocation>.projects.jetstream-cloud.org` resolves to the floating IP and
-does not work without one. An active VM is charged whether or not it is used; a **shelved** one is
-charged nothing, and usage reports lag 12–24 hours. Record the instance in the survey table.
+**1. Launch.** Ubuntu 24.04 LTS, region **Newark, NJ** (closest to Rutgers, which shortens the path in
+backlog **D5**; confirm it offers the plan), with your SSH key. Plan: **Linode 8 GB** (Shared CPU:
+4 vCPU, 8 GB, 160 GB disk, **$48/month**, $0.072/hour). The broker alone would run on the smallest
+plan; the agent is what needs the room — LangGraph, a process pool, Kuzu and a frontend build. Linode
+4 GB (2 vCPU, $24/month) is the floor. The instance comes with a **static public IPv4**; its default
+reverse name is `<ip-with-dashes>.ip.linodeusercontent.com`. No DNS is needed: pinned certs skip
+hostname checks (`runtime.py`), so the endpoint can dial the bare IP. Record the instance in the
+survey table.
 
-**2. Firewall.** Jetstream2 enables no host firewall, and Exosphere's default security group is
-permissive. Use UFW (the docs' recommendation; keep SSH open or you lock yourself out):
+**Billing.** Hourly, capped at the monthly price. **A powered-off Linode is billed in full** — only
+deleting it stops charges. To pause the deployment, capture an Image of the disk and delete the
+Linode; restoring gives a new IP, which means re-pointing the endpoint's `--url` (§4) and re-issuing
+the cert (step 4), since its SAN names the old IP.
+
+**2. Cloud Firewall.** Create one (free) and attach it to the Linode. A new firewall's inbound default
+is **Drop**; keep it, and add two rules:
+
+| Direction | Protocol / port | Source | Why |
+| --- | --- | --- | --- |
+| inbound | TCP 22 | where you administer from | ssh, including the browser's `ssh -L` |
+| inbound | TCP 8443 | `128.6.0.0/16` | the endpoint on `amarel3` |
+| outbound | default Accept | — | apt, git, pip, the Anthropic API |
+
+`128.6.0.0/16` is Rutgers' block (`whois`: "Rutgers, The State University") and covers the NAT pool
+the survey saw (`128.6.37.137`); widen it only if the endpoint's address turns out to come from
+elsewhere. The allow-list is defence in depth, not the gate — the token is. The agent reaches the
+broker over loopback, which the Cloud Firewall never sees. The image enables no host firewall; a UFW
+mirror of the same rules is optional (`ufw allow ssh`, `ufw allow from 128.6.0.0/16 to any port 8443
+proto tcp`, `ufw enable` — allow ssh first or you lock yourself out). If the account defines a Default
+Firewall for new resources, check it does not already open more than this.
+
+**3. A user, then the install.** The image boots as `root`. Create an unprivileged user for the
+broker and the agent, and do everything after this as that user:
 
 ```bash
-sudo ufw allow ssh
-sudo ufw allow from 128.6.0.0/16 to any port 8443 proto tcp   # Rutgers; amarel3 egresses via NAT
-sudo ufw enable
+# as root
+adduser --disabled-password --gecos "" orbit
+install -d -m 700 -o orbit -g orbit /home/orbit/.ssh
+install -m 600 -o orbit -g orbit ~/.ssh/authorized_keys /home/orbit/.ssh/
+apt update && apt -y upgrade && apt -y install git build-essential
 ```
 
-`128.6.0.0/16` is Rutgers' block (`whois`: "Rutgers, The State University") and covers the NAT
-pool the survey saw (`128.6.37.137`); widen it only if the endpoint's address turns out to come from
-elsewhere. The
-allow-list is defence in depth, not the gate — the token is. The agent reaches the broker over
-loopback, which UFW does not filter. Exosphere's web shell and desktop need extra ports (the docs list
-them); add them only if used. If the VM was launched from Horizon or the CLI, tighten the security
-group to the same two rules.
-
-**3. Install**, as the VM's login user (`exouser` on Exosphere images; adjust paths if not):
-
 ```bash
+# as orbit
 curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/drawadiagram/rePEAT && cd rePEAT
 # place refcodes/ (radical.asyncflow, rhapsody, flowgentic) — backlog B1
@@ -266,17 +283,17 @@ by name, then confirm `uv pip show rhapsody-py` still points at `refcodes/`.
 `protocol_*` *paths* (`proj_root`, `scratch_root`, the conda envs, the databases) are the opposite:
 cluster paths, checked only to be absolute (`protocol/site.py`) and never touched on the VM.
 
-**4. Credentials**, on the VM. A self-signed pair is the supported shape, and **hostname matching is
-disabled for pinned certs** (`runtime.py`), so one cert serves the agent dialling `127.0.0.1` and the
-endpoint dialling the DNS name. Endpoints and clients pin the *cert*; the key never leaves the VM.
+**4. Credentials**, on the VM as `orbit`. A self-signed pair is the supported shape, and **hostname
+matching is disabled for pinned certs**, so one cert serves the agent dialling `127.0.0.1` and the
+endpoint dialling the public IP. Endpoints and clients pin the *cert*; the key never leaves the VM.
 
 ```bash
-mkdir -p ~/.radical/orbit
+mkdir -p ~/.radical/orbit && chmod 700 ~/.radical/orbit
 openssl req -x509 -newkey rsa:4096 -nodes \
     -keyout ~/.radical/orbit/broker_key.pem \
     -out    ~/.radical/orbit/broker_cert.pem \
-    -days 365 -subj "/CN=<vm-dns>" \
-    -addext "subjectAltName=DNS:<vm-dns>,IP:127.0.0.1"
+    -days 365 -subj "/CN=<linode-ip>" \
+    -addext "subjectAltName=IP:<linode-ip>,IP:127.0.0.1"
 chmod 600 ~/.radical/orbit/broker_key.pem      # the broker refuses to start otherwise
 
 python3 -c "import secrets; print(secrets.token_urlsafe(32))" \
@@ -289,8 +306,8 @@ The cert expires in 365 days — record the date in the survey table. Rotating t
 re-copying it to `amarel3` (§4); an endpoint whose reconnect is rejected exits non-zero rather than
 waiting.
 
-**5. The broker as a system service.** The VM gives us root, which `amarel3` does not, so the broker
-gets a real unit (adapted from upstream `DEPLOYMENT.md`):
+**5. The broker as a system service.** Root on the VM, which `amarel3` never gives us, means the
+broker gets a real unit (adapted from upstream `DEPLOYMENT.md`):
 
 ```ini
 # /etc/systemd/system/orbit-broker.service
@@ -299,10 +316,10 @@ Description=Orbit broker
 After=network.target
 
 [Service]
-User=exouser
-WorkingDirectory=/home/exouser
+User=orbit
+WorkingDirectory=/home/orbit
 Environment=RADICAL_ORBIT_LOG_LVL=INFO
-ExecStart=/home/exouser/rePEAT/.venv/bin/radical-orbit-broker.py --host 0.0.0.0 --port 8443 -p sysinfo
+ExecStart=/home/orbit/rePEAT/.venv/bin/radical-orbit-broker.py --host 0.0.0.0 --port 8443 -p sysinfo
 Restart=on-failure
 RestartSec=5s
 
@@ -310,7 +327,7 @@ RestartSec=5s
 WantedBy=multi-user.target
 ```
 
-Cert, key and token resolve from `~exouser/.radical/orbit/`. `-p sysinfo` keeps the broker's own
+Cert, key and token resolve from `~orbit/.radical/orbit/`. `-p sysinfo` keeps the broker's own
 plugin set small: its default adds `staging`, `task_dispatcher`, `federation` and the IRI/SFAPI
 connectors, none of which this deployment uses (unverified that a narrower set changes nothing for
 routing — check at rung 0b). `sudo systemctl enable --now orbit-broker`, then
@@ -333,7 +350,7 @@ VM, so `./scripts/dev.sh up` brings up the frontend too — on `amarel3` it coul
 reaches both from the laptop:
 
 ```bash
-ssh -N -L 5173:127.0.0.1:5173 -L 8000:127.0.0.1:8000 exouser@<vm-dns>
+ssh -N -L 5173:127.0.0.1:5173 -L 8000:127.0.0.1:8000 orbit@<linode-ip>
 ```
 
 And the ordering trap from `CLAUDE.md`: **an endpoint registers a few seconds after it connects**, and
@@ -359,7 +376,7 @@ not load on a login node anyway (§1).
 
 ```bash
 mkdir -p ~/.radical/orbit && chmod 700 ~/.radical/orbit
-scp exouser@<vm-dns>:.radical/orbit/{broker_cert.pem,broker.token} ~/.radical/orbit/
+scp orbit@<linode-ip>:.radical/orbit/{broker_cert.pem,broker.token} ~/.radical/orbit/
 chmod 600 ~/.radical/orbit/broker.token
 ```
 
@@ -369,7 +386,7 @@ chmod 600 ~/.radical/orbit/broker.token
 export RADICAL_ORBIT_PSIJ_DIR=/scratch/$USER/orbit-psij
 ~/orbit-venv/bin/radical-orbit-endpoint.py \
     --name amarel3 -p psij,sysinfo \
-    --url https://<vm-dns>:8443
+    --url https://<linode-ip>:8443
 ```
 
 It logs `registered as 'amarel3'` to `~/.radical/orbit/logs/amarel3.log`, with the plugins that
@@ -471,4 +488,4 @@ Four things to write down from rung 4, because each is the first evidence we wil
   sets it and no test exercises it. The protocol's compute jobs depend on it entirely — and Slurm
   fails a job whose `--chdir` does not exist before anything runs, so `$PROJ` must be created first;
 - **how long a known-size output takes to come back.** Job stdout and in-band staged files now
-  travel `amarel3` → JetStream2 over the internet (backlog **D5**).
+  travel `amarel3` → Linode over the internet (backlog **D5**).

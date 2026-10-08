@@ -177,7 +177,7 @@ URL the client will trust — deserve the same scrutiny.
 (2026-10-07) about 86 users share `127.0.0.1`, and one of them already held `:8000`. There, the open
 default admits every user on the node to the write routes. Repro: start the backend there with no
 `DESIGNAGENT_ADMIN_TOKEN`; any other account on the node can `PUT /api/settings`. The deployment in
-`plans/AMAREL_ENDPOINT.md` sidesteps it by running the agent on a single-user JetStream2 VM and
+`plans/AMAREL_ENDPOINT.md` sidesteps it by running the agent on a single-user Linode VM and
 setting the token anyway (§2.1); the question remains for anyone who runs the backend on a shared host. A cheap
 middle ground: have `--check-config` warn when bound to loopback with no token and other users are
 logged in.
@@ -307,7 +307,7 @@ Fix idea: generate a throwaway token per stack, write it `0600` into the work di
 broker, endpoint and client instead of `--no-auth`. The broker already reads `--token`, so this is
 local to `local_orbit.py` and the client settings it hands back.
 
-**Not on the production path.** The deployed broker runs on a JetStream2 VM with auth on, and
+**Not on the production path.** The deployed broker runs on a Linode VM with auth on, and
 `plans/AMAREL_ENDPOINT.md` runs ladder rungs 1–2 on that VM, where loopback is private. The entry
 stands for anyone who runs the dev stack on a login node.
 
@@ -624,13 +624,13 @@ code on `amarel3`, not run — the venv does not exist yet. Repro: `pytest -m li
 then again under `srun`, where it should pass. If confirmed, the test wants a skip naming the role
 rather than a failure.
 
-The deployment ladder avoids it: `plans/AMAREL_ENDPOINT.md` runs rungs 1–2 on the JetStream2 VM, which
+The deployment ladder avoids it: `plans/AMAREL_ENDPOINT.md` runs rungs 1–2 on the Linode VM, which
 has no batch system, so the role is `standalone` and rhapsody loads.
 
 ### D5 · Job output now crosses the internet, at an unmeasured rate
-With the broker and agent on JetStream2 and the endpoint on `amarel3` (`plans/AMAREL_ENDPOINT.md` §2),
+With the broker and agent on a Linode VM and the endpoint on `amarel3` (`plans/AMAREL_ENDPOINT.md` §2),
 every job's stdout — and with it every in-band staged file (`tasks/hpc/artifacts.py`) — travels
-endpoint → broker → agent over WSS between Rutgers and Indiana, where the dev stack only ever moved it
+endpoint → broker → agent over WSS from Rutgers to the Linode region (Newark, if chosen), where the dev stack only ever moved it
 over loopback. The size is bounded by `orbit_artifact_max_bytes` and `orbit_job_output_max_bytes`; the
 time is not measured, and `_read_whole_stdout` and the task timeouts were tuned on loopback. Repro: at
 rung 4, a job that stages out a file of known size (the `-m live` staging tests are the template),
