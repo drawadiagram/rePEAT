@@ -32,7 +32,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Fields that must never be rendered in full — not in a response body, not in a
 # log line. `mask()` is the only permitted form. Keep this in step with the
 # SecretStr annotations below; `secret_values()` reads it to build the log filter.
-SECRET_FIELDS = ("anthropic_api_key", "orbit_broker_token", "admin_token")
+SECRET_FIELDS = ("anthropic_api_key", "orbit_broker_token", "admin_token", "secrets_key")
 
 
 class Settings(BaseSettings):
@@ -164,6 +164,28 @@ class Settings(BaseSettings):
     bind_host: str = "127.0.0.1"
     admin_token: SecretStr = SecretStr("")
 
+    # --- logins (plans/LINODE_DEPLOY.md, Phase 2) ---
+    # Off by default, so the development server, dev.sh and the offline suite
+    # behave exactly as before: one implicit user, the loopback rules above. On,
+    # every route but /api/login and a minimal /api/health needs a session
+    # cookie, the settings routes need the admin role, and each user's own
+    # credentials replace the environment's. Environment-only, like data_dir.
+    auth_enabled: bool = False
+    # Fernet key for user credentials at rest (`python -m designagent
+    # --gen-secrets-key`). Losing it means users re-enter their credentials; it
+    # never means plaintext. Without one, credential writes are refused.
+    secrets_key: SecretStr = SecretStr("")
+    auth_session_hours: float = 168.0
+    # Browsers treat http://localhost as secure, so Secure cookies work in
+    # development too; turn this off only for a plain-HTTP host that is not
+    # loopback, which should not exist.
+    auth_cookie_secure: bool = True
+    # Comma-separated broker URLs a user may point their own credentials at.
+    # Empty means users cannot set a broker at all, only the operator can (the
+    # environment). A user-supplied URL is a host this server will dial and
+    # hand a token to, so it is allow-listed rather than validated (backlog A9).
+    orbit_allowed_brokers: str = ""
+
     # --- external services ---
     fold_backend: Literal["esmatlas", "local", "hpc"] = "esmatlas"
     http_timeout_sec: float = 60.0
@@ -191,6 +213,16 @@ class Settings(BaseSettings):
     @property
     def bound_to_loopback(self) -> bool:
         return self.bind_host in ("127.0.0.1", "::1", "localhost")
+
+    @property
+    def secrets_key_value(self) -> str:
+        return self.secrets_key.get_secret_value().strip()
+
+    @property
+    def allowed_brokers(self) -> tuple[str, ...]:
+        return tuple(
+            u.strip().rstrip("/") for u in self.orbit_allowed_brokers.split(",") if u.strip()
+        )
 
     @property
     def rhapsody_backends(self) -> list[str] | None:
@@ -226,6 +258,11 @@ class Settings(BaseSettings):
     @property
     def golden_dir(self) -> Path:
         return self.data_dir / "lake" / "golden"
+
+    @property
+    def auth_db_path(self) -> Path:
+        """Users, logins and encrypted credentials; apart from the lake on purpose."""
+        return self.data_dir / "auth.sqlite"
 
     @property
     def checkpoint_db_path(self) -> Path:
@@ -366,10 +403,30 @@ def mask(value: str) -> str:
     return f"{head}…{value[-4:]}"
 
 
+# Secrets that are live in this process but belong to no `Settings` field: a
+# signed-in user's decrypted credentials. `auth.credentials` registers them as
+# it decrypts and forgets them when they are replaced, so the log filter covers
+# every user's key and not only the environment's.
+_live_secrets: set[str] = set()
+
+
+def register_secret(value: str) -> None:
+    value = (value or "").strip()
+    if len(value) >= 8:
+        with _lock:
+            _live_secrets.add(value)
+
+
+def forget_secret(value: str) -> None:
+    with _lock:
+        _live_secrets.discard((value or "").strip())
+
+
 def secret_values(settings: Settings | None = None) -> list[str]:
     """Live secret values, for the log filter to scrub. Never for display."""
     settings = settings or get_settings()
-    out = []
+    with _lock:
+        out = sorted(_live_secrets)
     for name in SECRET_FIELDS:
         raw = getattr(settings, name)
         value = raw.get_secret_value().strip() if isinstance(raw, SecretStr) else str(raw)

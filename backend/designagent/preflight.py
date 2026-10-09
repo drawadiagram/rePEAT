@@ -126,6 +126,12 @@ def report_lines(
     lines.append(
         f"  data_dir {settings.data_dir}   bind {settings.bind_host}   kuzu buffer pool {pool}"
     )
+    if settings.auth_enabled:
+        key = "set" if settings.secrets_key_value else "MISSING: credentials cannot be stored"
+        brokers = ", ".join(settings.allowed_brokers) or "none (users cannot choose one)"
+        lines.append(f"  logins: on   secrets key: {key}   user brokers: {brokers}")
+    else:
+        lines.append("  logins: off")
     lines.append(
         "  hpc: "
         + (

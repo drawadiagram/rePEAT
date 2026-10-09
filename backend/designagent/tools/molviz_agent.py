@@ -15,7 +15,7 @@ import logging
 import re
 from typing import Any
 
-from ..llm import complete_json
+from ..llm import complete_json, settings_for_task
 
 log = logging.getLogger(__name__)
 
@@ -242,9 +242,13 @@ async def generate_visualization(
     reference: dict | None = None,
     lead: dict | None = None,
     key_metric: dict | None = None,
+    _llm: dict[str, Any] | None = None,
     **_: Any,
 ) -> dict[str, Any]:
-    """Build a Mol* view spec for the current design state."""
+    """Build a Mol* view spec for the current design state.
+
+    `_llm` is the signed-in user's LLM credentials (`tasks/local.py`), or None.
+    """
     reference = reference or {}
     lead = lead or {}
     fallback = default_spec(reference=reference, lead=lead, prompt=prompt)
@@ -277,12 +281,16 @@ async def generate_visualization(
 
     import json
 
-    # Runs in a pool worker, so `complete_json` resolves the key from the settings
-    # the worker was handed at fork (runtime.py). `llm_error` travels back with the
-    # spec because the worker cannot reach the node's warnings channel itself.
+    # Runs in a pool worker. With nobody signed in `complete_json` resolves the key
+    # from the settings the worker was handed at fork (runtime.py); with a user it
+    # uses theirs, which arrived as `_llm`. `llm_error` travels back with the spec
+    # because the worker cannot reach the node's warnings channel itself.
     reasons: list[str] = []
     proposed = await complete_json(
-        SYSTEM, json.dumps(context, default=str), on_fallback=reasons.append
+        SYSTEM,
+        json.dumps(context, default=str),
+        settings=settings_for_task(_llm),
+        on_fallback=reasons.append,
     )
     spec = sanitize_spec(proposed, fallback=fallback)
     from ..llm import NO_KEY

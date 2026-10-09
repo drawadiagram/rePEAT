@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable
 
+from ..context import current_turn
 from ..lake.store import DesignHistory
 from .base import TaskHandle, TaskInterface, TaskSpec, TaskState
 from .hpc.base import drain_logs
@@ -49,6 +50,10 @@ class TaskManager:
             self.interfaces["hpc"] = hpc
         self.history = history
         self._handles: dict[str, TaskHandle] = {}
+        # The interface object that took each handle. Under logins two users'
+        # `hpc` handles belong to two different interfaces, so the name on the
+        # handle is not enough to cancel or tail one.
+        self._owners: dict[str, TaskInterface] = {}
         self._sinks: dict[str, list[EventSink]] = {}
         self._log_drains: list[asyncio.Task] = []
 
@@ -73,13 +78,31 @@ class TaskManager:
                 log.debug("task event sink failed: %s", exc)
 
     # --- routing ------------------------------------------------------
+    def _hpc(self) -> TaskInterface | None:
+        """This turn's `hpc` interface.
+
+        With nobody signed in, the process-wide one, as always. With a user, their
+        own (`runtime.OrbitRegistry`), or the process-wide one only when the turn
+        context says so — an admin whose credentials are the environment's. A
+        plain user with no endpoint of their own gets none, and their `hpc` work
+        runs its local equivalent and says so, exactly as with no endpoint at all.
+        """
+        turn = current_turn.get()
+        if turn is None or turn.use_shared_hpc:
+            return self.interfaces.get("hpc")
+        return turn.hpc
+
     def interface_for(self, spec: TaskSpec) -> tuple[str, TaskInterface]:
         """Pick an interface, falling back when the preferred one is absent."""
         task_def = CATALOG.get(spec.name)
         preferred = spec.params.pop("_interface", None) or (
             task_def.interface if task_def else "local"
         )
-        if preferred in self.interfaces:
+        if preferred == "hpc":
+            hpc = self._hpc()
+            if hpc is not None:
+                return "hpc", hpc
+        elif preferred in self.interfaces:
             return preferred, self.interfaces[preferred]
         if preferred == "hpc":
             # No endpoint configured: run the app-local equivalent instead.
@@ -89,7 +112,7 @@ class TaskManager:
 
     @property
     def hpc_available(self) -> bool:
-        iface = self.interfaces.get("hpc")
+        iface = self._hpc()
         return iface is not None and getattr(iface, "connected", True)
 
     def attach_hpc(self, interface: TaskInterface) -> None:
@@ -128,6 +151,7 @@ class TaskManager:
             )
 
         self._handles[handle.id] = handle
+        self._owners[handle.id] = interface
         handle.meta.setdefault("session_id", session_id)
         handle.meta.setdefault("campaign_id", campaign_id)
         # Read from the context the node wrapper set rather than threading
@@ -323,6 +347,9 @@ class TaskManager:
     def get(self, task_id: str) -> TaskHandle | None:
         return self._handles.get(task_id)
 
+    def interface_of(self, task_id: str) -> TaskInterface | None:
+        return self._owners.get(task_id)
+
     def snapshot(self, session_id: str | None = None) -> list[dict]:
         handles = self._handles.values()
         if session_id:
@@ -333,7 +360,7 @@ class TaskManager:
         handle = self._handles.get(task_id)
         if handle is None:
             return False
-        interface = self.interfaces.get(handle.interface)
+        interface = self._owners.get(task_id) or self.interfaces.get(handle.interface)
         if interface is None:
             return False
         ok = await interface.cancel(handle)
