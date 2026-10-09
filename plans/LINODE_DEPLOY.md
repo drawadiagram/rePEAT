@@ -117,7 +117,9 @@ The work is split into phases so the UI is reachable early without ever being op
    `SAN=IP:97.107.137.219,IP:127.0.0.1`, plus a token. Both go in `~orbit/.radical/orbit/` at 0600.
 6. **Broker unit:** create `/etc/systemd/system/orbit-broker.service` exactly as in §3.5
    (`--host 0.0.0.0 --port 8443 -p sysinfo`, never `--no-auth`).
-7. **Skill checkout** for `DESIGNAGENT_PROTOCOL_SCRIPTS_DIR` (§5).
+7. **Skill checkout** for `DESIGNAGENT_PROTOCOL_SCRIPTS_DIR` (§5). Done 2026-10-09: it is
+   `refcodes/enzyme-redesign-protocol` at `20a3600`, copied in with the other checkouts, and the
+   setting points at its `scripts/` in `/etc/repeat/backend.env`.
 8. **Amarel side, done by the user:**
    - scp the cert and token to `amarel3`.
    - `export ORBIT_BROKER_URL=https://97.107.137.219:8443`.
@@ -176,6 +178,11 @@ replaces it.
 `/root/rePEAT`; the service runs from `/home/orbit/rePEAT`. A deploy is `git pull` in the second,
 from GitHub after a push. Pulling straight from `/root/rePEAT` would need the orbit user to read
 root's home. Then rebuild and copy the frontend, and `systemctl restart repeat-backend`.
+
+**The repository is private, so `orbit` needs a read-only deploy key** (found 2026-10-09:
+`git pull origin` fails with "could not read Username"). Generate `~orbit/.ssh/id_ed25519`, add
+its `.pub` as a deploy key on GitHub with write access off, and switch `origin` to the
+`git@github.com:` form. Until then, sync as root from `/root/rePEAT`.
 
 **Check:** `curl -I https://97-107-137-219.ip.linodeusercontent.com` returns 401 without
 credentials. In a browser with credentials, one chat turn streams. `PUT /api/settings` without

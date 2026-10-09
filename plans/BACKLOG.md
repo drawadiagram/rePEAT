@@ -344,6 +344,7 @@ was copied to the Linode as clean git trees. `scripts/setup.sh` carries their co
 | `langgraph` | `b36b1d5` | 2026-10-01 | main (1.2.12) | reference reading |
 | `hpc-bridge` | `46f63bf` | 2026-09-22 | main | reference reading |
 | `rcsb-molstar` | `7153df7` | 2026-09-22 | master | reference reading |
+| `enzyme-redesign-protocol` | `20a3600` | 2026-09-30 | main | read at runtime: `DESIGNAGENT_PROTOCOL_SCRIPTS_DIR` points at its `scripts/` |
 
 **`radical.orbit`, the fourth package, is now installed by `setup.sh`** when its checkout is present.
 `tasks/hpc/orbit.py` imports it lazily and `local_orbit._script` looks for its CLI scripts. Before
