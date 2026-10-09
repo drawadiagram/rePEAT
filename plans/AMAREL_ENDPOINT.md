@@ -94,9 +94,11 @@ the broker**, and so is this agent. That single fact decides the topology (§2).
 and `psij` *if the endpoint has it*, but Orbit decides per host: `PluginRhapsody.is_enabled` is true
 only when `utils.host_role` says `compute` (inside an allocation) or `standalone` (no batch system).
 On `amarel3` Slurm is detected and there is no allocation, so the role is `login` and rhapsody is
-skipped with one INFO line (`[PluginHost] Skipping plugin (not applicable here)`). PSI/J loads on
-every host. That costs this path nothing: every `hpc` submission here is `kind="job"`
-(`nodes/orchestrator.py`, `nodes/protocol.py`), which goes to psij.
+skipped with one INFO line (`[PluginHost] Skipping plugin (not applicable here)`). With the explicit
+`-p psij,sysinfo` below there is no skip line at all — rhapsody is never asked for; the 2026-10-09
+startup logged only `Loading plugins: ['psij', 'sysinfo']` and one load line each, and `host_role`
+confirmed `role: login`. PSI/J loads on every host. That costs this path nothing: every `hpc`
+submission here is `kind="job"` (`nodes/orchestrator.py`, `nodes/protocol.py`), which goes to psij.
 
 **Why `psij,sysinfo` and not the default.** On a login node `default` is
 `psij,staging,sysinfo,queue_info`. Upstream's `plans/security_token_mitigation.md` describes psij
@@ -242,7 +244,14 @@ is **Drop**; keep it, and add two rules:
 
 `128.6.0.0/16` is Rutgers' block (`whois`: "Rutgers, The State University") and covers the NAT pool
 the survey saw (`128.6.37.137`); widen it only if the endpoint's address turns out to come from
-elsewhere. The allow-list is defence in depth, not the gate — the token is. The agent reaches the
+elsewhere. **An uncommitted Cloud Firewall rule is indistinguishable from a stopped broker** by
+error text: it blocked rung 0c once with the broker already active and answering on its own
+loopback. Only the *shape* of the failure separates them — a dropped packet hangs until the timeout
+(`timeout 8 bash -c 'exec 3<>/dev/tcp/<ip>/8443'` returning after the full 8 s, and an unused port
+like 9999 behaving identically), while a reachable host with nothing listening answers with an RST
+at once. `amarel_endpoint.sh check` prints "nothing answers" for both.
+
+The allow-list is defence in depth, not the gate — the token is. The agent reaches the
 broker over loopback, which the Cloud Firewall never sees. The image enables no host firewall; a UFW
 mirror of the same rules is optional (`ufw allow ssh`, `ufw allow from 128.6.0.0/16 to any port 8443
 proto tcp`, `ufw enable` — allow ssh first or you lock yourself out). If the account defines a Default
@@ -481,9 +490,9 @@ with every logged-in user (backlog **A16**), and the role is `login`, so rhapsod
 | # | Where | Command | Proves | Result |
 | --- | --- | --- | --- | --- |
 | 0a | VM | §3 steps 1–3, ending `./scripts/setup.sh --check` and `.venv/bin/python -c "import radical.orbit"` | the agent's venv exists and can import Orbit | 2026-10-09: `setup.sh --check` all ok, every refcodes pin matched; offline suite 396 passed, 2 skipped. Orbit is now installed by `setup.sh` itself, from `refcodes/radical.orbit` |
-| 0b | VM | `systemctl status orbit-broker`; `GET /endpoints` (§3) returns `{"endpoints": [], …}` | the broker is up, TLS and the token work | 2026-10-09: active. `GET /endpoints` returned `{"endpoints":[{"name":"broker","plugins":["sysinfo"],"connected":true,…}],"total":1}`; the broker lists **itself**, not `[]` as predicted. Wrong token → 401, no token → 401; the public IP answers 200 from the VM |
+| 0b | VM | `systemctl status orbit-broker`; `GET /endpoints` (§3) returns `{"endpoints": [], …}` | the broker is up, TLS and the token work | 2026-10-09: active. `GET /endpoints` returned `{"endpoints":[{"name":"broker","plugins":["sysinfo"],"connected":true,…}],"total":1}`; the broker lists **itself**, not `[]` as predicted. Wrong token → 401, no token → 401; the public IP answers 200 from the VM. The same authenticated call also answers **from `amarel3`**, so the pinned cert and the token work across the internet and not only on loopback |
 | 0-pre | login node | `./scripts/amarel_endpoint.sh selftest` | the endpoint starts with `psij,sysinfo` and registers; auth is on | 2026-10-08, `amarel4`, Orbit 0.8.0 @ `c7ede0c`, Python 3.12: registered in 1 s with `plugins=['psij', 'sysinfo']`; `GET /endpoints` listed it `connected: true`; wrong token → 401. tmux `start`/`status`/`stop` also exercised: after `stop` the broker no longer lists it |
-| 0c | amarel3 → VM | start the endpoint (§4); `GET /endpoints` lists `amarel3`, `connected: true`, with `psij` | the endpoint reaches the broker across the internet | 2026-10-09 05:14 UTC: `WebSocket /register [accepted]` from **`128.6.37.137`** (the Rutgers NAT address the survey saw, so the `128.6.0.0/16` rule fits). `GET /endpoints` listed `amarel3`, `connected: true`, plugins `psij, sysinfo` |
+| 0c | amarel3 → VM | start the endpoint (§4); `GET /endpoints` lists `amarel3`, `connected: true`, with `psij` | the endpoint reaches the broker across the internet | 2026-10-09 05:14 UTC: `WebSocket /register [accepted]` from **`128.6.37.137`** (the Rutgers NAT address the survey saw, so the `128.6.0.0/16` rule fits). `GET /endpoints` listed `amarel3`, `connected: true`, plugins `psij, sysinfo`. From the endpoint side the same minute: `amarel_endpoint.sh check` all ok, and `start` logged `registered as 'amarel3' (role=endpoint, plugins=['psij', 'sysinfo'])` at 05:14:33 UTC, the same second as `Starting ORBIT endpoint`. `GET /endpoints` from `amarel3` listed **two** rows, `amarel3` with `plugin_count: 2` and the broker's own. `GET /amarel3/sysinfo/host_role` through the gateway → `{"role": "login", "scheduler": "slurm", "psij_executor": "slurm", "job_id": null, "python_version": "3.12.13"}` — the first capability call to make the whole `amarel3 → broker → amarel3` round trip, and it settles one of §6's four rung-4 questions early. At 05:14:40 the endpoint logged `[psij] Registered session … (owner=designagent)` twice and one unregister: that is rung 3's probe, seen from the other end |
 | 1 | VM | `.venv/bin/python -m pytest -q -m live` | the client path against a localhost broker we start ourselves | 2026-10-09: **11 passed, 1 skipped** (the ProteinMPNN test, which is not installed on the VM by design). The first run skipped all 12 with `No module named 'opentelemetry.sdk'`: Orbit's rhapsody plugin calls `start_telemetry`, which needs rhapsody's `telemetry` extra. `setup.sh` now installs and checks it |
 | 2 | VM | `DESIGNAGENT_ORBIT_LOCAL=true .venv/bin/python -m pytest -q -m remote` | the remote tier's assertions, rehearsed with no allocation | 2026-10-09: **8 passed** |
 | 3 | VM | `.venv/bin/python -m designagent --check-config --probe` | the agent's credentials reach the real broker and the endpoint is visible | 2026-10-09, with `/etc/repeat/backend.env` loaded: `orbit [ok] endpoint amarel3`, `hpc: configured`, exit 0. `llm` absent (no key yet); `protocol_*` cluster paths still unset |
