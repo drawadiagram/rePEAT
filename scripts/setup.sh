@@ -59,6 +59,11 @@ if [[ $CHECK_ONLY -eq 0 ]]; then
     uv pip install --no-deps -e refcodes/radical.orbit
     uv pip install httpx msgpack cloudpickle requests websockets websocket-client \
       fastapi uvicorn psutil rich psij-python globus-sdk authlib
+    # rhapsody's `telemetry` extra, by name for the same reason. Orbit's rhapsody
+    # plugin calls Session.start_telemetry whenever the method exists, and that
+    # imports opentelemetry.sdk: without it every rhapsody session fails to
+    # open, and -m live and -m remote skip rather than fail.
+    uv pip install 'opentelemetry-sdk>=1.20.0' nvidia-ml-py
   else
     warn "refcodes/radical.orbit is absent: the hpc interface and -m live will not work"
   fi
@@ -104,6 +109,9 @@ if [[ -d refcodes/radical.orbit ]]; then
   $PY -c "import radical.orbit" 2>/dev/null \
     || fail "refcodes/radical.orbit is present but does not import. Re-run ./scripts/setup.sh"
   ok "import radical.orbit"
+  $PY -c "import opentelemetry.sdk" 2>/dev/null \
+    || fail "opentelemetry-sdk is missing: Orbit's rhapsody sessions cannot open. Re-run ./scripts/setup.sh"
+  ok "import opentelemetry.sdk"
   # rhapsody-py from PyPI must not have displaced the editable checkout.
   $PY -c "import pathlib, sys, rhapsody
 sys.exit(0 if 'refcodes' in pathlib.Path(rhapsody.__file__).resolve().parts else 1)" \

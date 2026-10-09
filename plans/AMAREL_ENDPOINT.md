@@ -45,16 +45,16 @@ node, no `SLURM_JOB_ID`), with the repo at `/cache/home/mh1314/rePEAT`. Nothing 
 no recorded revision (backlog **B1**), so re-read `--help` against any other revision. Upstream's own
 `DEPLOYMENT.md` in that checkout is the companion to this document.
 
-**Linode:** fill in when the VM exists.
+**Linode**, as built 2026-10-09 (`plans/LINODE_DEPLOY.md` is the deployment plan for this host).
 
 | Item | Value |
 | --- | --- |
-| label / region | / Newark, NJ |
-| plan / image | Linode 8 GB / Ubuntu 24.04 LTS |
-| public IPv4 (`<linode-ip>`) | |
-| Cloud Firewall | |
-| broker port | `8443` |
-| cert generated (expires +365 d) | |
+| label / region | — / Newark, NJ (`2600:3c03::/64`) |
+| plan / image | **Linode 4 GB** (2 vCPU AMD EPYC 7642, 3.9 GB RAM, 79 GB disk) / Ubuntu 24.04.4 LTS. The floor below, not the 8 GB recommended; final. Plus a 2 GB swapfile |
+| public IPv4 (`<linode-ip>`) | `97.107.137.219`, reverse `97-107-137-219.ip.linodeusercontent.com` |
+| Cloud Firewall | not yet confirmed. The host's UFW mirrors §3 step 2: 22 any, 8443 from `128.6.0.0/16`, plus 80/443 any for the UI (`LINODE_DEPLOY.md` Phase 1) |
+| broker port | `8443`, `orbit-broker.service`, broker RSS 81 MB at idle |
+| cert generated (expires +365 d) | 2026-10-09, expires **2027-10-09 03:22 UTC**; SAN `IP:97.107.137.219, IP:127.0.0.1` |
 
 ---
 
@@ -480,12 +480,12 @@ with every logged-in user (backlog **A16**), and the role is `login`, so rhapsod
 
 | # | Where | Command | Proves | Result |
 | --- | --- | --- | --- | --- |
-| 0a | VM | §3 steps 1–3, ending `./scripts/setup.sh --check` and `.venv/bin/python -c "import radical.orbit"` | the agent's venv exists and can import Orbit | |
-| 0b | VM | `systemctl status orbit-broker`; `GET /endpoints` (§3) returns `{"endpoints": [], …}` | the broker is up, TLS and the token work | |
+| 0a | VM | §3 steps 1–3, ending `./scripts/setup.sh --check` and `.venv/bin/python -c "import radical.orbit"` | the agent's venv exists and can import Orbit | 2026-10-09: `setup.sh --check` all ok, every refcodes pin matched; offline suite 396 passed, 2 skipped. Orbit is now installed by `setup.sh` itself, from `refcodes/radical.orbit` |
+| 0b | VM | `systemctl status orbit-broker`; `GET /endpoints` (§3) returns `{"endpoints": [], …}` | the broker is up, TLS and the token work | 2026-10-09: active. `GET /endpoints` returned `{"endpoints":[{"name":"broker","plugins":["sysinfo"],"connected":true,…}],"total":1}`; the broker lists **itself**, not `[]` as predicted. Wrong token → 401, no token → 401; the public IP answers 200 from the VM |
 | 0-pre | login node | `./scripts/amarel_endpoint.sh selftest` | the endpoint starts with `psij,sysinfo` and registers; auth is on | 2026-10-08, `amarel4`, Orbit 0.8.0 @ `c7ede0c`, Python 3.12: registered in 1 s with `plugins=['psij', 'sysinfo']`; `GET /endpoints` listed it `connected: true`; wrong token → 401. tmux `start`/`status`/`stop` also exercised: after `stop` the broker no longer lists it |
 | 0c | amarel3 → VM | start the endpoint (§4); `GET /endpoints` lists `amarel3`, `connected: true`, with `psij` | the endpoint reaches the broker across the internet | |
-| 1 | VM | `.venv/bin/python -m pytest -q -m live` | the client path against a localhost broker we start ourselves | |
-| 2 | VM | `DESIGNAGENT_ORBIT_LOCAL=true .venv/bin/python -m pytest -q -m remote` | the remote tier's assertions, rehearsed with no allocation | |
+| 1 | VM | `.venv/bin/python -m pytest -q -m live` | the client path against a localhost broker we start ourselves | 2026-10-09: **11 passed, 1 skipped** (the ProteinMPNN test, which is not installed on the VM by design). The first run skipped all 12 with `No module named 'opentelemetry.sdk'`: Orbit's rhapsody plugin calls `start_telemetry`, which needs rhapsody's `telemetry` extra. `setup.sh` now installs and checks it |
+| 2 | VM | `DESIGNAGENT_ORBIT_LOCAL=true .venv/bin/python -m pytest -q -m remote` | the remote tier's assertions, rehearsed with no allocation | 2026-10-09: **8 passed** |
 | 3 | VM | `.venv/bin/python -m designagent --check-config --probe` | the agent's credentials reach the real broker and the endpoint is visible | |
 | 4 | VM | `.venv/bin/python -m pytest -q -m remote` | submit → poll → logs → cancel across a real scheduler. **This is backlog A1's question.** | |
 | 5 | VM | one real hhblits run | a 12-hour walltime, 0 GPUs, 32 GiB, and a `directory` that persists | |
