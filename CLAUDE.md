@@ -420,9 +420,11 @@ fixing later rather than leaving it in a commit message; each entry names the fi
 reproduce.
 
 `plans/AMAREL_ENDPOINT.md` is how to stand up the Orbit broker and endpoint the protocol needs, with
-an acceptance ladder whose rungs are meant to be filled in with what they actually returned. Only the
-Amarel endpoint's startup has been run (against a throwaway loopback broker, via
-`scripts/amarel_endpoint.sh selftest`); the ladder records what it returned.
+an acceptance ladder whose rungs are meant to be filled in with what they actually returned. The
+pair is up: the broker runs on the Linode under systemd and the `amarel3` endpoint has registered
+with `psij,sysinfo` across the internet, so rungs 0-pre through 3 record real results. **No job has
+been submitted yet** — rung 4 is the first that spends queue time, and backlog **A1** stands until
+it lands, so every walltime, core count and memory figure in `protocol/specs.py` is still a guess.
 
 `plans/LINODE_DEPLOY.md` is the phased plan for the Linode (97.107.137.219) that hosts the broker and
 the agent: host setup, the UI exposed by IP behind Caddy, then per-user logins and per-user secrets.
