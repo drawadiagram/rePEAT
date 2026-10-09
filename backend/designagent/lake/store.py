@@ -34,7 +34,9 @@ class DesignHistory:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
         self.settings.ensure_dirs()
-        self.graph = GraphStore(self.settings.graph_db_path)
+        self.graph = GraphStore(
+            self.settings.graph_db_path, buffer_pool_mb=self.settings.kuzu_buffer_pool_mb
+        )
         self.scores = ScoreStore(self.settings.scores_db_path)
         self.golden = GoldenStore(self.settings.golden_dir)
         self._blobs = self.settings.blobs_dir

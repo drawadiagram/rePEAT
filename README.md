@@ -216,7 +216,7 @@ is its duration rather than its age.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q            # 398 tests, offline; stubs replace every tool
+.venv/bin/python -m pytest -q            # 399 tests, offline; stubs replace every tool
 .venv/bin/python -m pytest -q -m live    # 12 tests; starts a real Orbit broker + endpoint
 .venv/bin/python -m pytest -q -m remote  # 8 tests; submits to a real HPC endpoint
 .venv/bin/python -m pytest -q -m llm     # 4 tests; calls Anthropic with a real key

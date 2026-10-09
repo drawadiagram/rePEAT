@@ -1009,7 +1009,7 @@ The table is the honest status of all four. The visualizer runs and drew both le
     '    `blob` is an optional (data, suffix) pair for bulky raw output.',
     '    Returns {"output_id", "blob_path"} for the caller to reference.',
     '    """',
-  ], M, 4.05, 7.5, 1.5, { anchor: "lake/store.py:87–106  ·  TRIMMED", fs: 10 });
+  ], M, 4.05, 7.5, 1.5, { anchor: "lake/store.py:89–108  ·  TRIMMED", fs: 10 });
 
   card(s, M + 7.8, 4.05, 5.03, 1.5, "One facade, three stores", [
     "DesignHistory is the only thing nodes see; tiers 1 and 2 are written together or not at all.",

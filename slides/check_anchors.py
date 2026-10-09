@@ -61,7 +61,7 @@ ANCHORS: list[tuple[str, int, str]] = [
     ("backend/designagent/tools/molviz_agent.py", 143, "def sanitize_spec"),
     # S13 — the lake
     ("backend/designagent/lake/graph.py", 24, "_SCHEMA = ["),
-    ("backend/designagent/lake/store.py", 87, "def record_task_result"),
+    ("backend/designagent/lake/store.py", 89, "def record_task_result"),
     # S14 — degradation
     ("backend/designagent/graph/nodes/analyst.py", 166,
      "# A storage failure must not lose"),
@@ -69,7 +69,7 @@ ANCHORS: list[tuple[str, int, str]] = [
     # S15 — the frontend
     ("frontend/src/lib/api.ts", 38, 'let buffer = "";'),
     # S17 / B1 — the wrap_nodes deviation
-    ("backend/designagent/config.py", 65,
+    ("backend/designagent/config.py", 69,
      "# Route node bodies through flowgentic's EXECUTION_BLOCK"),
     ("backend/designagent/graph/build.py", 55, "def wrap_node"),
     # B2 — the local Orbit stack

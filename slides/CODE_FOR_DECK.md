@@ -44,12 +44,12 @@ Priority: ★ must show · ○ show if time. ~20 lines is the legible maximum at
 | S11-B | 11 | `backend/designagent/tasks/hpc/globus.py:90–104` | 15 | VERBATIM | ★ |
 | S12-A | 12 | `backend/designagent/tools/molviz_agent.py:143–154` | 12 | TRIMMED | ○ |
 | S13-A | 13 | `backend/designagent/lake/graph.py:24–51` (the schema) | 20 | TRIMMED | ★ |
-| S13-B | 13 | `backend/designagent/lake/store.py:87–118` | 18 | TRIMMED | ★ |
+| S13-B | 13 | `backend/designagent/lake/store.py:89–120` | 18 | TRIMMED | ★ |
 | S14-A | 14 | `backend/designagent/graph/nodes/analyst.py:166–195` | 20 | TRIMMED | ★★ |
 | S14-B | 14 | `backend/designagent/graph/nodes/analyst.py:405–411` (`_rank_in_memory`) | 7 | VERBATIM | ★ |
 | S15-A | 15 | `frontend/src/lib/api.ts:36–58` | 20 | TRIMMED | ○ |
 | S16-A | 16 | — (shell) | 6 | VERBATIM | ★ |
-| S17-A | 17 | `backend/designagent/config.py:65–68` | 4 | **VERBATIM** | ★★ |
+| S17-A | 17 | `backend/designagent/config.py:69–72` | 4 | **VERBATIM** | ★★ |
 
 **Re-deriving anchors.** Do this before presenting; drift hides here. Every anchor above is checked
 by matching the snippet's first code line against the current source, which is automated:
@@ -122,7 +122,7 @@ of them. Our wrapper passes `timeout_sec=None, max_attempts=1` (`runtime.py:204�
 
 ### S17-A — the deviation, recorded in the code · **VERBATIM**
 
-`backend/designagent/config.py:65–68`
+`backend/designagent/config.py:69–72`
 
 ```python
     # Route node bodies through flowgentic's EXECUTION_BLOCK as well as tasks.

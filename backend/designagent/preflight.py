@@ -122,7 +122,10 @@ def report_lines(
                 value = "(empty)" if entry["value"] == "" else str(entry["value"])
             lines.append(f"      {name:<28} {value:<34} {entry['source']}")
         lines.append("")
-    lines.append(f"  data_dir {settings.data_dir}   bind {settings.bind_host}")
+    pool = f"{settings.kuzu_buffer_pool_mb} MiB" if settings.kuzu_buffer_pool_mb else "kuzu default"
+    lines.append(
+        f"  data_dir {settings.data_dir}   bind {settings.bind_host}   kuzu buffer pool {pool}"
+    )
     lines.append(
         "  hpc: "
         + (

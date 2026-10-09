@@ -67,7 +67,7 @@ cd frontend && npm test                         # 39 vitest/jsdom tests, no serv
 cd frontend && npm run test:e2e                 # 2 Playwright tests in a real browser
 cd frontend && E2E_LIVE=1 npm run test:e2e      # ...plus one real round trip
 
-.venv/bin/python -m pytest -q                   # 398 offline tests, no network
+.venv/bin/python -m pytest -q                   # 399 offline tests, no network
 .venv/bin/python -m pytest -q -m live           # 12 live tests; starts a real broker
 .venv/bin/python -m pytest -q -m remote         # 8 tests against a real HPC endpoint
 .venv/bin/python -m pytest -q -m llm            # 4 tests against a real API key
@@ -133,7 +133,7 @@ browser ─SSE─ app.py ── graph/build.py ── nodes ── Deps ── T
 
 **Nodes reach the outside only through `Deps`** (`graph/deps.py`: settings, tasks, history,
 artifacts). Never import a store or an interface into a node. This is convention, not an enforced
-check, and it is the only reason 398 tests run with no network, no process pool and no endpoint — the
+check, and it is the only reason 399 tests run with no network, no process pool and no endpoint — the
 suite hands nodes an in-process `TaskManager` and a `tmp_path` lake.
 
 **Every interface's `submit()` returns immediately with a handle whose `future` resolves later.**

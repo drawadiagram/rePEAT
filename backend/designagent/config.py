@@ -55,6 +55,10 @@ class Settings(BaseSettings):
 
     # --- storage ---
     data_dir: Path = Path("./data")
+    # Kuzu's buffer pool, in MiB. 0 keeps Kuzu's default, which is ~80% of the
+    # host's RAM: fine on a workstation, most of a small VM. Environment-only,
+    # like data_dir.
+    kuzu_buffer_pool_mb: int = 0
 
     # --- compute ---
     pool_workers: int = 4
