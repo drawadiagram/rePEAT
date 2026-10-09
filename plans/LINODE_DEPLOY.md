@@ -6,9 +6,9 @@
 and the rePEAT agent run on one Linode. **This machine is that Linode** (97.107.137.219, Ubuntu 24.04).
 Its reverse name `97-107-137-219.ip.linodeusercontent.com` resolves forward to the same address.
 
-The endpoint passed its selftest on Amarel (rung 0-pre) but has never talked to a real broker. Right
-now nothing is installed here: no `.venv`, no `refcodes/`, no Orbit, no node, no `orbit` user, and
-UFW is inactive.
+The endpoint passed its selftest on Amarel (rung 0-pre) but has never talked to a real broker.
+`refcodes/` has arrived (2026-10-09). Nothing else is installed here yet: no `.venv`, no node, no
+Caddy, no `orbit` user, and UFW is inactive.
 
 The request changes one thing about the documented design. Section 2.1 of that document keeps the
 backend on loopback and reaches it over `ssh -L`. Here the UI must instead be reachable by IP, and
@@ -23,7 +23,28 @@ Facts from the survey that shape the plan:
   "Resource budget" below). The resize kept 97.107.137.219, so the cert SAN and the endpoint's
   `--url` are unaffected. The host also has a global IPv6 (`2600:3c03::…`); Caddy listens on it, the
   broker does not need to.
-- **`refcodes/` will be copied over by the user** with scp (backlog B1).
+- **`refcodes/` is in `/root/rePEAT/refcodes`**, copied over by the user. Every checkout is a clean
+  git tree, so for the first time the revisions are on record (backlog B1):
+
+  | Checkout | Commit | Date | Branch | Role here |
+  | --- | --- | --- | --- | --- |
+  | `radical.asyncflow` | `038d52a` | 2026-08-20 | main (v0.5.1) | `setup.sh` installs it |
+  | `rhapsody` | `71536ac` | 2026-09-08 | main | `setup.sh` installs it |
+  | `flowgentic` | `dd27bd8` | 2026-08-19 | **`demo/radical`** | `setup.sh` installs it, `--no-deps` |
+  | `radical.orbit` | **`c7ede0c`** | 2026-09-29 | devel | the broker, and the agent's Orbit client |
+  | `ProteinMPNN` | `8907e66` | 2023-06-27 | detached | `setup_mpnn.sh`'s pin; **not used on this VM** |
+  | `ChemGraph` | `d7a34ca` | 2026-10-01 | main | only with `.[chem]`; not needed to deploy |
+  | `langgraph` | `b36b1d5` | 2026-10-01 | main (1.2.12) | reference reading only |
+  | `hpc-bridge`, `rcsb-molstar` | `46f63bf`, `7153df7` | — | main / master | reference reading only |
+
+  - **`radical.orbit` is already at `c7ede0c`**, the revision AMAREL_ENDPOINT.md and the Amarel
+    endpoint were checked against. So the broker and the endpoint run the same Orbit, and the
+    separate `~/radical.orbit` clone in §3.3 is unnecessary. `local_orbit._script` already looks in
+    `refcodes/radical.orbit/bin`.
+  - **flowgentic is on a non-default branch**, `demo/radical`. Record that, because "main" would
+    rebuild something different.
+  - The files are owned by uid 1000, which has no passwd entry. Ownership is fixed during the copy
+    in Phase 0 step 4, not by adding a global `safe.directory`.
 - **There is no identity concept anywhere.** The only gate is one shared `admin_token`, checked by
   `_authorize_write` (`app.py:470`) on just the three settings-write routes.
   - Chat, sessions, artifacts, tasks and cancel are all open.
@@ -70,13 +91,28 @@ The work is split into phases so the UI is reachable early without ever being op
    - Install `git`, `build-essential`, `uv` (as the `orbit` user), Node 20 LTS (for the frontend
      build) and Caddy (from its apt repository).
 4. **Code.**
-   - `git clone` into `/home/orbit/rePEAT`.
-   - **The user scp's `refcodes/`.** Record each package's `git rev-parse HEAD` in
-     `refcodes/VERSIONS.md` and commit that note to `plans/BACKLOG.md` B1.
+   - `git clone` into `/home/orbit/rePEAT` as `orbit`, then check out this branch.
+   - **Copy the four checkouts the deployment needs, owned by `orbit`:**
+     `rsync -a --chown=orbit:orbit /root/rePEAT/refcodes/{radical.asyncflow,rhapsody,flowgentic,radical.orbit} /home/orbit/rePEAT/refcodes/`.
+     Leave out `langgraph` (533 MB) and `ProteinMPNN` (216 MB), which are only read. Leave out
+     `ChemGraph` unless `.[chem]` is wanted. Then confirm each `git rev-parse HEAD` matches the
+     table above.
+   - **Record the revisions in the repo** (B1's "middle option"):
+     - Add the table above to `plans/BACKLOG.md` B1, since `refcodes/` itself is gitignored.
+     - Add a small `REFCODES` pin list to `scripts/setup.sh`. `--check` then warns when a checkout's
+       HEAD differs, the same pattern `setup_mpnn.sh` uses for `MPNN_REV`.
+     - Fix the stale counts in `setup.sh`'s closing message (165 and 11 tests, against 398 and 12).
    - Run `./scripts/setup.sh`.
-   - Install `radical.orbit`: clone it at `c7ede0c` with `--no-deps -e`, plus the named deps from
-     §3.3. Then confirm that `uv pip show rhapsody-py` still points at `refcodes/`, and run
-     `./scripts/setup.sh --check`.
+   - **Install Orbit from `refcodes/`.** Use `uv pip install --python .venv --no-deps -e
+     refcodes/radical.orbit`, then its `requirements.txt` by name **minus `rhapsody-py`**: `httpx
+     msgpack cloudpickle requests websockets websocket-client fastapi uvicorn psutil rich
+     psij-python globus-sdk authlib`.
+     - `rhapsody-py` from PyPI would displace the editable `refcodes/rhapsody`. Confirm afterwards
+       that `uv pip show rhapsody-py` points at `refcodes/`.
+     - Then run `./scripts/setup.sh --check` and `.venv/bin/python -c "import radical.orbit"` (rung
+       0a).
+     - Folding this install into `setup.sh` behind a flag closes B1's "fourth package" note. It is
+       optional, but cheap now that the checkout is in place.
 5. **Broker credentials** (§3.4): generate a self-signed cert with
    `SAN=IP:97.107.137.219,IP:127.0.0.1`, plus a token. Both go in `~orbit/.radical/orbit/` at 0600.
 6. **Broker unit:** create `/etc/systemd/system/orbit-broker.service` exactly as in §3.5
@@ -224,11 +260,15 @@ The idle close in 2c is what keeps them bounded.
 ### 2c. Threading a user's credentials through a turn without globals
 - **Graph nodes:**
   - `app.py` puts **only `user_id`** in `config["configurable"]`, never a credential.
-    - LangGraph's checkpointer can copy `configurable` values into checkpoint metadata. Whether the
-      pinned version does must be checked, not assumed; either way a secret placed there could land
-      in the checkpoint store.
-    - The same rule as `test_structures_are_not_carried_in_state`: nothing that must not persist
-      rides through the graph's own plumbing.
+    - **Confirmed in the refcodes checkout** (langgraph 1.2.12, checkpoint 4.2.0):
+      `get_checkpoint_metadata` (`libs/checkpoint/langgraph/checkpoint/base/__init__.py:758`) copies
+      every `str`/`int`/`float`/`bool` value in `configurable` into checkpoint metadata. The only
+      exceptions are `__`-prefixed keys and `EXCLUDED_METADATA_KEYS`.
+    - So an API key passed as a string would be written to the checkpoint store on every turn.
+      `user_id` will be copied too, which is harmless and useful for ownership.
+    - Re-check against the version `.venv` actually resolves (`langgraph>=1.2,<2`).
+    - The same rule as `test_structures_are_not_carried_in_state` applies: nothing that must not
+      persist rides through the graph's own plumbing. Phase 2e asserts it.
   - `Deps` gains `settings_for(config)`. It looks up `user_id` in an in-process credentials cache,
     decrypted on login and dropped on logout or credential change, and returns
     `operator_settings.model_copy(update=user_creds)`.
