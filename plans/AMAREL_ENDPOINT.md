@@ -14,11 +14,11 @@ Amarel. §2 has the full picture, §3 the Linode half, §4 the Amarel half.
 This is a deployment record as much as a procedure: fill in what each rung of the ladder at the
 bottom actually returned, so the next person reads results rather than intentions.
 
-Status as of 2026-10-08: **only the Amarel side's startup has been run** — `~/orbit-venv` is built
-and `scripts/amarel_endpoint.sh selftest` passes on a login node against a throwaway loopback broker
-(rung 0-pre). No Linode VM exists yet, so nothing has crossed the internet. Every other command
-below is derived from the Orbit CLIs and docs and from `tasks/hpc/local_orbit.py`. Treat the rest of
-the document as unverified until the ladder says otherwise.
+Status as of 2026-10-09: **rungs 0-pre and 0a–3 pass.** The broker runs on the Linode under systemd,
+and the endpoint on `amarel3` has dialled in over the internet and registered with `psij,sysinfo`.
+The agent's own probe sees it. **No job has been submitted yet** — rung 4 is the first that spends
+queue time — so everything about PSI/J against the real Slurm (§6's four things to write down) is
+still unverified. The ladder at the bottom records what each rung returned.
 
 ### Environment survey, 2026-10-07
 
@@ -483,10 +483,10 @@ with every logged-in user (backlog **A16**), and the role is `login`, so rhapsod
 | 0a | VM | §3 steps 1–3, ending `./scripts/setup.sh --check` and `.venv/bin/python -c "import radical.orbit"` | the agent's venv exists and can import Orbit | 2026-10-09: `setup.sh --check` all ok, every refcodes pin matched; offline suite 396 passed, 2 skipped. Orbit is now installed by `setup.sh` itself, from `refcodes/radical.orbit` |
 | 0b | VM | `systemctl status orbit-broker`; `GET /endpoints` (§3) returns `{"endpoints": [], …}` | the broker is up, TLS and the token work | 2026-10-09: active. `GET /endpoints` returned `{"endpoints":[{"name":"broker","plugins":["sysinfo"],"connected":true,…}],"total":1}`; the broker lists **itself**, not `[]` as predicted. Wrong token → 401, no token → 401; the public IP answers 200 from the VM |
 | 0-pre | login node | `./scripts/amarel_endpoint.sh selftest` | the endpoint starts with `psij,sysinfo` and registers; auth is on | 2026-10-08, `amarel4`, Orbit 0.8.0 @ `c7ede0c`, Python 3.12: registered in 1 s with `plugins=['psij', 'sysinfo']`; `GET /endpoints` listed it `connected: true`; wrong token → 401. tmux `start`/`status`/`stop` also exercised: after `stop` the broker no longer lists it |
-| 0c | amarel3 → VM | start the endpoint (§4); `GET /endpoints` lists `amarel3`, `connected: true`, with `psij` | the endpoint reaches the broker across the internet | |
+| 0c | amarel3 → VM | start the endpoint (§4); `GET /endpoints` lists `amarel3`, `connected: true`, with `psij` | the endpoint reaches the broker across the internet | 2026-10-09 05:14 UTC: `WebSocket /register [accepted]` from **`128.6.37.137`** (the Rutgers NAT address the survey saw, so the `128.6.0.0/16` rule fits). `GET /endpoints` listed `amarel3`, `connected: true`, plugins `psij, sysinfo` |
 | 1 | VM | `.venv/bin/python -m pytest -q -m live` | the client path against a localhost broker we start ourselves | 2026-10-09: **11 passed, 1 skipped** (the ProteinMPNN test, which is not installed on the VM by design). The first run skipped all 12 with `No module named 'opentelemetry.sdk'`: Orbit's rhapsody plugin calls `start_telemetry`, which needs rhapsody's `telemetry` extra. `setup.sh` now installs and checks it |
 | 2 | VM | `DESIGNAGENT_ORBIT_LOCAL=true .venv/bin/python -m pytest -q -m remote` | the remote tier's assertions, rehearsed with no allocation | 2026-10-09: **8 passed** |
-| 3 | VM | `.venv/bin/python -m designagent --check-config --probe` | the agent's credentials reach the real broker and the endpoint is visible | |
+| 3 | VM | `.venv/bin/python -m designagent --check-config --probe` | the agent's credentials reach the real broker and the endpoint is visible | 2026-10-09, with `/etc/repeat/backend.env` loaded: `orbit [ok] endpoint amarel3`, `hpc: configured`, exit 0. `llm` absent (no key yet); `protocol_*` cluster paths still unset |
 | 4 | VM | `.venv/bin/python -m pytest -q -m remote` | submit → poll → logs → cancel across a real scheduler. **This is backlog A1's question.** | |
 | 5 | VM | one real hhblits run | a 12-hour walltime, 0 GPUs, 32 GiB, and a `directory` that persists | |
 | 6 | VM | the full protocol spine | everything else | |
