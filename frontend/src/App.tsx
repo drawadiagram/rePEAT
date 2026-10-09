@@ -219,7 +219,7 @@ function Workspace({
   return (
     <div className={hasArtifacts && paneOpen ? "app split" : "app"}>
       <header className="topbar">
-        <span className="brand">Protein Design Agent</span>
+        <span className="brand">PEAT</span>
         <span className="badges">
           {state.reference_design?.pdb_id && (
             <span className="badge">{state.reference_design.pdb_id}</span>

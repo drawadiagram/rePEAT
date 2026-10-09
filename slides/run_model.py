@@ -278,7 +278,9 @@ def code_sizes() -> dict:
 
 def main() -> int:
     model = {
-        "generated_from": str(LAKE),
+        # Repo-relative: an absolute path names the operator's home directory, and this
+        # file is committed to a public repo (backlog A24).
+        "generated_from": str(LAKE.relative_to(ROOT) if LAKE.is_relative_to(ROOT) else LAKE),
         "tier1": read_graph(),
         "tier2": read_scores(),
         "tier3": read_golden(),

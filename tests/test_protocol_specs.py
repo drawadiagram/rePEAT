@@ -43,7 +43,7 @@ ALYFRB = dict(
     name="AlyFRB",
     uniprot="A0A173MSR7",
     domains="1-IDR-10-11-FN3-117-118-L-143-144-CD-479-480-L-493-494-CD-773-774-IDR-785",
-    netid="all239",
+    netid="abc123",
     method="cpos",
     cat_res="310,364",
 )
@@ -58,13 +58,13 @@ def inputs() -> ProtocolInputs:
 @pytest.fixture
 def site() -> SiteLayout:
     return SiteLayout(
-        proj_root="/projects/f_sdk94_1/Stabilization/Targets/JGI_Fall_2026",
+        proj_root="/projects/f_proj00_1/Stabilization/Targets/JGI_Fall_2026",
         scratch_root="/scratch",
-        conda_aifold="/projects/f_sdk94_1/conda/envs/aifold",
-        conda_analysis="/projects/f_sdk94_1/conda/envs/shared_als515",
-        mpnn_path="/projects/f_sdk94_1/Tools/ProteinMPNN",
-        mpnn_weights="/projects/f_sdk94_1/all239/MPNN_weights",
-        uniref_db="/projects/f_sdk94_1/Uniref30/UniRef30_2023_02",
+        conda_aifold="/projects/f_proj00_1/conda/envs/aifold",
+        conda_analysis="/projects/f_proj00_1/conda/envs/shared_als515",
+        mpnn_path="/projects/f_proj00_1/Tools/ProteinMPNN",
+        mpnn_weights="/projects/f_proj00_1/abc123/MPNN_weights",
+        uniref_db="/projects/f_proj00_1/Uniref30/UniRef30_2023_02",
         af3_modules=("module load apptainer/1.2.5", "module load alphafold/vs3.0.0-pgarias"),
         gpu_constraint="ampere|adalovelace",
     )
@@ -210,7 +210,7 @@ def test_hhblits_passes_the_catalytic_residues_and_the_ten_angstrom_shell(site, 
     # 10.0 is the current default; AlyFRB's and SM0524's first passes used 6.0
     # and the two are not comparable, which is why it is explicit and logged.
     assert "--cat_cutoff 10.0" in text
-    assert "/projects/f_sdk94_1/Uniref30/UniRef30_2023_02" in text
+    assert "/projects/f_proj00_1/Uniref30/UniRef30_2023_02" in text
     assert f"-i {STEM}.pdb" in text
     assert spec_dir(site, inputs, "conservation") == hhblits_job_spec(
         site, inputs, model_stem=STEM
@@ -252,7 +252,7 @@ def test_soluble_and_halo_select_different_weights(site, inputs):
     assert "--use_soluble_model --model_name v_48_020" in soluble
     assert "--path_to_model_weights" not in soluble
     assert "--model_name halompnn_v1" in halo
-    assert "/projects/f_sdk94_1/all239/MPNN_weights" in halo
+    assert "/projects/f_proj00_1/abc123/MPNN_weights" in halo
     assert "--use_soluble_model" not in halo
 
 
@@ -296,7 +296,7 @@ def test_the_expected_sequence_count_is_the_skills_formula():
 
 def test_the_analysis_stage_runs_the_notebook_with_the_analysis_environment(site, inputs):
     text = script_of(analysis_job_spec(site, inputs))
-    assert "/projects/f_sdk94_1/conda/envs/shared_als515/bin/jupyter" in text
+    assert "/projects/f_proj00_1/conda/envs/shared_als515/bin/jupyter" in text
     # There is no kernelspec named after the environment; the env is chosen by
     # which jupyter runs.
     assert "--ExecutePreprocessor.kernel_name=python3" in text
@@ -309,8 +309,8 @@ def test_af3_binds_the_module_provided_paths_into_the_container(site, inputs):
     assert '-B "$ALPHAFOLD_MODELWEIGHTS":/root/models' in text
     assert '-B "$ALPHAFOLD_DATA_PATH":/root/public_databases' in text
     assert '"$CONTAINERDIR"/alphafold3.sif' in text
-    assert "/scratch/all239/af3/AlyFRB/af_input" in text
-    assert "/scratch/all239/af3/AlyFRB/af_output" in text
+    assert "/scratch/abc123/af3/AlyFRB/af_input" in text
+    assert "/scratch/abc123/af3/AlyFRB/af_output" in text
 
 
 def test_af3_refuses_a_design_name_that_is_not_a_json_stem(site, inputs):

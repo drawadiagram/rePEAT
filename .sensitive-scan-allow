@@ -1,0 +1,35 @@
+# Recurring findings in this repo that are deliberate. One Python regex per line, matched
+# against "PATH:MATCH" by the repo-sensitive-scan skill's scanner. Keep this list short and
+# specific: a broad pattern here is how a real identifier gets published. Backlog A24 is the
+# entry; plans/PEAT_MIGRATION.md §3 says what was redacted and what each placeholder means.
+
+# Test fixtures. These are invented credentials, asserted on by name, and the suite needs
+# values shaped like the real thing to prove that rejection and masking work.
+^tests/test_auth\.py:(sk-a|pass|----)
+^tests/test_settings\.py:sk-a
+^tests/test_graph\.py:sk-a
+
+# Placeholder site paths. The campaign netid and the allocation id below are fictitious and
+# shaped only so they validate (NETID_RE wants 2-16 alphanumerics); see the Placeholders key
+# in plans/AMAREL_ENDPOINT.md. They stay concrete rather than becoming <angle> tokens
+# because test fixtures assert on rendered paths.
+^.*:/projects/f_proj00_1
+^.*:/scratch/abc123
+^tests/.*:/projects/(x|with|test)\b
+^tests/.*:/projects/\.\.\.
+
+# The cluster's own shared trees: public module and software paths, not anyone's directory.
+^.*:/projects/community/modulefiles
+
+# An SSH URL, not an address.
+^plans/LINODE_DEPLOY\.md:git@github\.com
+
+# `orbit` is the unprivileged service account the broker and the agent run as, named after
+# the software and created by the deployment in plans/LINODE_DEPLOY.md. It names no person,
+# and the paths are the documented layout of that host.
+^plans/.*:/home/orbit
+# Same path quoted in a commit message, where there is no file path to anchor on.
+^\(commit message [0-9a-f]+\):/home/orbit
+
+# A literal ellipsis standing in for the rest of a path, in prose.
+^plans/.*:/projects/\.\.\.$

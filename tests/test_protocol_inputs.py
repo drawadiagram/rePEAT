@@ -36,7 +36,7 @@ ALYFRB = {
     "name": "AlyFRB",
     "uniprot": "A0A173MSR7",
     "domains": ALYFRB_DOMAINS,
-    "netid": "all239",
+    "netid": "abc123",
     "method": "cpos",
     "cat_res": "310,364",
 }
@@ -112,7 +112,7 @@ def test_a_netid_that_could_reach_a_path_is_refused():
     for hostile in ["..", "a/b", "a;b", "", "x" * 17, "a-b"]:
         with pytest.raises(InvalidInput):
             validate_netid(hostile)
-    assert validate_netid(" all239 ") == "all239"
+    assert validate_netid(" abc123 ") == "abc123"
 
 
 def test_a_uniprot_accession_is_folded_but_not_loosened():

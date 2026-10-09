@@ -339,8 +339,8 @@ The protocol's own use, `slurm.constraint` with a value (`protocol/specs.py`), r
 ### A20 · A missing `--chdir` runs the job in `/tmp` and reports success
 On Amarel, a job whose `directory` does not exist is **not** rejected: Slurm falls back to `/tmp`,
 and the job ends DONE with exit 0. Probe of 2026-10-09:
-- `directory=/scratch/mh1314/no-such-dir-rung4` printed `/tmp`, job `62380977`, DONE, exit 0;
-- the same body with `directory=/scratch/mh1314` printed that directory.
+- `directory=/scratch/<netid>/no-such-dir-rung4` printed `/tmp`, job `62380977`, DONE, exit 0;
+- the same body with `directory=/scratch/<netid>` printed that directory.
 
 `AMAREL_ENDPOINT.md` §6 had assumed the opposite.
 
@@ -413,6 +413,47 @@ which every other caller goes through, does not.
 means what the name says. Inbound, give `wrap()` the A6 guard: measure the assembled argv against a
 configured ceiling and refuse by name, rather than handing `exec` a spec it cannot run. Both are
 local; neither waits on **C6**.
+
+### A23 · The displayed name was "Protein Design Agent", and the package still is
+The UI, the README H1 and the FastAPI title said *Protein Design Agent* while the repo, the lab and
+every document called the project PEAT. Fixed on the surface the user reads — `frontend/index.html`'s
+`<title>`, `App.tsx`'s `.brand`, `ChatPane.tsx`'s and `LoginPage.tsx`'s `<h1>`, `app.py`'s
+`FastAPI(title=...)`, `README.md`'s H1, and the deck's title-slide kicker — all now say `PEAT`.
+
+**What is left is the discoverability problem that caused it.** There was no shared title constant:
+four independent frontend literals plus the server's, so nothing made them move together, and
+`frontend/e2e/smoke.spec.ts` asserting the heading text was the only thing that would have caught a
+partial rename. A fifth place that displays the name will drift again.
+
+**Risk if ignored:** low severity, but it recurs. The name is now correct in five files that have no
+mechanical relationship to each other.
+
+**Fix:** export one `APP_NAME` from a shared frontend module and read the server's from
+`config.Settings`, so the string has a single definition and the e2e assertion covers all of it.
+
+### A24 · Account and host identifiers were committed, and are already public
+This repo accumulated six classes of identifier in tracked files, and `drawadiagram/rePEAT` was
+public the whole time, so all of them were world-readable before anyone noticed. Redacted on
+2026-10-09 — counts, placeholders and the reasoning are in
+[PEAT_MIGRATION.md](PEAT_MIGRATION.md) §3: the Linode address in both dotted (8) and reverse-DNS (5)
+spellings, a collaborator's netid (30, including the example value *printed on screen* by
+`graph/nodes/protocol.py`'s intake form), the operator's netid (9), allocation paths (18), and the
+campus NAT address and firewall block (9).
+
+Two of those classes were found only by accident. A dotted-quad search does not match
+`<linode-rdns>`, which was the live UI URL; and an identity scan keyed on
+`git config user.email` and `$USER` cannot see a *colleague's* netid, which is why it survived in 30
+places. Both lessons went into the `repo-sensitive-scan` skill.
+
+**The three commits carrying the Linode address (`93067d7`, `5e37a8e`, `f9c5825`) are deliberately
+not rewritten.** The values were already public, so a rewrite buys no secrecy while churning every
+SHA after `93067d7`; the honest remediation for an exposed host address is a firewall rule or a new
+address. Revisit only if the address is rotated, and note that the cheapest moment was before the
+first push to `KhareLab/PEAT`.
+
+**Risk if ignored:** the redaction is a point-in-time pass. `plans/` is written from live job output
+and quotes real paths, so the next deployment record re-introduces the same classes unless the
+scanner is run before each push.
 
 ---
 
@@ -562,6 +603,47 @@ place.
 **Not necessarily a bug** — it is how embedded Kuzu works — but it means no read-only analytics, no
 dashboard and no second process can touch provenance while the app is up. If that becomes a
 requirement, tier 1 needs either a read replica or a different store.
+
+### B11 · The PEAT migration cannot be finished without an org owner
+Our token has `WRITE` on `KhareLab/PEAT` — `admin: false`, `maintain: false`, only push/pull/triage
+(`gh api repos/KhareLab/PEAT -q .permissions`, 2026-10-09). Three things therefore need an org owner:
+
+- **branch protection** on the new `main`, which is currently unprotected on a public repo;
+- **deleting the five original branches** once the hand review of the archived work is done — `main`
+  cannot be deleted at all while it is the default;
+- **changing the default branch**, if the layout is ever revisited.
+
+The migration itself is designed around this and needs none of them: `main` is already the default,
+so archiving the old refs and force-pushing onto `main` works with push access alone. See
+[PEAT_MIGRATION.md](PEAT_MIGRATION.md) §1.
+
+**Risk if ignored:** a public repo whose default branch anyone with write access can force-push,
+and ten branches where five are archives that look like live work.
+
+### B12 · The package and env prefix still carry the old name
+The user-visible name is now PEAT (**A23**), but `designagent` and `DESIGNAGENT_` remain: ~480
+occurrences across 58 files — the Python package directory, `pyproject.toml`'s `name` and console
+script, `frontend/package.json`, `COOKIE = "designagent_session"`, the `X-Designagent-Admin` header
+on both sides (`app.py` and `frontend/src/lib/api.ts`), `dev.sh`'s `/proc` cmdline match, and the 41
+`backend/designagent/...` paths in `slides/check_anchors.py`.
+
+Deferred deliberately, because two of those are not internal:
+
+- `config.py`'s `orbit_client_name` default becomes the broker client name and is expanded per user
+  by `runtime.py`, so it shows up in broker logs and Slurm job metadata — and
+  `tests/test_auth.py` asserts the `designagent-` prefix. Changing it has to land together with the
+  Linode's `backend.env`.
+- `config.py`'s `user_agent` is sent to RCSB, UniProt, Europe PMC and ESM Atlas, so it is how this
+  project identifies itself to third parties.
+
+Every deployed `backend.env` is written against the `DESIGNAGENT_` prefix, and `config.py`'s
+`env_prefix` is the single line that defines it — so the rename is mechanical but the rollout is not.
+
+**Risk if ignored:** mostly confusion; a reader meets three names for one project. The real cost is
+that it gets harder as more deployments are configured against the prefix.
+
+**Fix:** one change set — rename the package directory, set `env_prefix`, keep `DESIGNAGENT_*` as
+accepted aliases for one release so existing `.env` files keep working, then retire them.
 
 ---
 
@@ -793,3 +875,25 @@ the split; `run_model.py`'s docstring says the same.
 (`s-tutp87hw`), and filter tiers 1–3 by it — tier 2's `rounds` and `by_metric` and tier 3's `sets`
 are already per-campaign in shape, so this is a `WHERE`, not a redesign. Reproduce on any data dir
 with more than one campaign: run it and diff `run.json`.
+
+### M3 · The sensitive scan cannot see the committed deck binaries, and grepping them misleads
+`slides/designagent-codewalk.pptx` and `.pdf` are tracked build artifacts, and neither a scan nor an
+ad-hoc grep reads them correctly.
+
+Both failure directions were seen on 2026-10-09, during the redaction pass of **A24**:
+
+- **False positive.** `git grep -E '([0-9]{1,3}\.){3}[0-9]{1,3}'` reported the `.pptx` as matching,
+  which read as "the Linode address is baked into the deck". It is not. Unzipping every pptx part and
+  inflating the PDF's zlib streams found the address in neither file, and in no slides *source*
+  either — the match was compressed bytes that happen to look like a dotted quad. A deck rebuild was
+  scoped and then dropped.
+- **False negative.** A scanner that passes `git grep -I`, as `repo-sensitive-scan` did, skips
+  binaries silently. Had the address been in there, nothing would have said so.
+
+**Risk if ignored:** both answers are wrong in a way that costs time. The false positive sends you
+rebuilding a deck for nothing; the false negative publishes a value you believe you redacted.
+
+**Fix:** check binaries for *literal* values with container awareness — pptx/docx/xlsx are zip
+archives and PDF content sits in zlib streams, so the bytes on disk are not the text. Done for the
+skill; the repo-side half is that the fix for a build artifact is always regenerating it from
+redacted sources, never editing the blob, which `NODE_PATH=<dir> node slides/build_deck.js` does.

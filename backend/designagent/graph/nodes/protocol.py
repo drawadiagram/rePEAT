@@ -197,7 +197,7 @@ async def stage_intake(ctx: Ctx) -> Outcome:
                 "name=AlyFRB\n"
                 "uniprot=A0A173MSR7\n"
                 "domains=1-IDR-10-11-FN3-117-118-L-143-144-CD-479-480-L-493-494-CD-773-774-IDR-785\n"
-                "netid=all239\n"
+                "netid=abc123\n"
                 "```\n\n"
                 f"Missing: {', '.join(missing)}. The domain string must be "
                 "contiguous `start-label-end` triples covering the whole chain, "

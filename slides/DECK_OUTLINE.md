@@ -1,4 +1,4 @@
-# designagent — code walkthrough
+# PEAT — code walkthrough
 
 **Format:** 30 minutes, code walk, questions inline · **Audience:** the lab, including the authors of
 `radical.asyncflow`, `rhapsody`, ORBIT and flowgentic.

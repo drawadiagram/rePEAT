@@ -2,11 +2,11 @@
 
 ## Status (2026-10-09)
 
-**Phases 0, 1 and 2 are done.** The UI is at `https://97-107-137-219.ip.linodeusercontent.com`,
+**Phases 0, 1 and 2 are done.** The UI is at `https://<linode-rdns>`,
 and the gate is now the app's own logins. Caddy's basic auth was removed once they worked; the
 Phase 1 file is kept as `/etc/caddy/Caddyfile.phase1-basicauth`.
-- **Admin:** `mh1314`, password in `/root/repeat-admin-password`. Change it with
-  `python -m designagent --passwd mh1314` run as `orbit` from the repo with `backend.env` loaded,
+- **Admin:** `<netid>`, password in `/root/repeat-admin-password`. Change it with
+  `python -m designagent --passwd <netid>` run as `orbit` from the repo with `backend.env` loaded,
   and add accounts with `--add-user NAME`.
 - **`/etc/repeat/backend.env`** gained `DESIGNAGENT_AUTH_ENABLED=true`, a
   `DESIGNAGENT_SECRETS_KEY`, and `DESIGNAGENT_ORBIT_ALLOWED_BROKERS=https://127.0.0.1:8443`. The
@@ -51,8 +51,8 @@ endpoint's holder can reach every other endpoint (A21).
 ## Context
 
 `plans/AMAREL_ENDPOINT.md` describes the layout: the Orbit endpoint runs on `amarel3`, and the broker
-and the rePEAT agent run on one Linode. **This machine is that Linode** (97.107.137.219, Ubuntu 24.04).
-Its reverse name `97-107-137-219.ip.linodeusercontent.com` resolves forward to the same address.
+and the PEAT agent run on one Linode. **This machine is that Linode** (<linode-ip>, Ubuntu 24.04).
+Its reverse name `<linode-rdns>` resolves forward to the same address.
 
 The endpoint passed its selftest on Amarel (rung 0-pre) but has never talked to a real broker.
 `refcodes/` has arrived (2026-10-09). Nothing else is installed here yet: no `.venv`, no node, no
@@ -68,8 +68,8 @@ Facts from the survey that shape the plan:
 - **The host is a Linode 4 GB, and that is final** (resized 2026-10-08 from a 1 GB Nanode): 2 vCPU
   (AMD EPYC 7642), 3.9 GB RAM, 79 GB disk, 496 MB swap partition. That is AMAREL_ENDPOINT.md's stated
   *floor*, not its recommended 8 GB, so memory is the budget this plan is written against (see
-  "Resource budget" below). The resize kept 97.107.137.219, so the cert SAN and the endpoint's
-  `--url` are unaffected. The host also has a global IPv6 (`2600:3c03::…`); Caddy listens on it, the
+  "Resource budget" below). The resize kept <linode-ip>, so the cert SAN and the endpoint's
+  `--url` are unaffected. The host also has a global IPv6 (`<linode-ip6>`); Caddy listens on it, the
   broker does not need to.
 - **`refcodes/` is in `/root/rePEAT/refcodes`**, copied over by the user. Every checkout is a clean
   git tree, so for the first time the revisions are on record (backlog B1):
@@ -129,7 +129,7 @@ The work is split into phases so the UI is reachable early without ever being op
      ProteinMPNN and folding run on Amarel; torch has no room on this host.
 2. **Cloud Firewall:** inbound default Drop.
    - TCP 22 from the admin's addresses.
-   - TCP 8443 from `128.6.0.0/16`.
+   - TCP 8443 from `<campus-block>`.
    - **TCP 80 and 443 from anywhere.** These are new; 80 is needed for the ACME challenge and to
      redirect.
    - Apply each rule to IPv4 *and* IPv6. Caddy binds both.
@@ -162,7 +162,7 @@ The work is split into phases so the UI is reachable early without ever being op
      - Folding this install into `setup.sh` behind a flag closes B1's "fourth package" note. It is
        optional, but cheap now that the checkout is in place.
 5. **Broker credentials** (§3.4): generate a self-signed cert with
-   `SAN=IP:97.107.137.219,IP:127.0.0.1`, plus a token. Both go in `~orbit/.radical/orbit/` at 0600.
+   `SAN=IP:<linode-ip>,IP:127.0.0.1`, plus a token. Both go in `~orbit/.radical/orbit/` at 0600.
 6. **Broker unit:** create `/etc/systemd/system/orbit-broker.service` exactly as in §3.5
    (`--host 0.0.0.0 --port 8443 -p sysinfo`, never `--no-auth`).
 7. **Skill checkout** for `DESIGNAGENT_PROTOCOL_SCRIPTS_DIR` (§5). Done 2026-10-09: it is
@@ -170,7 +170,7 @@ The work is split into phases so the UI is reachable early without ever being op
    setting points at its `scripts/` in `/etc/repeat/backend.env`.
 8. **Amarel side, done by the user:**
    - scp the cert and token to `amarel3`.
-   - `export ORBIT_BROKER_URL=https://97.107.137.219:8443`.
+   - `export ORBIT_BROKER_URL=https://<linode-ip>:8443`.
    - Run `./scripts/amarel_endpoint.sh check && … start`.
 
 **Acceptance ladder rungs to run and record:** 0a, 0b, 0c, 1 (`pytest -m live`), 2 (`-m remote`
@@ -192,8 +192,8 @@ replaces it.
   setting, e.g. `DESIGNAGENT_KUZU_BUFFER_POOL_MB=256`, pass it through, and report it in
   `--check-config`.
 - **`/etc/caddy/Caddyfile`:**
-  - Site `97-107-137-219.ip.linodeusercontent.com`, which gets an automatic Let's Encrypt cert.
-    `http://97.107.137.219` redirects there.
+  - Site `<linode-rdns>`, which gets an automatic Let's Encrypt cert.
+    `http://<linode-ip>` redirects there.
   - `basic_auth` with a bcrypt hash made by `caddy hash-password`.
   - `handle /api/*` → `reverse_proxy 127.0.0.1:8000 { flush_interval -1 }` (SSE must not buffer).
   - Everything else: `root * /srv/repeat/www`, `try_files {path} /index.html`,
@@ -232,7 +232,7 @@ root's home. Then rebuild and copy the frontend, and `systemctl restart repeat-b
 its `.pub` as a deploy key on GitHub with write access off, and switch `origin` to the
 `git@github.com:` form. Until then, sync as root from `/root/rePEAT`.
 
-**Check:** `curl -I https://97-107-137-219.ip.linodeusercontent.com` returns 401 without
+**Check:** `curl -I https://<linode-rdns>` returns 401 without
 credentials. In a browser with credentials, one chat turn streams. `PUT /api/settings` without
 `X-Designagent-Admin` returns 403.
 
@@ -406,7 +406,7 @@ broker, any user can run commands as any other user.** Two options:
 
 - **One broker per user (recommended once there are mutually untrusted users).** Use a templated
   unit, `orbit-broker@<user>.service`, with its own port, token and cert dir. Each port is allowed
-  from `128.6.0.0/16`, and each user's credentials point at their own broker. The 2b allow-list
+  from `<campus-block>`, and each user's credentials point at their own broker. The 2b allow-list
   enforces that.
 - **A shared broker**, acceptable only for a single user or a lab that trusts one another. Record it
   as a backlog entry.

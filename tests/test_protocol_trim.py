@@ -58,7 +58,7 @@ def sm_inputs(**overrides) -> ProtocolInputs:
         "name": "SM0524",
         "uniprot": "A0A173MSR7",
         "domains": SM_DOMAINS,
-        "netid": "all239",
+        "netid": "abc123",
         "method": "cpos",
         "cat_res": "",
     }
@@ -139,7 +139,7 @@ def test_a_chain_with_no_signal_peptide_is_left_alone():
         name="AlyFRB",
         uniprot="A0A173MSR7",
         domains="1-IDR-10-11-CD-100",
-        netid="all239",
+        netid="abc123",
         method="cpos",
         cat_res="50",
     )

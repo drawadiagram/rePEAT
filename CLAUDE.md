@@ -479,7 +479,14 @@ works, which retired backlog A1. What it found is **A18–A20**, the sharpest be
 `--chdir` runs a job in `/tmp` and reports success. No protocol stage has run yet, so every
 walltime, core count and memory figure in `protocol/specs.py` is still a guess.
 
-`plans/LINODE_DEPLOY.md` is the plan *and* the record for the Linode (97.107.137.219) that hosts the
+`plans/PEAT_MIGRATION.md` is how this rewrite moves into `KhareLab/PEAT` — the archive-then-force-push
+shape our write-only permissions force, the traps a renaming pass walks into, and what was redacted
+before a public lab repo got it. **The local half is done and nothing has been pushed:** the ladder in
+§4 is unrun. Read §2 before touching a name or an address anywhere in this repo. The displayed name is
+`PEAT`; the Python package and the `DESIGNAGENT_` prefix deliberately still are not (backlog B12).
+Every host and account identifier in `plans/` is a placeholder, keyed in `AMAREL_ENDPOINT.md`.
+
+`plans/LINODE_DEPLOY.md` is the plan *and* the record for the Linode (<linode-ip>) that hosts the
 broker and the agent. **Phases 0, 1 and 2 have shipped:** host setup, the UI behind Caddy, and then
 per-user logins as the gate — Caddy's basic auth was removed once they worked, and the Phase 1
 Caddyfile is kept beside it. Phase 3, a broker per user, is open, and what Phase 2 leaves open is

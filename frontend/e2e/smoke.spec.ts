@@ -104,7 +104,7 @@ test("a turn renders, and says how it was made", async ({ page }) => {
   });
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Protein Design Agent" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "PEAT" })).toBeVisible();
 
   await send(page, "redesign 1OIL for thermostability");
 

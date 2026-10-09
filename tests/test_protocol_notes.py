@@ -26,7 +26,7 @@ ALYFRB = dict(
     name="AlyFRB",
     uniprot="A0A173MSR7",
     domains="1-IDR-10-11-FN3-117-118-L-143-144-CD-479-480-L-493-494-CD-773-774-IDR-785",
-    netid="all239",
+    netid="abc123",
     method="cpos",
     cat_res="310,364",
 )
@@ -43,7 +43,7 @@ def inputs() -> ProtocolInputs:
 
 
 def site() -> SiteLayout:
-    return SiteLayout(proj_root="/projects/f_sdk94_1/x", scratch_root="/scratch")
+    return SiteLayout(proj_root="/projects/f_proj00_1/x", scratch_root="/scratch")
 
 
 # --- the header ----------------------------------------------------------
@@ -58,8 +58,8 @@ def test_the_header_records_what_the_files_cannot_say_later():
     assert "`cpos` (TAG=``)" in text
     assert "10.0 A (`--cat_cutoff`)" in text
     assert "310, 364" in text
-    assert "/projects/f_sdk94_1/x/AlyFRB" in text
-    assert "/scratch/all239/af3/AlyFRB" in text
+    assert "/projects/f_proj00_1/x/AlyFRB" in text
+    assert "/scratch/abc123/af3/AlyFRB" in text
 
 
 def test_the_header_marks_catalytic_residues_as_pending_before_the_checkpoint():

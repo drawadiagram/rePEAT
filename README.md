@@ -1,8 +1,13 @@
-# Protein Design Agent
+# PEAT
 
-A chatbot for protein redesign: a LangGraph agent loop with a web chat interface
-and an artifact pane that renders session summaries and interactive molecular
-visualizations.
+**PEAT** — the Protein Engineering Agent Toolkit — is a chatbot for protein
+redesign: a LangGraph agent loop with a web chat interface and an artifact pane
+that renders session summaries and interactive molecular visualizations.
+
+This is a from-scratch rewrite and shares no history with the Streamlit
+application that previously carried the name; that work is preserved on the
+`archive/*` branches. The Python package is still called `designagent`
+(`plans/BACKLOG.md` **B12**).
 
 ```
 ┌───────────────── frontend (Vite/React) ─────────────────┐

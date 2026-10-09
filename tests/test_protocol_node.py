@@ -192,7 +192,7 @@ async def test_intake_then_asks_the_one_question_with_no_default(pdeps):
     update = await turn(
         pdeps,
         {},
-        f"name=AlyFRB uniprot=A0A173MSR7 domains={ALYFRB_DOMAINS} netid=all239",
+        f"name=AlyFRB uniprot=A0A173MSR7 domains={ALYFRB_DOMAINS} netid=abc123",
     )
     assert update["protocol"]["awaiting"] == "method"
     assert update["protocol"]["name"] == "AlyFRB"
@@ -204,7 +204,7 @@ async def test_intake_then_asks_the_one_question_with_no_default(pdeps):
 
 async def test_a_bad_domain_string_is_refused_before_a_campaign_exists(pdeps):
     update = await turn(
-        pdeps, {}, "name=X uniprot=A0A173MSR7 netid=all239 domains=1-IDR-10-20-CD-99"
+        pdeps, {}, "name=X uniprot=A0A173MSR7 netid=abc123 domains=1-IDR-10-20-CD-99"
     )
     assert "gap" in reply_of(update)
     assert update["reply_source"] == "protocol:invalid_input"
@@ -270,7 +270,7 @@ async def test_the_structure_stage_installs_the_project_and_asks_for_residues(
             "name": "AlyFRB",
             "uniprot": "A0A173MSR7",
             "domains": ALYFRB_DOMAINS,
-            "netid": "all239",
+            "netid": "abc123",
             "method": "cpos",
         }
     }
@@ -309,7 +309,7 @@ async def test_a_structure_that_disagrees_with_the_domain_string_stops_the_campa
                 "name": "AlyFRB",
                 "uniprot": "A0A173MSR7",
                 "domains": ALYFRB_DOMAINS,
-                "netid": "all239",
+                "netid": "abc123",
                 "method": "cpos",
             }
         }
@@ -332,7 +332,7 @@ async def test_catalytic_residues_are_checked_against_the_trimmed_chain(pdeps, h
             "name": "AlyFRB",
             "uniprot": "A0A173MSR7",
             "domains": ALYFRB_DOMAINS,
-            "netid": "all239",
+            "netid": "abc123",
             "method": "cpos",
             "model_stem": STEM,
         }
@@ -366,7 +366,7 @@ async def test_the_conservation_stage_builds_each_levels_fixed_positions(pdeps, 
             "name": "AlyFRB",
             "uniprot": "A0A173MSR7",
             "domains": ALYFRB_DOMAINS,
-            "netid": "all239",
+            "netid": "abc123",
             "method": "cpos",
             "cat_res": [310, 364],
             "model_stem": STEM,
@@ -396,7 +396,7 @@ async def test_the_hhblits_job_asks_for_twelve_hours_and_no_gpu(pdeps, hpc):
             "name": "AlyFRB",
             "uniprot": "A0A173MSR7",
             "domains": ALYFRB_DOMAINS,
-            "netid": "all239",
+            "netid": "abc123",
             "method": "cpos",
             "cat_res": [310, 364],
             "model_stem": STEM,
@@ -420,7 +420,7 @@ async def test_conservation_output_for_the_wrong_method_is_named_not_ignored(pde
             "name": "AlyFRB",
             "uniprot": "A0A173MSR7",
             "domains": ALYFRB_DOMAINS,
-            "netid": "all239",
+            "netid": "abc123",
             "method": "conservation_liu",
             "cat_res": [310, 364],
             "model_stem": STEM,
@@ -439,7 +439,7 @@ async def test_a_failed_conservation_search_keeps_its_job_ids(pdeps, hpc):
             "name": "AlyFRB",
             "uniprot": "A0A173MSR7",
             "domains": ALYFRB_DOMAINS,
-            "netid": "all239",
+            "netid": "abc123",
             "method": "cpos",
             "cat_res": [310, 364],
             "model_stem": STEM,
@@ -461,7 +461,7 @@ def mpnn_state(levels=(50,)) -> dict:
             "name": "AlyFRB",
             "uniprot": "A0A173MSR7",
             "domains": ALYFRB_DOMAINS,
-            "netid": "all239",
+            "netid": "abc123",
             "method": "cpos",
             "cat_res": [310, 364],
             "model_stem": STEM,
@@ -515,7 +515,7 @@ def af3_state(designs: list[str]) -> dict:
             "name": "AlyFRB",
             "uniprot": "A0A173MSR7",
             "domains": ALYFRB_DOMAINS,
-            "netid": "all239",
+            "netid": "abc123",
             "method": "cpos",
             "cat_res": [310, 364],
             "model_stem": STEM,
@@ -592,7 +592,7 @@ async def test_the_notebook_accumulates_across_stages(pdeps, hpc, afdb_stub):
             "name": "AlyFRB",
             "uniprot": "A0A173MSR7",
             "domains": ALYFRB_DOMAINS,
-            "netid": "all239",
+            "netid": "abc123",
             "method": "cpos",
         },
     }
@@ -677,7 +677,7 @@ async def test_the_protocol_state_carries_no_bulky_payload(pdeps, hpc, afdb_stub
             "name": "AlyFRB",
             "uniprot": "A0A173MSR7",
             "domains": ALYFRB_DOMAINS,
-            "netid": "all239",
+            "netid": "abc123",
             "method": "cpos",
         }
     }

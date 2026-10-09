@@ -39,12 +39,12 @@ ALYFRB = dict(
     name="AlyFRB",
     uniprot="A0A173MSR7",
     domains="1-IDR-10-11-FN3-117-118-L-143-144-CD-479-480-L-493-494-CD-773-774-IDR-785",
-    netid="all239",
+    netid="abc123",
     method="cpos",
     cat_res="310,364",
 )
 STEM = "AF-A0A173MSR7-F1-model_v6"
-PROJ = "/projects/f_sdk94_1/Stabilization/Targets/JGI_Fall_2026/AlyFRB"
+PROJ = "/projects/f_proj00_1/Stabilization/Targets/JGI_Fall_2026/AlyFRB"
 
 #: The skill's own notebook, if the checkout is beside this repo. Several tests
 #: assert against the real thing and skip rather than lie when it is absent.
@@ -369,6 +369,6 @@ def test_a_summary_that_cannot_be_read_is_named_not_dropped():
 
 def test_the_output_glob_is_also_the_progress_poll():
     # Which design directories exist is the report; no handle is involved.
-    assert output_globs("/scratch/all239/af3/AlyFRB") == [
-        ("af3", f"/scratch/all239/af3/AlyFRB/af_output/*/*{SUMMARY_SUFFIX}")
+    assert output_globs("/scratch/abc123/af3/AlyFRB") == [
+        ("af3", f"/scratch/abc123/af3/AlyFRB/af_output/*/*{SUMMARY_SUFFIX}")
     ]

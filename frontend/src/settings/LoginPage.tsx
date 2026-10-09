@@ -35,7 +35,7 @@ export default function LoginPage({ onSignedIn }: { onSignedIn: () => void }) {
   return (
     <div className="login">
       <form className="login-card" onSubmit={submit} aria-label="Sign in">
-        <h1>Protein Design Agent</h1>
+        <h1>PEAT</h1>
         <label className="sheet-row">
           <span className="sheet-label">Username</span>
           <input

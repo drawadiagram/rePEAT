@@ -59,7 +59,7 @@ def main() -> int:
         e[2] for e in main_entries if e[0].split(".")[0] in CUT_C
     )
 
-    head: list[str] = ["# designagent walkthrough — speaking script\n"]
+    head: list[str] = ["# PEAT walkthrough — speaking script\n"]
     head.append(
         """Companion to [`DECK_OUTLINE.md`](DECK_OUTLINE.md) (slide structure) and
 [`CODE_FOR_DECK.md`](CODE_FOR_DECK.md) (the staged code blocks). Slide numbers and snippet IDs match

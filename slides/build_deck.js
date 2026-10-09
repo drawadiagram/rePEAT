@@ -65,7 +65,7 @@ const DASH = { built: "solid", tested: "sysDot", planned: "dash" };
 const pres = new pptxgen();
 pres.layout = "LAYOUT_WIDE"; // 13.333 x 7.5
 pres.title = "A chat agent that runs real redesign campaigns";
-pres.author = "designagent";
+pres.author = "PEAT";
 const W = 13.333, H = 7.5, M = 0.5;
 
 // ---------------------------------------------------------------- helpers
@@ -236,7 +236,7 @@ function dimension(s, o) {
   text(s, "rhapsody process pool", ccx - 1.75, 5.33, 3.5, 0.26,
     { fontSize: 10, color: "E8B98A", align: "center" });
 
-  text(s, "DESIGNAGENT", M + 0.3, 1.5, 7.5, 0.4,
+  text(s, "PEAT", M + 0.3, 1.5, 7.5, 0.4,
     { fontSize: 14, bold: true, color: "8FB8C9", charSpacing: 3 });
   text(s, "A chat agent that runs real redesign campaigns", M + 0.3, 1.95, 7.1, 1.35,
     { fontFace: HF, fontSize: 34, bold: true, color: C.white });
@@ -1429,7 +1429,7 @@ And this was built without a browser available, so for a while the canvas was th
   const hops = [
     ["browser", "HttpOnly session cookie", C.ui],
     ["Caddy :443", "HTTPS, same host", C.muted],
-    ["designagent :8000", "loopback · per-user settings", C.agent],
+    ["PEAT :8000", "loopback · per-user settings", C.agent],
     ["Orbit broker :8443", "systemd, on the VM", C.radical],
     ["amarel3 endpoint", "psij,sysinfo → Slurm", C.radical],
   ];

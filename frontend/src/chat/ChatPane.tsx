@@ -32,7 +32,7 @@ export default function ChatPane({
       <div className="messages">
         {messages.length === 0 && (
           <div className="empty">
-            <h1>Protein Design Agent</h1>
+            <h1>PEAT</h1>
             <p className="muted">
               Name a target by PDB id, UniProt accession, or protein name, and say
               what you want to improve. Structures and summaries appear in the

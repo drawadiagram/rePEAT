@@ -1,4 +1,4 @@
-# designagent walkthrough — speaking script
+# PEAT walkthrough — speaking script
 
 Companion to [`DECK_OUTLINE.md`](DECK_OUTLINE.md) (slide structure) and
 [`CODE_FOR_DECK.md`](CODE_FOR_DECK.md) (the staged code blocks). Slide numbers and snippet IDs match

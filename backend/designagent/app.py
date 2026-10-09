@@ -117,7 +117,7 @@ async def lifespan(app: FastAPI):
         await runtime.close()
 
 
-app = FastAPI(title="Protein Design Agent", lifespan=lifespan)
+app = FastAPI(title="PEAT", lifespan=lifespan)
 
 
 def _runtime(request: Request) -> Runtime:
