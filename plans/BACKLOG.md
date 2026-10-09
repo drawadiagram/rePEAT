@@ -327,13 +327,32 @@ of those packages, and right now nothing records which.
 **Options:** git submodules pinned to a SHA; or a `refcodes/VERSIONS.md` recording each package's
 commit; or vendoring the three into the repo. The middle one is cheap and would do.
 
-**And a fourth package `setup.sh` does not install at all: `radical.orbit`.** `tasks/hpc/orbit.py`
-imports it lazily and `local_orbit._script` looks for its CLI scripts, but neither `setup.sh` nor
-`pyproject.toml` names it, so a venv that passes `--check` cannot use `hpc`, and `-m live` errors on
-"Orbit CLI scripts not found". The only revision now on record is the reference checkout on
-`amarel3`: `/home/mh1314/radical.orbit`, 0.8.0, branch `devel`, commit `c7ede0c` (2026-09-29).
-Installing it is not a plain `pip install -e`: its requirements pull `rhapsody-py` from PyPI, which
-would displace the editable `refcodes/rhapsody` — see `plans/AMAREL_ENDPOINT.md` §3, step 3.
+**Partly closed, 2026-10-09: the revisions are now recorded.** The user's working `refcodes/`
+was copied to the Linode as clean git trees. `scripts/setup.sh` carries their commits in
+`REFCODES_PINS`, and `--check` warns when a checkout differs. The list is in the repo, not in
+`refcodes/` itself, because that directory is gitignored. Still open: a fresh clone has no way to
+*get* the checkouts, only to verify them.
+
+| Checkout | Commit | Date | Branch | Used by |
+| --- | --- | --- | --- | --- |
+| `radical.asyncflow` | `038d52a` | 2026-08-20 | main (v0.5.1) | `setup.sh` |
+| `rhapsody` | `71536ac` | 2026-09-08 | main | `setup.sh` |
+| `flowgentic` | `dd27bd8` | 2026-08-19 | **`demo/radical`**, not main | `setup.sh`, `--no-deps` |
+| `radical.orbit` | `c7ede0c` | 2026-09-29 | devel (0.8.0) | `setup.sh`; the broker; the Amarel endpoint |
+| `ProteinMPNN` | `8907e66` | 2023-06-27 | detached | `setup_mpnn.sh` (its own `MPNN_REV` pin) |
+| `ChemGraph` | `d7a34ca` | 2026-10-01 | main | `.[chem]` only |
+| `langgraph` | `b36b1d5` | 2026-10-01 | main (1.2.12) | reference reading |
+| `hpc-bridge` | `46f63bf` | 2026-09-22 | main | reference reading |
+| `rcsb-molstar` | `7153df7` | 2026-09-22 | master | reference reading |
+
+**`radical.orbit`, the fourth package, is now installed by `setup.sh`** when its checkout is present.
+`tasks/hpc/orbit.py` imports it lazily and `local_orbit._script` looks for its CLI scripts. Before
+this, a venv that passed `--check` could not use `hpc`, and `-m live` errored on "Orbit CLI scripts
+not found".
+
+It is not a plain `pip install -e`: its requirements pull `rhapsody-py` from PyPI, which would
+displace the editable `refcodes/rhapsody`. So it goes in `--no-deps` with the rest named, and
+`--check` asserts that `rhapsody` still resolves to `refcodes/`.
 
 ### B2 · Is `E,F,I` the right lint baseline?
 `ruff check backend tests` is clean at `E,F,I` and that is what `pyproject.toml` pins. The open
