@@ -23,52 +23,66 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # (path, line, expected first line) — keep in sync with CODE_FOR_DECK.md.
 ANCHORS: list[tuple[str, int, str]] = [
-    # S4 — the loop
+    # S7 — the loop
     ("backend/designagent/graph/build.py", 147, "destinations = {"),
     ("backend/designagent/graph/nodes/coordinator.py", 145, "def classify_rules"),
-    # S6 — state
+    # S10 — the protocol node
+    ("backend/designagent/graph/nodes/coordinator.py", 269, 'protocol = state.get("protocol")'),
+    ("backend/designagent/graph/nodes/protocol.py", 865, "STAGES: dict[str, Callable"),
+    # S16 — what we have and have not measured. The staging constants are printed
+    # on the slide as numbers rather than as code, which is exactly the kind of
+    # citation that rots unnoticed: slides/bench_staging.py measures against
+    # these, and the slide quotes the measurement.
+    ("backend/designagent/tasks/hpc/artifacts.py", 56, "CHUNK = 64 * 1024"),
+    ("backend/designagent/tasks/hpc/artifacts.py", 59, "ARTIFACT_MAX_BYTES = 1024 * 1024"),
+    ("backend/designagent/config.py", 64, "pool_workers: int = 4"),
+    ("backend/designagent/graph/nodes/protocol.py", 616,
+     'f"{len(records_fa)} GPU-hours. Reply'),
+    # S20 — deployment and per-user credentials
+    ("backend/designagent/graph/deps.py", 49, "def settings(self) -> Settings:"),
+    # S8 — state
     ("backend/designagent/graph/state.py", 211, "class DesignState"),
     ("backend/designagent/graph/state.py", 159, "def merge_artifacts"),
-    # S7 — the orchestrator's blob write
+    # S8 — the orchestrator's blob write
     ("backend/designagent/graph/nodes/orchestrator.py", 292,
      'summary["structure_path"] = deps.history.write_blob('),
     ("backend/designagent/graph/nodes/orchestrator.py", 314, "return Command("),
-    # S8 — the task contract
+    # S13 — the task contract
     ("backend/designagent/tasks/base.py", 22, "class TaskState"),
     ("backend/designagent/tasks/base.py", 62, "@dataclass(frozen=True)"),
     ("backend/designagent/tasks/base.py", 92, "@dataclass"),
     ("backend/designagent/tasks/base.py", 148, "class TaskInterface(ABC):"),
     ("backend/designagent/tasks/manager.py", 95, "def interface_for"),
     ("backend/designagent/tasks/manager.py", 134, "name, interface = self.interface_for(spec)"),
-    # S9 — the substrate
+    # S14 — the substrate
     ("backend/designagent/runtime.py", 295, "retry = RetryConfig("),
     ("backend/designagent/tasks/local.py", 80, "async def submit"),
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 73,
      "# Try to include aiohttp timeouts if present"),
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 23,
      "max_attempts: int = Field("),
-    # S10 — Orbit
+    # S15 — Orbit
     ("backend/designagent/tasks/hpc/orbit.py", 328, "def _dispatch"),
     ("backend/designagent/tasks/hpc/orbit.py", 353,
      "# The terminal event carries state and exit_code but not"),
     ("backend/designagent/tasks/hpc/orbit.py", 428,
      "if state is TaskState.FAILED and not error:"),
     ("backend/designagent/tasks/hpc/base.py", 80, "async def drain_logs"),
-    # S11 — Globus
+    # B3 — Globus
     ("backend/designagent/tasks/hpc/globus.py", 31, "capabilities = Capabilities("),
     ("backend/designagent/tasks/hpc/globus.py", 90, "def _submit_shell"),
-    # S12 — the visualization agent
+    # B4 — the visualization agent
     ("backend/designagent/tools/molviz_agent.py", 143, "def sanitize_spec"),
-    # S13 — the lake
+    # S9 — the lake
     ("backend/designagent/lake/graph.py", 24, "_SCHEMA = ["),
     ("backend/designagent/lake/store.py", 89, "def record_task_result"),
-    # S14 — degradation
+    # S17 — degradation
     ("backend/designagent/graph/nodes/analyst.py", 166,
      "# A storage failure must not lose"),
     ("backend/designagent/graph/nodes/analyst.py", 405, "def _rank_in_memory"),
-    # S15 — the frontend
+    # S19 — the frontend
     ("frontend/src/lib/api.ts", 42, 'let buffer = "";'),
-    # S17 / B1 — the wrap_nodes deviation
+    # B1 — the wrap_nodes deviation
     ("backend/designagent/config.py", 69,
      "# Route node bodies through flowgentic's EXECUTION_BLOCK"),
     ("backend/designagent/graph/build.py", 55, "def wrap_node"),

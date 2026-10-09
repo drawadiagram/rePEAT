@@ -15,7 +15,7 @@
 # The result is the real model with real weights, which is what makes a round
 # attributable to `model_name=v_48_020` rather than to a stub. It proves nothing
 # about a scheduler, a queue, an allocation or a GPU: the local PSI/J executor
-# forks a process. See plans/BACKLOG.md A1.
+# forks a process. The real thing is plans/AMAREL_ENDPOINT.md, rung 4.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

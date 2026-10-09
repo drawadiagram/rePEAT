@@ -16,6 +16,14 @@ Two notes on reading the lake from outside the app:
     directory -- it would either fail or fight the server for the lock.
   * Tier 2 is plain SQLite and tier 3 is plain Parquet + JSON, so both are read
     in place. That asymmetry is itself a deck point: only tier 1 needs a server.
+
+**Re-run this deliberately, not reflexively.** It aggregates the *whole* lake and
+takes whichever campaign Kuzu lists first, so on a data dir that has run anything
+since, every figure in the deck changes: as of 2026-10-09 the same command turns
+the committed 12 designs and 114 scores into 222 and 2244, and the pLDDT
+progression the deck narrates into a different campaign's. The committed
+run.json's tiers are the 2026-10-01 campaign on purpose; only its `code` block
+was refreshed in place. Pinning the campaign id is backlog M2.
 """
 
 from __future__ import annotations

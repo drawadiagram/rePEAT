@@ -1,9 +1,10 @@
 """One real HPC submission, against whatever endpoint the environment names.
 
-This is the tier that answers backlog A1: *no HPC endpoint has ever executed a
-task for this agent*. `test_orbit_local.py` proves the client against a localhost
-broker we start ourselves; this proves the path against an endpoint we do not
-own — a scheduler, a queue, an allocation.
+This is the tier that answered *no HPC endpoint has ever executed a task for this
+agent* — on 2026-10-09, against `amarel3` through the Linode broker
+(`plans/AMAREL_ENDPOINT.md` §6, rung 4). `test_orbit_local.py` proves the client
+against a localhost broker we start ourselves; this proves the path against an
+endpoint we do not own — a scheduler, a queue, an allocation.
 
 Deliberately trivial jobs. The question is whether submit → poll → logs → cancel
 work across a real broker, not whether ProteinMPNN is installed at the far end.

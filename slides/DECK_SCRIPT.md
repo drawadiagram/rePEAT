@@ -2,7 +2,7 @@
 
 Companion to [`DECK_OUTLINE.md`](DECK_OUTLINE.md) (slide structure) and
 [`CODE_FOR_DECK.md`](CODE_FOR_DECK.md) (the staged code blocks). Slide numbers and snippet IDs match
-across all three. Derived against `main` @ `e8467e6`.
+across all three. Derived against `main` @ `7e72b74`.
 
 **This file is generated from the `addNotes` blocks in `build_deck.js`.** The deck is the single
 source of the spoken prose, so a presenter reading from the notes pane and a presenter reading from
@@ -16,43 +16,49 @@ realistic rate for technical material delivered with pauses.
 
 | Slide | Spoken | | Slide | Spoken |
 |---|---|---|---|---|
-| 1. Title | 0.8 min | | 10. Orbit | 1.6 |
-| 2. What it does | 0.9 | | 11. Globus | 1.4 |
-| 3. The constraint | 1.0 | | 12. Local task agents | 1.4 |
-| 4. The loop (F1) | 1.1 | | 13. The lake (F4) | 1.3 |
-| 5. Architecture (F2) | 1.1 | | 14. Degradation | 1.4 |
-| 6. State | 1.2 | | 15. Frontend | 1.7 |
-| 7. One campaign, measured (F3) | 1.3 | | 16. Running it | 1.2 |
-| 8. The seam: contract | 1.3 | | 17. Status | 1.3 |
-| 9. The seam: substrate | 1.5 | | 18. Asks | 1.8 |
+| 1. Title | 0.8 min | | 13. The seam: contract | 1.3 |
+| 2. What it does | 0.9 | | 14. The seam: substrate | 1.5 |
+| 3. The three dimensions | 1.2 | | 15. Orbit | 1.6 |
+| 4. The constraint | 1.0 | | 16. What we have and have not measured (F5) | 2.2 |
+| 5. Architecture (F2) | 1.1 | | 17. Degradation | 1.2 |
+| 6. FUNCTIONALITY — divider | 0.4 | | 18. USABILITY — divider | 0.4 |
+| 7. The loop (F1) | 1.4 | | 19. Frontend | 1.4 |
+| 8. State | 1.2 | | 20. Deployed | 1.5 |
+| 9. The lake (F4) | 1.3 | | 21. Running it | 1.8 |
+| 10. The protocol node | 1.5 | | 22. Status | 1.4 |
+| 11. PERFORMANCE — divider | 0.4 | | 23. Asks | 2.3 |
+| 12. One campaign, measured (F3) | 1.6 | | | |
 
-**Main path (slides 1–18): 3641 words = 23.5 minutes of speech.** Backups add 2.5 min if used.
+**Main path (slides 1–23): 4550 words = 29.4 minutes of speech.** Backups add 5.3 min if used.
 
 | Order | What's in | Speech | Fits |
 |---|---|---|---|
-| **A · full** | slides 1–18 | **23.5** | a 30-minute slot, questions inline |
-| **B · twenty-five** | drop 12 (task agents) and 15 (frontend) | **20.5** | a 25-minute slot with real Q&A |
-| **C · twenty** | B, and fold 11 (Globus) into 10 as one sentence | **~19.0** | a hard 20 with questions after |
+| **A · full** | slides 1–23, all three acts | **29.4** | a 30-minute slot with questions at the end |
+| **B · questions inline** | drop 9 (the lake), 19 (frontend) and 20 (deployment) | **25.2** | the 30-minute slot as briefed, or a 25 with questions after |
+| **C · twenty** | B, and drop 5 (the layer map) and 8 (state) | **22.9** | a hard 20 with questions after |
 
-**Protect 8, 9, 10 and 18.** Those are the seam and the asks, and they are what this room came for.
-Slides 12 and 15 are the designated cuts: the visualization-agent decision and the SSE details are
-both recoverable in one sentence elsewhere. Do **not** compress 17 (status) — an audience that
-catches you overclaiming stops believing the rest, and this deck's whole bet is that the honesty is
-the credibility.
+**Protect 3 (the three dimensions), 13, 14 and 15 (the seam), 16 (measured and not measured), 22
+(status) and 23 (asks).** The seam and the asks are what this room came for; 3 and 16 are what make
+the performance claims honest rather than decorative. The three dividers are 20 seconds each and
+cheap to keep — if the clock goes, cut a content slide, not the frame.
 
-**Two things to say out loud even if nothing prompts them:** no HPC endpoint has ever run a task for
-this agent (slide 17), and the variants in the worked example are heuristic proposals rather than
-ProteinMPNN samples (slide 2).
+Do **not** compress 16 or 22. An audience that catches you overclaiming stops believing the rest,
+and those two slides are where this deck does its volunteering.
+
+**Three things to say out loud even if nothing prompts them:** no stage of the protocol has run on a
+cluster, so every figure in `specs.py` is an estimate (slides 6 and 22); the concurrency figure is a
+mean in-flight depth and not a speedup, because there is no serial baseline (slides 12 and 16); and
+the variants in the worked example are heuristic proposals, not ProteinMPNN samples (slide 2).
 
 ---
 
 ## 1. Title — *0.8 min*
 
-[0:25] This is a code walk, not a results talk. The thing I built is a chatbot for protein redesign: you type a prompt, and behind it a LangGraph loop goes and runs an actual campaign — structure lookups, folds, scoring, a provenance lake, and artifacts you can open.
+[0:25] A code walk, not a results talk. What I built is a chatbot for protein redesign: you type a prompt, and behind it a LangGraph loop runs an actual campaign — structure lookups, folds, scoring, a provenance lake, artifacts you can open.
 
-The reason it's worth your time is the seam in the middle. Long work leaves this process: it goes onto a rhapsody process pool through flowgentic and asyncflow, or off the box entirely through ORBIT. Everything about the design follows from one constraint, which is that a chat interface cannot block on a protein fold.
+What is worth your time is the seam in the middle, where long work leaves this process: onto a rhapsody pool through flowgentic and asyncflow, or off the box entirely through ORBIT.
 
-Every number on these slides comes from a real campaign that is still on disk. I'll be explicit about what has never run.
+Every number on these slides comes from a real campaign still on disk, and the deck is in three acts — the three things I would want to know about anyone else's software: what new tasks it makes possible, what it costs to run, and what it is usable as.
 
 ## 2. What it does — *0.9 min*
 
@@ -64,7 +70,15 @@ Right card, because you will ask and I would rather say it first. The variants a
 
 So treat the science as a demo and the plumbing as the deliverable. The plumbing is what the rest of the talk is about.
 
-## 3. The constraint — *1.0 min*
+## 3. The three dimensions — *1.2 min*
+
+[0:50] The frame, in three questions, because they are the ones you would ask about any piece of scientific software and a deck organised by module answers none of them directly.
+
+Functionality: what new tasks does it make possible. Performance: runtime efficiency and effectiveness — usually scalability and occupancy, but also scientific performance, and the interesting cases are where scale and scientific yield are not linear in each other. This system has one of those. Usability, and I do not mean the user interface: the use cases. What it lends itself to as an application, as a platform other people's credentials plug into, or as a component in someone else's workflow.
+
+And the honest part up front: the middle column is the weak one. One host, a pool of four, one campaign, no GPU of our own. So that act ends with a slide about the measurements that do not exist, and the concurrency number I am about to quote is a mean depth, not a speedup. You can tell the difference, which is why I am saying it now rather than when someone asks.
+
+## 4. The constraint — *1.0 min*
 
 [1:05] If you remember one slide, this is the one, because everything after it is a consequence rather than a preference.
 
@@ -74,9 +88,23 @@ Five things fall out. Tasks return futures, not results — submit places work a
 
 The honest flip side is at the bottom: if the agent were allowed to block, you would not build most of this. You would call the tools inline and go home.
 
-## 4. The loop (F1) — *1.1 min*
+## 5. Architecture (F2) — *1.1 min*
 
-[2:05] Five nodes, matching the spec: coordinator, design initializer, redesign orchestrator, analyst, interpreter.
+[1:15] Eight bands. Read it top to bottom and the orange is yours.
+
+Browser, then FastAPI with a single SSE chat endpoint. Then the LangGraph graph, checkpointed to SQLite. Then a small Deps object, which is the only thing a node closes over — settings, the task manager, the history lake, the artifact store.
+
+Then the three task interfaces, then the substrate — flowgentic over asyncflow over a rhapsody concurrent backend on a four-worker pool — then remote: ORBIT solid, because since the ninth of October it has run jobs on a real cluster; Globus dashed, designed for and never run against anything live. Then the three lake tiers.
+
+Two things in the rail. The rule that nodes reach out only through Deps is what makes 417 of the 441 tests run with no network and no pool. And exactly one band crosses into asyncflow: the local task interface. Everything above it is ordinary async Python, deliberately, so the middleware dependency stays in a layer I can stub.
+
+## 6. FUNCTIONALITY — divider — *0.4 min*
+
+[0:20] Act one, functionality: the new tasks this makes possible. Three claims — a prompt that runs a campaign, a multi-day cluster protocol turned into a conversation, and a campaign that becomes a queryable record. The weakest of the three is the second one: the protocol has two hundred and three tests and has never run on a cluster.
+
+## 7. The loop (F1) — *1.4 min*
+
+[1:55] Five nodes in the campaign loop, matching the spec: coordinator, design initializer, redesign orchestrator, analyst, interpreter. There is a sixth in the graph, the protocol node, and it is its own slide later — it answers the user and goes straight to END, so drawing it here would add a box and no information.
 
 The coordinator is the only entry and the only re-entry point. It classifies the prompt and, where it can, answers straight from state without waking anything up — "what is the lead design?" costs one node visit.
 
@@ -84,17 +112,7 @@ The interesting edge is the red one. The analyst decides whether to go round aga
 
 Note how little static wiring there is. One static edge, START to coordinator. Everything else is a Command with a goto, which means the routing decision and the state write are the same atomic return — a node cannot update state and then fail to say where it went. The destinations tuple is a declaration so LangGraph can validate and draw the graph; it is not control flow.
 
-## 5. Architecture (F2) — *1.1 min*
-
-[1:15] Eight bands. Read it top to bottom and the orange is yours.
-
-Browser, then FastAPI with a single SSE chat endpoint. Then the LangGraph graph, checkpointed to SQLite. Then a small Deps object, which is the only thing a node closes over — settings, the task manager, the history lake, the artifact store.
-
-Then the three task interfaces. Then the substrate, which is flowgentic over asyncflow over a rhapsody concurrent backend on a four-worker process pool. Then remote: ORBIT solid-but-dotted, meaning it genuinely works and has only ever met a localhost broker; Globus dashed, meaning designed for and not implemented against anything live. Then the three lake tiers.
-
-Two things in the rail. The rule that nodes only ever reach through Deps is what makes 93 of the 99 tests run with no network and no pool. And the band that crosses into asyncflow is exactly one: the local task interface. Everything above it is ordinary async Python, which is deliberate — I wanted the middleware dependency confined to a layer I could swap or stub.
-
-## 6. State — *1.2 min*
+## 8. State — *1.2 min*
 
 [1:20] State is a TypedDict, not a pydantic model, because LangGraph checkpoints it and partial dict updates are the natural write unit from a node.
 
@@ -104,19 +122,49 @@ The right-hand side is a finding worth your time. I originally passed fold resul
 
 What makes that a real lesson rather than a tidy-up is that nothing breaks when you get it wrong. It just gets slower every turn, forever. So it is pinned by a test that serializes the state and asserts the string "ATOM" never appears in it.
 
-## 7. One campaign, measured (F3) — *1.3 min*
+## 9. The lake (F4) — *1.3 min*
+
+[1:35] Three tiers, exactly as the brief specified, and these are the real contents of the measured campaign.
+
+Tier one is a Kuzu graph: six node tables, eight relationship tables, the whole provenance chain from campaign to reference to design to task to output to structure. One design decision there worth flagging — the properties columns hold JSON, so adding a task type needs no migration. That is a deliberate trade: queryability for evolvability, and I would make it again at this stage.
+
+Tier two is SQLite: 114 score rows over ten metrics, seventeen rankings, two round analyses. The method worth pointing at is best_designs, which can exclude the current campaign — that is how the interpreter finds comparable prior work without rediscovering its own designs, and it is the new task this tier makes possible.
+
+Tier three is Parquet plus a manifest: eleven rows from twelve designs, because the curation rules deduplicate sequences, and the manifest records the rules so the set is reproducible rather than merely present.
+
+And only tier one needs a running process to read, which is why the script that mined these numbers could read the other two while the server held the Kuzu lock.
+
+## 10. The protocol node — *1.5 min*
+
+[1:15] This is the newest part, and the reason the rest of the machinery exists.
+
+The enzyme redesign protocol is a multi-day cluster pipeline — model the target, trim it, search conservation, redesign with ProteinMPNN, select, fold with AlphaFold3, collect, report — written for a human at a terminal over several days.
+
+It runs here one stage per turn, because the protocol has three points where it must stop for a person and there is no interrupt() anywhere in this repository. The turn boundary is the checkpoint instead: a stage sets awaiting and returns, and the next message answers it.
+
+The code block is the bug I would otherwise have shipped. The route to the protocol has to come before classification, because "liu", "310,364" and "go" all classify as chat — which answers from session state and leaves the campaign waiting forever.
+
+Bottom left is the decision I would flag to anyone building this. A transfer step declares inputs and outputs and gets rewritten into a temp-directory script on the local executor, no queue slot. A compute step declares neither and sets a working directory under the project, so its files persist for the next stage.
+
+And the honest line: two hundred and three of the four hundred and seventeen offline tests cover this node, and no stage of it has run on a cluster, so every number in specs.py is an estimate.
+
+## 11. PERFORMANCE — divider — *0.4 min*
+
+[0:20] Act two, performance, and this is the act where I have the least to offer. Three claims: the loop never blocks, the seam is what buys that, and one figure in this deck is an actual curve I measured for this talk. The caveat is the whole act's caveat — there is no scaling study here, and the concurrency number is a mean depth, not a speedup.
+
+## 12. One campaign, measured (F3) — *1.6 min*
 
 [1:45] This is the real task ledger of the measured campaign, straight out of tier one of the lake, with submit and finish times as recorded.
 
 Look at the orange fold rows. Six go out in the same instant and come back at 13.3, 13.3, 14.3, 17.9, 26.0 and 31.7 seconds — out of order, reaped as they land. That is the whole point of the futures design, and it is the one thing that would be invisible in a sequence diagram.
 
-It also settles an argument in your favour and against a default. Round two ran from 13.2 to 42.4 seconds. flowgentic's RetryConfig defaults to a 30-second per-attempt timeout with three attempts, so with the defaults roughly half of these folds would have been cancelled and silently retried. I'll come back to that.
+It also settles an argument against a default. Round two ran from 13.2 to 42.4 seconds, and flowgentic's RetryConfig defaults to a 30-second per-attempt timeout, so with the defaults roughly half of these folds would have been cancelled and silently retried. I'll come back to that.
 
-The blue lookups show the initializer's concurrency: PDB and UniProt together, a cross-reference follow-up, then structure and literature together.
+The band underneath is the only aggregate I will quote: thirty-seven tasks, two hundred and ninety-eight seconds of handle lifetime inside a hundred and forty-six of wall clock, so mean concurrency of two, peaking at six. The deck computes it from these rows at build time, so it cannot go stale. But notice what it is not — a lifetime includes time queued inside a pool of four, and I have no serial baseline, so that two is a depth, not a speedup. The critical path is a single forty-two second fold.
 
-And the bottom right is not a contrived example. ESM Atlas genuinely dropped one of six requests. That design came through as sequence-only, got four metrics instead of eleven, the other five scored normally, and the user saw a warning. I did not have to construct a failure to talk about degradation.
+And the bottom right is not contrived. ESM Atlas genuinely dropped one of six requests: that design came through as sequence-only with four metrics instead of eleven, the other five scored normally, and the user saw a warning.
 
-## 8. The seam: contract — *1.3 min*
+## 13. The seam: contract — *1.3 min*
 
 [2:00] Here is the whole vocabulary. Five verbs and a capability record.
 
@@ -128,115 +176,111 @@ The bottom-left code is the piece I would defend hardest. When submission itself
 
 The state enum normalizes across vocabularies, because ORBIT and PSI/J each have their own and I did not want those leaking upward.
 
-## 9. The seam: substrate — *1.5 min*
+## 14. The seam: substrate — *1.5 min*
 
 [2:10] This is the band that crosses out of my process, and it is five hops: a module-level task body, the flowgentic wrapper, asyncflow's engine, a rhapsody concurrent backend, a four-worker process pool.
 
 Top left is the wrapper. The comment in it is doing real work: flowgentic's RetryConfig defaults to a 30-second per-attempt timeout with three attempts, which is right for a service call and wrong for a fold. We saw on the last slide that half the round-two folds exceed it. So we pass timeout_sec None and max_attempts one, and own retries ourselves.
 
-Bottom left: submission has to return immediately, and the flowgentic wrapper for FUNCTION_TASK is a coroutine function rather than a future factory, so we wrap it in ensure_future. That comment exists because I got it wrong first and blocked the loop.
-
-Top right: the pool imposes three real constraints. Bodies at module level, clients built inside the body, and a main guard on the entry point.
+Bottom left: submission has to return immediately, and flowgentic's FUNCTION_TASK wrapper is a coroutine function rather than a future factory, so we wrap it in ensure_future — that comment exists because I got it wrong first and blocked the loop. Top right, the pool's three constraints: bodies at module level, clients built inside the body, a main guard on the entry point.
 
 And the red block is the first of the findings. That is verbatim flowgentic. The comment says "try to include aiohttp timeouts if present" and the handler says raise. So aiohttp becomes a hard requirement, and so does httpx twelve lines up. It fires whenever retryable_exceptions is left at its default, which is the empty tuple — the common case. I think that except clause wants to be a pass, and I would like to know if you agree.
 
-## 10. Orbit — *1.6 min*
+## 15. Orbit — *1.6 min*
 
 [2:20] The remote interface uses the raw clients rather than anything higher, on purpose: I wanted to see what the substrate actually offers.
 
 Two clients, two different jobs. RhapsodyClient handles function and executable tasks and pushes status events at us. PSIJClient handles batch jobs, and it is the one place in either backend where you can tail a running job's output — get_job_status takes stdout and stderr byte offsets. That is what the whole log-streaming story is built on, and it works.
 
-Two threading problems. Every client method is synchronous and blocking, so all 23 call sites go through to_thread. And push callbacks arrive on Orbit's own listener thread, so _dispatch hops them onto our loop with call_soon_threadsafe. Neither is a complaint; they are just facts you need to know before you build on this.
+Two threading problems, neither a complaint: every client method is synchronous, so all 23 call sites go through to_thread, and push callbacks arrive on Orbit's own listener thread, so _dispatch hops them onto our loop with call_soon_threadsafe.
 
 The red half is findings four and five. A completed task's terminal event carries state and exit code but not stdout, so my first version resolved futures with empty results — the fix re-fetches with get_task, and lets the event win on state while the fetch fills in output. And a failed job reports only a non-zero exit code; no reason reaches the client at all. So FAILED always synthesises an explanation from the exit code, then stderr, then the log tail. I would rather Orbit told me.
 
-Status, plainly: six tests against a real localhost broker and endpoint, covering push states, incremental tailing, a failing job and cancelling a running one. It has never met a scheduler.
+Status, plainly: twelve tests against a real localhost broker and endpoint, including one real ProteinMPNN run — and since the ninth of October, this same client code reaching a cluster login node through a public broker and coming back with Slurm job ids.
 
-## 11. Globus — *1.4 min*
+## 16. What we have and have not measured (F5) — *2.2 min*
 
-[1:15] The brief said design for both Globus hpc-bridge and ORBIT, implement ORBIT first. So: one ABC, two implementations, and one of them has never touched a live endpoint.
+[1:25] The slide I would want to see if I were you, so it is here rather than in an appendix.
 
-What the abstraction cost is worth saying, because "we abstracted over two backends" is usually a boast hiding a mess. It cost almost nothing, because the shared surface is tiny — connect, track, settle, and a log drain, 102 lines in total. The interesting work is irreducibly backend-specific: Orbit's push callbacks have no Globus analogue, and pretending otherwise would have meant inventing a polling shim nobody wanted.
+The figure is the only curve in this deck, and I measured it for this talk. It is about the one data path this system has to a cluster: because the broker forwards neither outputs nor stdin_text — finding five, later — a job returns a file by printing it on stdout, gzipped, base64'd and framed. So I measured what that costs, driving the real wrap and collect functions locally.
 
-So the base class's real job is not hiding differences. It is making them declarable, which is what the capability record on the right does. Globus Compute genuinely cannot tail a running task and genuinely cannot cancel after start; each flag carries the reason inline.
+Orange is incompressible data, about one and a third bytes of stdout per byte of payload, which is base64 doing what base64 does. Green is structure text, a third of a byte per byte, because a PDB gzips about four to one. Cost depends entirely on entropy.
 
-And it is testable without Globus at all, because hpc-bridge's runner takes an injectable executor factory. The suite hands it a plain executor. One detail there: argv is a list run with no shell on the test path, while the real ShellFunction API takes a string, so that path uses shlex.join — with a test proving a shell metacharacter stays data.
+The ceilings do not, and that is the finding. Outbound the cap is checked on the raw file size, so a two megabyte PDB is refused even though it would compress to two thirds of a megabyte, while a one megabyte random file sails through and costs one point four. Inbound there is no declared cap at all: exec fails with E2BIG at about one and a half megabytes of incompressible payload. Both caps are in the wrong units — that is going in our backlog, not on your list.
 
-The claim I will defend is that the flags earned their keep and the base class merely did not get in the way.
+On the right, the ledger. Measured: in-flight depth, the critical path, checkpoint growth, this curve, the suite. Not measured and therefore not claimed: no scaling curve, no GPU occupancy, no multi-node run, no serial baseline.
 
-## 12. Local task agents — *1.4 min*
+At the bottom is where this stops being a systems question. When the protocol selects designs it says AlphaFold3 is about an hour of GPU each, and waits. Cost is linear in how many you fold; yield is not, because they are diversity-selected — the tenth is less like the other nine than the second was. That is the nonlinearity, and it is the piece of this story I would most like to measure and cannot.
 
-[1:10] The brief asked for Local Task Agents, and named two: a molecular visualization generator and ChemGraph.
-
-The visualization one is where I deviated, and I want to be explicit about it. The brief says the agent "codes a browser-based visualization". Shipping LLM-written JavaScript into the viewer means a prompt can get code into the page, so I did not do that. The agent emits a constrained JSON view spec instead — structures, highlights, representation, colours — and a single React component is the only thing that ever touches Mol*. sanitize_spec repairs or drops every field, so a bad generation degrades to a plain cartoon rather than a broken pane.
-
-I think that keeps the full expressive range of what a reviewer actually asks for — "colour the mutated residue, focus on it, show the rest as cartoon" — without executing anything.
-
-The table is the honest status of all four. The visualizer runs and drew both leads in the measured campaign. ChemGraph is wired behind the same interface but has only ever been exercised by tests. ESMFold has twelve real predictions on disk. ProteinMPNN has a job spec and a FASTA parser and no endpoint, so what actually ran was the heuristic proposer — which is why the variants in this campaign are single-point substitutions.
-
-## 13. The lake (F4) — *1.3 min*
-
-[1:35] Three tiers, exactly as the brief specified, and these are the real contents of the measured campaign.
-
-Tier one is a Kuzu graph: six node tables, eight relationship tables, the whole provenance chain from campaign to reference to design to task to output to structure. One design decision there worth flagging — the properties columns hold JSON, so adding a task type needs no migration. That is a deliberate trade: queryability for evolvability, and I would make it again at this stage.
-
-Tier two is SQLite: 114 score rows over ten metrics, seventeen ranking rows, two round analyses. The method I would point at is best_designs, which can exclude the current campaign — that is how the interpreter finds comparable prior work without rediscovering its own designs.
-
-Tier three is Parquet plus a manifest. Eleven rows from twelve designs, because the curation rules deduplicate sequences, and the manifest records the rules so the set is reproducible rather than just present.
-
-The bottom line is a small thing I only noticed when building this deck: only tier one needs a running process to read. Tiers two and three are just files, which is why the script that produced these numbers could read them while the server held the Kuzu lock.
-
-## 14. Degradation — *1.4 min*
+## 17. Degradation — *1.2 min*
 
 [1:15] Six failure modes, what each does, and the evidence that it does it.
 
-The one I want to dwell on is the fifth row. During a live run I hit "attempt to write a readonly database" from SQLite. The cause was mine — I deleted a data directory under a running server — so it was not a product bug. But it exposed something real: the analyst was writing to the lake unguarded, which meant a storage problem could lose a round of work the user had already waited two minutes for.
+The fifth row is the one to dwell on. During a live run I hit "attempt to write a readonly database" — my own fault, I deleted a data directory under a running server — but it exposed something real: the analyst wrote to the lake unguarded, so a storage problem could lose a round the user had waited two minutes for.
 
-The fix is the code at the bottom. Each tier write is guarded independently, a failure falls back to ranking in memory, and the error goes into a warnings channel that survives the turn. The interpreter then appends a "Caveats from this run" section to its reply, so the user is told rather than silently given a thinner answer. There is a test that kills the lake mid-round and asserts the designs still come back.
+The fix is at the bottom. Each tier write is guarded independently, a failure falls back to ranking in memory, and the error goes onto a warnings channel that survives the turn, so the interpreter appends a "Caveats from this run" section rather than silently handing back a thinner answer. A test kills the lake mid-round and asserts the designs still come back.
 
 And the fourth row is the one I did not have to arrange. ESM Atlas dropped a request during the measured campaign, the design came through sequence-only, the round scored the other five, and the warning surfaced. That is the whole mechanism working on a failure I did not choose.
 
-## 15. Frontend — *1.7 min*
+## 18. USABILITY — divider — *0.4 min*
+
+[0:20] Act three, usability — use cases, not user interface. Three modes: as an application, as a platform that holds other people's credentials and endpoints, and as a component something else drives. All three are built. The caveat is that nothing outside this repo has driven it as a component yet, so that third claim is the shape of the code rather than evidence.
+
+## 19. Frontend — *1.4 min*
 
 [1:10] Briefly, because the backend is what you came for.
 
 The chat endpoint is a POST that returns an event stream — not EventSource, because the prompt goes in the body. Seven frame kinds. The thing I would point at is that a single asyncio queue merges LangGraph's own stream with TaskManager events, so node status and task progress arrive in one ordered stream rather than two the client has to interleave.
 
-The client code is there because of a bug class people hit constantly: a network chunk boundary lands in the middle of an SSE frame, so you hold partial frames in a buffer until you see a blank line. And a malformed frame is skipped rather than killing the stream.
+The client code is there for a bug class people hit constantly: a network chunk boundary lands mid-frame, so partial frames are held in a buffer until a blank line arrives, and a malformed frame is skipped rather than killing the stream.
 
-The viewer: rcsb-molstar from the CDN, loader cached on window so one fetch serves every mount, one viewer per mount, resize observed. Two things bit me — createComponent takes no colour, so colours have to go through a plugin call to update the representation theme; and the analyst inlines coordinates as a JSON artifact so the viewer does not need a second authenticated fetch.
+The viewer is rcsb-molstar from the CDN, the loader cached on window, one viewer per mount. The usability point rather than the implementation one: what the agent sends the browser is a sanitized JSON view spec, never generated JavaScript, because the brief asked for the latter and that would put a prompt's output into the page as code. There is a backup slide on it.
 
-Last line: this was built without a browser available, so for a while the canvas was the one thing nobody had actually looked at — everything around it checked out, which is exactly the situation where you convince yourself it is fine. It was confirmed rendering on the first of October. I am mentioning it because it was on the status slide as an open item until then, and some of you may have seen that version.
+And this was built without a browser available, so for a while the canvas was the one thing nobody had looked at — everything around it checked out, which is exactly when you convince yourself it is fine. Confirmed rendering on the first of October.
 
-## 16. Running it — *1.2 min*
+## 20. Deployed — *1.5 min*
 
-[1:00] Three commands to run it, two to test it, and no configuration step that has to succeed first.
+[1:10] One slide on where this actually runs, because "it works on my laptop" is not an architecture claim.
 
-The test split is the part I would defend. 93 of the 99 tests need no network, no process pool and no endpoint. That is a direct consequence of the rule from the architecture slide — nodes only reach the outside through Deps — so the suite hands them an in-process task manager and a temp-directory lake and the whole graph runs in under a second.
+Left to right: a browser, Caddy terminating TLS, the agent on loopback and the Orbit broker under systemd — all on one small VM — then the endpoint, a cluster login node registered to that broker across the internet. The two-way arrow is the only one, because push events come back over the same websocket.
 
-The six that genuinely need a substrate are marked live and bring up their own broker and endpoint as subprocesses. They are not mocks of ORBIT; they are ORBIT, on localhost.
+Logins are off by default, and off they change nothing: with no auth object the user lookup returns None and every ownership check passes, which is why the rest of the suite needed no edit when they arrived.
 
-What I would call out in the middle column is that test_graph covers the classifier with eighteen parametrized cases. That is there because two real bugs hid in it: "what is the lead design?" classified as a design request because it contains the word design, and "make it more stable" classified as chat because it matched nothing at all. Both are the kind of bug an LLM path would have masked and the rule path makes visible.
+The red card is the part I would want reviewed. A user's key must not end up written down, and there were two places it would have gone by default: LangGraph copies every string in configurable into checkpoint metadata, and task params are written to the lake. So the key travels in a ContextVar for the turn, a pool task is handed it as a call argument, and a test scans the checkpointer, the task snapshots and the data directory for it.
 
-## 17. Status — *1.3 min*
+What this does not give you is a tenant boundary. The broker is shared — one ingress token, and anyone holding it can submit to every endpoint on it — so per-user isolation needs a broker per user, which is the next phase.
 
-[1:20] Two columns. Left is what runs end to end against something real, right is what is built and has never run for real.
+## 21. Running it — *1.8 min*
 
-Left, briefly: the loop, two rounds, routed by the improvement test. The query interface against live RCSB, UniProt and Europe PMC. Twelve real folds on the rhapsody pool, six at a time, reaped out of order. All three lake tiers with the counts you saw. Four artifacts on disk. Streaming working.
+[1:00] How you actually use this, in all three senses. Four commands to run it, three to test it, and no configuration step that has to succeed first — with no API key every layer notes on the health endpoint what it could not do and keeps going.
 
-Right is the column that matters. ProteinMPNN is a job spec and a FASTA parser; with no endpoint, the orchestrator falls back to a heuristic proposer, and the output says so in a note field rather than quietly implying ProteinMPNN ran. The Globus adapter has never met a live endpoint. ORBIT works, against localhost only — which proves the client path and proves nothing about a queue. ChemGraph has been exercised by tests and never by a campaign.
+The card on the right is the component claim made concrete. Nothing here needs the browser: twenty-two HTTP routes, of which the chat is the SSE stream and the rest are ordinary REST, plus a command line for config, credentials and accounts. And the record outlives the process — two of the three lake tiers are a SQLite file and a Parquet file, which is exactly how the script that mined the numbers for this deck read them while the server held the Kuzu lock.
 
-And the bottom line is the one I would put on a slide even if nobody asked: no HPC endpoint has ever run a task for this agent. Everything I have said about the remote path is a statement about the client, not about HPC.
+The test split is the part I would defend. 417 of the 441 tests need no network, no process pool and no endpoint, which is a direct consequence of the Deps rule from the architecture slide: the suite hands a node an in-process task manager and a temp-directory lake, and the whole graph runs in seconds.
 
-## 18. Asks — *1.8 min*
+The twenty-four that need a substrate are split three ways and deselected separately: live brings up its own broker and endpoint as subprocesses, remote wants a real scheduler and an allocation, and llm spends money. Keeping them apart means the cheap tier can never drag in an expensive one. The live ones are not mocks of ORBIT; they are ORBIT, on localhost.
 
-[1:50] I built on your stack for two weeks and these are the six things I had to work around. Each one names a file and a line, and the deck's CODE_FOR_DECK.md has the reproduction, so none of this needs to be taken on my word.
+The top row is the protocol node, half the suite — deliberate, because it is the part with no endpoint to try it against, so the tests are the only thing holding it.
 
-One and two are flowgentic. The aiohttp import is, I think, a one-character fix: raise wants to be pass. The retry defaults are a judgement call rather than a bug, but I would argue the default is wrong for the workload flowgentic is most likely to be used for — if you are wrapping agent tasks, some of them are models.
+## 22. Status — *1.4 min*
 
-Three through six are ORBIT, and three and four are the ones I would most like fixed, because both of them produce a silent wrong answer rather than an error: an empty result, and a failure with no reason.
+[1:25] Same slide as before, cut three ways instead of two, so each dimension has to answer for itself. Green runs end to end against something real; red is built and has never run for real.
 
-Five and six are documentation. I lost an afternoon to --no-auth, because it is a reasonable reading that no auth means no TLS.
+Functionality is the strongest column: the loop runs, all three tiers are written, the artifacts open. What has never run is the protocol on a cluster — two hundred and three tests, zero real runs — and nothing re-attaches to an in-flight job after a restart.
+
+Performance: work genuinely leaves this process, ORBIT has run against a real cluster, ProteinMPNN is the real model. What is missing is every form of scaling evidence — one host, a pool of four I never varied, no multi-node run, no occupancy, no GPU of my own, which is why the AlphaFold3 figures are estimates.
+
+Usability: deployed, holding other people's keys, drivable over HTTP and from a CLI. What is not there is a broker per user, so HPC is not yet a tenant boundary, and no second consumer has driven it as a component.
+
+I made the red columns the same length as the green ones deliberately. If one of them were short you should be suspicious of it, and the one I would attack if I were in your seat is the middle one.
+
+## 23. Asks — *2.3 min*
+
+[1:50] Eight things I had to work around in two weeks on your stack. Each names a file and a line and CODE_FOR_DECK.md has the reproduction, so none of it needs taking on my word. They are grouped by what they cost: the left column produces a wrong answer or burns real time, the right column is paid by whoever adopts the stack after me.
+
+Left column first. Three, four and five are ORBIT, and they are the ones I would most like fixed, because all three produce a silent wrong answer rather than an error: an empty result, a failure with no reason, and declared outputs that never arrive. Five is the expensive one — stdout becomes a job's only channel for a file, so this repo carries a staging protocol whose cost you saw two slides ago, and I would delete all of it the day the field is forwarded. Two is the retry default, which is a judgement call rather than a bug, but the wrong one for a workload where some tasks are models.
+
+The right column is cheaper. One is, I think, a one-character fix: raise wants to be pass. Six is asyncflow's SIGTERM handler, which reports a completed shutdown and leaves the process running, so every stop script escalates to SIGKILL on a process holding a database lock. Seven and eight are documentation — I lost an afternoon to --no-auth, because no auth meaning no TLS is a reasonable reading.
 
 And then the question, which is the actual ask. The approved design for this project had every graph node wrapped as an EXECUTION_BLOCK. It ships disabled, because a wrapped node runs on asyncflow's loop, outside LangGraph's runnable context, so the stream writer raises and every status event is dropped — silently. The graph still completes. The chat just goes quiet.
 
@@ -267,6 +311,28 @@ Readiness was the other trap. I went looking for an HTTP topology endpoint and g
 Subprocesses rather than the embedded broker, because the embedded one expects operator-placed credentials in the user's home directory and a test has no business creating those.
 
 What it buys is the four assertions on the right, all against real processes.
+
+## B3. Backup: Globus — *1.4 min*
+
+[1:15] The brief said design for both Globus hpc-bridge and ORBIT, implement ORBIT first. So: one ABC, two implementations, and one of them still has never touched a live endpoint.
+
+What the abstraction cost is worth saying, because "we abstracted over two backends" is usually a boast hiding a mess. It cost almost nothing, because the shared surface is tiny — connect, track, settle, and a log drain, 102 lines in total. The interesting work is irreducibly backend-specific: Orbit's push callbacks have no Globus analogue, and pretending otherwise would have meant inventing a polling shim nobody wanted.
+
+So the base class's real job is not hiding differences. It is making them declarable, which is what the capability record on the right does. Globus Compute genuinely cannot tail a running task and genuinely cannot cancel after start; each flag carries the reason inline.
+
+And it is testable without Globus at all, because hpc-bridge's runner takes an injectable executor factory. The suite hands it a plain executor. One detail there: argv is a list run with no shell on the test path, while the real ShellFunction API takes a string, so that path uses shlex.join — with a test proving a shell metacharacter stays data.
+
+The claim I will defend is that the flags earned their keep and the base class merely did not get in the way.
+
+## B4. Backup: local task agents — *1.4 min*
+
+[1:10] The brief asked for Local Task Agents, and named two: a molecular visualization generator and ChemGraph.
+
+The visualization one is where I deviated, and I want to be explicit about it. The brief says the agent "codes a browser-based visualization". Shipping LLM-written JavaScript into the viewer means a prompt can get code into the page, so I did not do that. The agent emits a constrained JSON view spec instead — structures, highlights, representation, colours — and a single React component is the only thing that ever touches Mol*. sanitize_spec repairs or drops every field, so a bad generation degrades to a plain cartoon rather than a broken pane.
+
+I think that keeps the full expressive range of what a reviewer actually asks for — "colour the mutated residue, focus on it, show the rest as cartoon" — without executing anything.
+
+The table is the honest status of all four. The visualizer runs and drew both leads in the measured campaign. ChemGraph is wired behind the same interface but has only ever been exercised by tests. ESMFold has twelve real predictions on disk. ProteinMPNN has a job spec and a FASTA parser and no endpoint, so what actually ran was the heuristic proposer — which is why the variants in this campaign are single-point substitutions.
 
 ---
 

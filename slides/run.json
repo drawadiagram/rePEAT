@@ -618,14 +618,15 @@
     }
   },
   "code": {
-    "graph": 2007,
-    "tasks": 1642,
-    "tools": 1672,
-    "lake": 1032,
+    "graph": 3789,
+    "tasks": 2411,
+    "tools": 1993,
+    "lake": 1041,
     "artifacts": 402,
-    "app": 797,
-    "backend_total": 7552,
-    "tests": 1291,
-    "frontend": 1556
-  }
+    "app": 2411,
+    "backend_total": 12047,
+    "tests": 6527,
+    "frontend": 3817
+  },
+  "note": "tier1/tier2/tier3/blobs/artifacts are the 2026-10-01 campaign the deck is built on; `code` is current (re-run run_model.py takes whatever campaign the lake lists first, which is no longer this one -- see plans/BACKLOG.md M2)"
 }
