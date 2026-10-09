@@ -8,53 +8,14 @@ Convention: **A** = correctness or honesty of a claim · **B** = developer exper
 **C** = upstream, in the middleware rather than here · **D** = known-unknown, needs investigation
 before it can be sized.
 
-Status as of 2026-10-02. Numbering is not stable across commits — entries are deleted
-when fixed and the rest close up, so refer to issues by their title in commit messages.
+Status as of 2026-10-09. A number is retired with its entry rather than reused, and the rest keep
+theirs — the alternative renumbers every reference in the code, the tests and the plans each time
+something is fixed. Refer to issues by their title in commit messages all the same; a title survives
+a rewrite, and the first numbers were handed out before this rule.
 
 ---
 
 ## A — correctness and honesty
-
-### A1 · No HPC endpoint has ever executed a task
-**Answered 2026-10-09: the path works.** `pytest -m remote` against the `amarel3` endpoint through
-the Linode broker submitted real Slurm jobs, polled them, read their logs, cancelled one, and got
-the Slurm id back in `native_id` (`plans/AMAREL_ENDPOINT.md` §6, rung 4). What rung 4 found instead
-is in **A18**, **A19** and **A20**. The entry stays below as the record of how it got here.
-
-The remote path is proven against a localhost broker only (`tests/test_orbit_local.py`, 12 tests).
-That exercises the client — websocket, plugin sessions, push events, PSI/J offset tailing,
-cancellation — and says nothing about a scheduler, a queue, staging, or an allocation.
-
-**Next step:** one real submission to a real endpoint, even a trivial one. Everything claimed about
-`hpc` upgrades from "the client works" to "the path works" the moment that lands, and several entries
-below collapse into it.
-
-**Unblocked.** `tests/test_hpc_remote.py` (`-m remote`) is that submission: it reads the broker,
-cert, token, endpoint and scheduler from settings, so pointing it at a real endpoint is configuration
-rather than code. All 5 pass against `DESIGNAGENT_ORBIT_LOCAL=true` as a rehearsal. Two things the
-rehearsal already found and fixed, both of which would have burned a queue slot to discover:
-PSI/J names its resource fields differently from us and answers **HTTP 500** rather than ignoring an
-unexpected one (`PSIJ_RESOURCE_KEYS` in `orbit.py` now maps them), and the manager's 900 s
-`task_timeout_sec` is shorter than a job's walltime, so a queued job was failed before the scheduler
-started it (`_batch_timeout`).
-
-A third, found the same way and worse than either: **a job's `stdout` came back duplicated.**
-`drain_logs` (`tasks/hpc/base.py`) and `_poll_job` (`tasks/hpc/orbit.py`) tailed the same file from
-independent cursors — `handle.log_offset` and `meta["stdout_offset"]` — and both appended to
-`handle.log_tail`, which `_finish_job` then returned as the job's output, appending the terminal
-event's copy on top. Three writers, so every byte landed up to three times in arbitrary order, then
-got clipped to the last 8000 chars. Reproduce by printing 20 lines at 0.3 s intervals with a drain
-running, which is the production arrangement since `manager.submit` starts one for every interface
-advertising `supports_log_stream`: the result held 60 lines,
-`['line-1', 'line-2', 'line-3', 'line-1', ...]`. Every assertion on that channel was a substring
-check, which cannot see duplication, so it passed throughout. Fixed by making `_finish_job_enriched`
-re-read the whole file once from offset 0 (the broker serves it from any offset and reports its
-size) and by leaving `log_tail` to the drain alone. Pinned by
-`test_job_stdout_is_not_duplicated_by_the_log_drain` and
-`test_a_large_stdout_payload_survives_intact`.
-
-This matters beyond logging: stdout is the **only** channel a job has for returning a file, because
-`outputs` is dropped in transit (**C6**). Anything built on job output had to land on top of this.
 
 ### A2 · The Globus adapter has never met a live endpoint
 `tasks/hpc/globus.py` implements the ABC and is tested with an injected executor
@@ -330,10 +291,10 @@ request comes from. On the Linode the backend binds `127.0.0.1` and Caddy proxie
 **Repro:** with the token unset, start the backend on loopback behind any reverse proxy. A `PUT
 /api/settings` through the proxy is accepted.
 
-**Mitigated on the Linode, not fixed:** `/etc/repeat/backend.env` sets the token, and Caddy's
-`basic_auth` sits in front. The fix is Phase 2 of the deploy plan: per-user logins, with
-`_authorize_write` becoming a role check and the loopback-open default retired. Until then, **any
-deployment behind a proxy must set the token.**
+**Fixed on the Linode by Phase 2, which has shipped:** `_authorize_write` is a role check there, and
+Caddy's `basic_auth` was removed once logins worked. The loopback-open default itself is still in the
+code, for the development server, so **any deployment behind a proxy with logins off must set the
+token.**
 
 ### A18 · Two clients with the same Orbit name silently steal each other's replies
 `orbit_client_name` defaults to `designagent`, and the broker evidently routes replies by that
@@ -429,6 +390,32 @@ Logins and per-user credentials landed 2026-10-09 (`plans/LINODE_DEPLOY.md` Phas
   `dev.sh` is for the development stack, where logins are off, so this has not bitten. A health
   check for the Linode should sign in or read `systemctl`.
 
+### A22 · The staging channel's two ceilings are in the wrong units
+Measured by `slides/bench_staging.py`, which drives the real `wrap()` and `collect()`
+(`tasks/hpc/artifacts.py`) through a local `bash -lc` and writes `slides/staging.json`. Reproduce
+with `python3 slides/bench_staging.py`; the slide that quotes it is deck slide 16.
+
+**Outbound**, `_stage_out` compares the **raw** file size against `ARTIFACT_MAX_BYTES` (`wc -c`,
+`artifacts.py:146`), while what crosses the broker is gzip then base64. So the refusal is
+entropy-blind and the cost is not: a 2 MiB PDB is skipped as `too_large` although it compresses to
+0.67 MB, and a 1 MiB incompressible file is accepted and costs 1.40 MB of stdout. Measured ratios at
+1 MiB: **×1.33** for incompressible bytes, **×0.33** for structure text.
+
+**Inbound** has no declared cap at all. Chunking defeats `MAX_ARG_STRLEN`, the per-element limit, but
+all the chunks together still have to fit `ARG_MAX`, so `wrap()` builds a spec that cannot be
+executed and the failure is an `OSError: Argument list too long` at exec, not a named refusal.
+Bisected on this host: **~1.5 MiB** of incompressible payload, against a `getconf ARG_MAX` of 2 MiB.
+`mpnn_job_spec` has its own guard for exactly this (**A6**, `MAX_INLINE_B64` = 1 MiB) — `wrap()`,
+which every other caller goes through, does not.
+
+**Fix:** outbound, gzip to a file in `$work` first and compare *that* size against the cap, then
+`cat` it — one extra pass over a file that is about to be read anyway, in exchange for a cap that
+means what the name says. Inbound, give `wrap()` the A6 guard: measure the assembled argv against a
+configured ceiling and refuse by name, rather than handing `exec` a spec it cannot run. Both are
+local; neither waits on **C6**.
+
+---
+
 ## B — developer experience
 
 ### B1 · A fresh clone cannot be built
@@ -490,7 +477,7 @@ not enabled by `B`. There is no conflict with the deliberate `except Exception:`
 paths, so the argument against widening was based on a misreading.
 
 **What it costs:** `UP035` and `UP017` touch imports and `datetime` calls across many files, which
-moves line numbers the deck's 39 anchors cite — so, as with the cleanup itself, the widening and an
+moves line numbers the deck's 46 anchors cite — so, as with the cleanup itself, the widening and an
 anchor pass have to land together (see **M1**).
 
 ### B3 · The classifier's keyword lists miss `-ing` forms
@@ -724,7 +711,7 @@ bind failure rather than assuming a chosen port stays free.
 
 ### D2 · The LLM classifier path is unmeasured
 Everything known about routing comes from `classify_rules`: the reported session, the whole reference
-campaign and all 171 offline tests run with `llm: false`. When a key is present, `CLASSIFY_SYSTEM`
+campaign and all 417 offline tests run with `llm: false`. When a key is present, `CLASSIFY_SYSTEM`
 (`coordinator.py`) decides instead and the rules are never consulted — so the phrasings fixed in the
 rule path ("label the active site residues", "run another round") are unverified there.
 
@@ -768,37 +755,41 @@ With the broker and agent on a Linode VM and the endpoint on `amarel3` (`plans/A
 every job's stdout — and with it every in-band staged file (`tasks/hpc/artifacts.py`) — travels
 endpoint → broker → agent over WSS from Rutgers to the Linode region (Newark, if chosen), where the dev stack only ever moved it
 over loopback. The size is bounded by `orbit_artifact_max_bytes` and `orbit_job_output_max_bytes`; the
-time is not measured, and `_read_whole_stdout` and the task timeouts were tuned on loopback. Repro: at
-rung 4, a job that stages out a file of known size (the `-m live` staging tests are the template),
-timed end to end. If it is slow, the protocol's large outputs (AF3 models) should stay in `$PROJ` and
+time is not measured, and `_read_whole_stdout` and the task timeouts were tuned on loopback. Rung 4
+came and went without the measurement — its jobs printed a few lines each — so this now belongs to
+rung 5. Repro: a job that stages out a file of known size (the `-m live` staging tests are the
+template), timed end to end. If it is slow, the protocol's large outputs (AF3 models) should stay in `$PROJ` and
 come back only as summaries — which `af3_collect` already does.
 
 ---
 
 ## Maintenance
 
-### M1 · The deck cites 39 source line numbers
+### M1 · The deck cites 46 source line numbers
 Any backend refactor can drift them. `slides/check_anchors.py` re-derives every one and reports where
 a moved line actually is; run it before presenting and after any significant edit. The table is not
 self-maintaining: three citations in `CODE_FOR_DECK.md` had no anchor and drifted unnoticed until the
-deck was scanned for every `file:line` it prints. When adding a citation, add the anchor. `run.json` and
+deck was scanned for every `file:line` it prints. When adding a citation, add the anchor — including
+the four added when the deck went to three acts, which are cited as *numbers* on slide 16 rather than
+inside a code block, which is exactly the kind that rots unnoticed. `run.json`, `staging.json` and
 `DECK_SCRIPT.md` are generated — see `CLAUDE.md`.
 
-### M2 · The built deck is behind its source, and the asks slide is two findings short
-`slides/designagent-codewalk.pptx` and `.pdf` are committed, and `build_deck.js` has moved since they
-were produced: the drifted anchors were corrected, and the test-tier counts went from 93/6 to 171/12.
-Rebuilding needs `pptxgenjs`, which is not installed anywhere in this tree
-(`NODE_PATH=<dir with pptxgenjs> node slides/build_deck.js`), so the source is right and the artifacts
-are stale. `check_anchors.py` passes either way — it checks the source's citations, not the rendered
-file.
+### M2 · `run_model.py` has no campaign pin, so re-running it rewrites the deck's story
+The deck's figures come from `slides/run.json`, which `run_model.py` mines from `data/lake`. It
+aggregates the **whole** lake and takes whichever campaign Kuzu lists first. Run on 2026-10-09 it
+turned the committed figures — 12 designs, 37 tasks, 114 scores, 2 rounds, a pLDDT progression of
+81.66 → 81.79 — into 222 designs, 641 tasks, 2244 scores, 37 rounds and a different campaign's best
+value, because every browser check and protocol test since went into the same data dir. Nothing
+warns: it exits 0 and the deck builds, narrating numbers that no longer match the story around them.
 
-Separately, **slide 18 lists six findings and the backlog now has eight.** Missing: **C6** (PSI/J
-drops `outputs` and `stdin_text`, which is the one that forced the in-band staging protocol) and
-**C8** (asyncflow swallows SIGTERM, so the backend never exits). Both are findings against code whose
-authors are the intended audience, so leaving them off understates the case the slide exists to make.
-The slide's title — *"Six reproducibles, and one question"* — and its 2×3 grid both need changing, and
-a fourth row collides with the question box at y 5.42, so it is a layout decision rather than a data
-edit: three columns, tighter rows, or promoting two findings into the question panel.
+`slides/staging.json` is a separate file for this reason: F5 can be re-measured on a new host
+without any chance of touching the campaign the rest of the deck narrates.
 
-**Do both together** — rebuilding without adding C6 and C8 would produce a fresh artifact that is
-still wrong about the thing that matters.
+So the committed `run.json` is deliberately **not** regenerated. Only its `code` block was refreshed
+in place on 2026-10-09 (12 047 backend lines, 6 527 of tests), and a `note` key in the file records
+the split; `run_model.py`'s docstring says the same.
+
+**Fix:** take the campaign id as an argument, defaulting to the one the deck was built on
+(`s-tutp87hw`), and filter tiers 1–3 by it — tier 2's `rounds` and `by_metric` and tier 3's `sets`
+are already per-campaign in shape, so this is a `WHERE`, not a redesign. Reproduce on any data dir
+with more than one campaign: run it and diff `run.json`.

@@ -18,6 +18,35 @@ const pptxgen = require("pptxgenjs");
 const R = JSON.parse(fs.readFileSync(path.join(__dirname, "run.json"), "utf8"));
 const T1 = R.tier1, T2 = R.tier2, T3 = R.tier3.sets[0], CODE = R.code;
 const CAMP = T1.campaign.id, REF = T1.reference;
+// Measured by slides/bench_staging.py against the real wrap()/collect(), locally.
+const STG = JSON.parse(fs.readFileSync(path.join(__dirname, "staging.json"), "utf8"));
+
+// The concurrency figures are derived here rather than transcribed: run.json
+// carries every task's submitted_at and finished_at, so the deck computes the
+// profile at build time and cannot quote a stale one. Note what this is: mean
+// in-flight depth, not a speedup -- a handle's lifetime includes time queued
+// inside the pool, and there is no serial baseline to divide by.
+const CONC = (function (tasks) {
+  const ms = t => Date.parse(t);
+  const rows = tasks.filter(t => t.submitted_at && t.finished_at);
+  const t0 = Math.min(...rows.map(t => ms(t.submitted_at)));
+  const span = (Math.max(...rows.map(t => ms(t.finished_at))) - t0) / 1000;
+  const lifetimes = rows.map(t => (ms(t.finished_at) - ms(t.submitted_at)) / 1000);
+  const ev = [];
+  rows.forEach(t => {
+    ev.push([ms(t.submitted_at), 1]);
+    ev.push([ms(t.finished_at), -1]);
+  });
+  ev.sort((a, b) => a[0] - b[0]);
+  let cur = 0, peak = 0;
+  ev.forEach(([, d]) => { cur += d; if (cur > peak) peak = cur; });
+  const sum = lifetimes.reduce((a, b) => a + b, 0);
+  return {
+    n: rows.length, span, sum, peak,
+    mean: sum / span,
+    longest: Math.max(...lifetimes),
+  };
+})(T1.tasks);
 
 const C = {
   ink: "16222B", text: "22303C", muted: "5E6B75", rule: "C9D1D8", panel: "EEF2F5",
@@ -142,7 +171,33 @@ function card(s, x, y, w, h, heading, body, o = {}) {
   }
 }
 
-// ================================================================ 1. Title
+// A dimension divider. One repeated shape for all three acts: the dimension, the
+// definition the deck is using, the three claims the act will make, and -- in red,
+// before the claims are made rather than after -- the weakest of them.
+function dimension(s, o) {
+  s.background = { color: C.ink };
+  text(s, `ACT ${o.n} OF 3`, M, 0.85, 4, 0.3,
+    { fontSize: 13, bold: true, color: "8FB8C9", charSpacing: 3 });
+  text(s, o.name.toUpperCase(), M, 1.2, 9.5, 0.95,
+    { fontFace: HF, fontSize: 46, bold: true, color: C.white, charSpacing: 1 });
+  text(s, o.definition, M, 2.3, 11.6, 0.6,
+    { fontSize: 16, color: "C8D4DD", italic: true });
+  o.claims.forEach(([h, b], i) => {
+    const y = 3.2 + i * 0.86;
+    s.addShape(pres.shapes.RECTANGLE, { x: M, y: y + 0.04, w: 0.06, h: 0.6,
+      fill: { color: C.radical }, line: { color: C.radical } });
+    text(s, h, M + 0.24, y, 11.4, 0.3, { fontSize: 15, bold: true, color: "F0C898" });
+    text(s, b, M + 0.24, y + 0.3, 11.4, 0.32, { fontSize: 12, color: "C8D4DD" });
+  });
+  s.addShape(pres.shapes.RECTANGLE, { x: M, y: 6.1, w: W - 2 * M, h: 0.84,
+    fill: { color: "3A2222" }, line: { color: C.fail, width: 2 } });
+  text(s, [
+    { text: "The weakest claim in this act:  ", options: { bold: true, color: "E8A0A0" } },
+    { text: o.caveat, options: { color: C.white } },
+  ], M + 0.18, 6.22, 12.0, 0.64, { fontSize: 13 });
+}
+
+// ========================================================== 1. Title
 {
   const s = pres.addSlide(); s.background = { color: C.ink };
 
@@ -191,20 +246,30 @@ function card(s, x, y, w, h, heading, body, o = {}) {
     `${T2.rounds.length} rounds · ${T3.n_rows} designs · pLDDT ` +
     `${T2.rounds[0].best_value} → ${T2.rounds[1].best_value}`,
     M + 0.3, 4.55, 7.1, 0.6, { fontSize: 13, color: "9FB0BD" });
-  text(s, `Lab code walk · main @ e8467e6 · ~${(CODE.backend_total / 1000).toFixed(1)}k lines backend, ` +
+  [["FUNCTIONALITY", "the new tasks it makes possible"],
+   ["PERFORMANCE", "what it costs to run, and what we never measured"],
+   ["USABILITY", "what it is usable as"]].forEach(([h, b], i) => {
+    const y = 5.25 + i * 0.36;
+    s.addShape(pres.shapes.RECTANGLE, { x: M + 0.3, y: y + 0.05, w: 0.05, h: 0.24,
+      fill: { color: C.radical }, line: { color: C.radical } });
+    text(s, [{ text: `${h}  `, options: { bold: true, color: "F0C898" } },
+             { text: b, options: { color: "9FB0BD" } }],
+      M + 0.48, y, 7.2, 0.3, { fontSize: 11.5 });
+  });
+  text(s, `Lab code walk · main @ 7e72b74 · ~${(CODE.backend_total / 1000).toFixed(1)}k lines backend, ` +
     `${CODE.tests} lines of tests`, M + 0.3, 6.4, 7.6, 0.3, { fontSize: 12, color: "7E8F9C" });
   s.addNotes(
-`[0:25] This is a code walk, not a results talk. The thing I built is a chatbot for protein redesign: you type a prompt, and behind it a LangGraph loop goes and runs an actual campaign — structure lookups, folds, scoring, a provenance lake, and artifacts you can open.
+`[0:25] A code walk, not a results talk. What I built is a chatbot for protein redesign: you type a prompt, and behind it a LangGraph loop runs an actual campaign — structure lookups, folds, scoring, a provenance lake, artifacts you can open.
 
-The reason it's worth your time is the seam in the middle. Long work leaves this process: it goes onto a rhapsody process pool through flowgentic and asyncflow, or off the box entirely through ORBIT. Everything about the design follows from one constraint, which is that a chat interface cannot block on a protein fold.
+What is worth your time is the seam in the middle, where long work leaves this process: onto a rhapsody pool through flowgentic and asyncflow, or off the box entirely through ORBIT.
 
-Every number on these slides comes from a real campaign that is still on disk. I'll be explicit about what has never run.`);
+Every number on these slides comes from a real campaign still on disk, and the deck is in three acts — the three things I would want to know about anyone else's software: what new tasks it makes possible, what it costs to run, and what it is usable as.`);
 }
 
-// ================================================================ 2. What it does
+// =================================================== 2. What it does
 {
   const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "One prompt, a whole campaign", "What it does");
+  title(s, "One prompt, a whole campaign", "Functionality · the claim, measured");
 
   const steps = [
     ["prompt", `"redesign ${REF.pdb_id} for\nhigher stability"`, C.ui],
@@ -253,10 +318,71 @@ Right card, because you will ask and I would rather say it first. The variants a
 So treat the science as a demo and the plumbing as the deliverable. The plumbing is what the rest of the talk is about.`);
 }
 
-// ================================================================ 3. The constraint
+// =========================================== 3. The three dimensions
 {
   const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "One constraint sets the whole design", "Why it looks like this");
+  title(s, "Three questions this deck is organised around", "How to read the next 20 slides");
+
+  const dims = [
+    ["FUNCTIONALITY", C.agent, C.agentTint,
+     "The specific new tasks the software makes possible.",
+     ["A chat turn plans, runs and records a redesign campaign",
+      `${T1.nodes.Task} tasks, ${T1.nodes.Design} designs, ${T2.counts.scores} scores in one session`,
+      "A nine-stage cluster protocol, advanced one stage per turn"]],
+    ["PERFORMANCE", C.radical, C.radicalTint,
+     "Runtime efficiency and effectiveness \u2014 including where scale and scientific yield are not linear in each other.",
+     ["The chat answers in milliseconds while the work takes minutes",
+      `mean ${CONC.mean.toFixed(2)} tasks in flight, peak ${CONC.peak}, over ${CONC.span.toFixed(0)} s`,
+      "One measured curve: what a file costs to cross the broker"]],
+    ["USABILITY", C.ui, C.uiTint,
+     "Not the interface \u2014 the use cases the software lends itself to.",
+     ["As an application: a chat with a structure viewer",
+      "As a platform: per-user keys, 22 HTTP routes, a CLI",
+      "As a component: one contract, four interfaces, a readable lake"]],
+  ];
+  dims.forEach(([name, col, tint, def, rows], i) => {
+    const x = M + i * 4.28;
+    s.addShape(pres.shapes.RECTANGLE, { x, y: 1.5, w: 4.0, h: 0.42,
+      fill: { color: col }, line: { color: col } });
+    text(s, name, x + 0.14, 1.5, 3.8, 0.42,
+      { fontSize: 13.5, bold: true, color: C.white, valign: "middle", charSpacing: 1 });
+    s.addShape(pres.shapes.RECTANGLE, { x, y: 1.92, w: 4.0, h: 1.0,
+      fill: { color: tint }, line: { color: tint } });
+    text(s, def, x + 0.14, 1.99, 3.72, 0.9, { fontSize: 11.5, color: C.text, italic: true });
+    rows.forEach((r, j) => {
+      const y = 3.06 + j * 0.78;
+      s.addShape(pres.shapes.RECTANGLE, { x, y, w: 4.0, h: 0.68,
+        fill: { color: j % 2 ? C.white : C.panel }, line: { color: C.rule, width: 0.5 } });
+      text(s, r, x + 0.14, y + 0.06, 3.72, 0.56, { fontSize: 11, color: C.text });
+    });
+    label(s, i === 1 ? "what it answers \u00b7 and what it does not" : "what it answers",
+      x + 0.02, 5.46, 4.0);
+  });
+
+  s.addShape(pres.shapes.RECTANGLE, { x: M, y: 5.78, w: W - 2 * M, h: 1.05,
+    fill: { color: C.ink }, line: { color: C.ink } });
+  text(s, [
+    { text: "The middle column is the weak one, and I would rather name it here than defend it later.  ",
+      options: { bold: true, color: "F0C898" } },
+    { text: "One host, one process pool of four, one campaign, no GPU of our own. " +
+      "There is no scaling study in this deck, mean in-flight depth is not a speedup, and the " +
+      "act on performance therefore ends with a slide listing the measurements that do not exist \u2014 " +
+      "because this room can tell the difference between a measurement and an architecture diagram.",
+      options: { color: "C8D4DD" } },
+  ], M + 0.2, 5.88, 11.9, 0.9, { fontSize: 12.5 });
+
+  s.addNotes(
+`[0:50] The frame, in three questions, because they are the ones you would ask about any piece of scientific software and a deck organised by module answers none of them directly.
+
+Functionality: what new tasks does it make possible. Performance: runtime efficiency and effectiveness — usually scalability and occupancy, but also scientific performance, and the interesting cases are where scale and scientific yield are not linear in each other. This system has one of those. Usability, and I do not mean the user interface: the use cases. What it lends itself to as an application, as a platform other people's credentials plug into, or as a component in someone else's workflow.
+
+And the honest part up front: the middle column is the weak one. One host, a pool of four, one campaign, no GPU of our own. So that act ends with a slide about the measurements that do not exist, and the concurrency number I am about to quote is a mean depth, not a speedup. You can tell the difference, which is why I am saying it now rather than when someone asks.`);
+}
+
+// ================================================= 4. The constraint
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "One constraint sets the whole design", "The performance requirement that set everything");
 
   s.addShape(pres.shapes.RECTANGLE, { x: M, y: 1.55, w: 12.33, h: 0.9,
     fill: { color: C.ink }, line: { color: C.ink } });
@@ -299,82 +425,7 @@ Five things fall out. Tasks return futures, not results — submit places work a
 The honest flip side is at the bottom: if the agent were allowed to block, you would not build most of this. You would call the tools inline and go home.`);
 }
 
-// ================================================================ 4. The loop (F1)
-{
-  const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "Five nodes, and the nodes do their own routing", "The loop · F1");
-
-  // F1: coordinator on the left, the three working nodes across, interpreter right.
-  // The per-edge goto labels were dropped: the gaps are too narrow to hold them and
-  // the destinations block below already names every target.
-  const ny = 1.95, nh = 1.3, nw = 2.1, step = 2.62;
-  const nodes = [
-    ["Coordinator", "classify · answer\nfrom state", M, ny + 1.5, C.agent],
-    ["Design Initializer", "PDB · UniProt\nliterature", M + step, ny, C.task],
-    ["Redesign Orchestrator", "key_metric\nworklist", M + 2 * step, ny, C.task],
-    ["Analyst", "score · persist\nrank · visualize", M + 3 * step, ny, C.lake],
-    ["Interpreter", "summarize\nprior art", M + 4 * step, ny, C.ui],
-  ];
-  nodes.forEach(([t, sub, x, y, col]) =>
-    box(s, x, y, nw, nh, { title: t, sub: "\n" + sub, line: col, fs: 12.5, sfs: 9.5,
-      fill: C.white, lw: 2 }));
-
-  // forward edges, drawn in the gaps
-  const mid = ny + nh / 2;
-  line(s, M + nw, ny + 1.5 + nh / 2, M + step, mid + 0.35, { color: C.agent });
-  [1, 2, 3].forEach(i =>
-    line(s, M + i * step + nw, mid, M + (i + 1) * step, mid, { color: C.muted }));
-
-  // the back edge: analyst -> orchestrator, the only cycle
-  const by = ny + nh + 0.42;
-  line(s, M + 3 * step + nw / 2, ny + nh, M + 3 * step + nw / 2, by, { color: C.fail, w: 2, noArrow: true });
-  line(s, M + 3 * step + nw / 2, by, M + 2 * step + nw / 2, by, { color: C.fail, w: 2, noArrow: true });
-  line(s, M + 2 * step + nw / 2, by, M + 2 * step + nw / 2, ny + nh, { color: C.fail, w: 2 });
-  label(s, "improved  AND  round < max_rounds", M + 2 * step - 0.1, by + 0.04, nw + step + 0.2,
-    { fs: 10.5, color: C.fail, bold: true });
-
-  // coordinator fan-out
-  const c1 = by + 0.75, c2 = by + 1.18;
-  line(s, M + nw / 2, ny + 1.5 + nh, M + nw / 2, c2, { color: C.agent, noArrow: true });
-  line(s, M + nw / 2, c1, M + 2 * step + nw / 2 - 0.35, c1, { color: C.agent, noArrow: true });
-  line(s, M + 2 * step + nw / 2 - 0.35, c1, M + 2 * step + nw / 2 - 0.35, ny + nh + 0.02, { color: C.agent });
-  label(s, "a reference already loaded skips the initializer", M + nw + 0.25, c1 - 0.3, 4.4,
-    { fs: 10, color: C.agent, align: "left" });
-
-  box(s, M + 4 * step + nw - 1.35, c2 - 0.22, 1.35, 0.44,
-    { title: "END", fs: 12, line: C.muted, fill: C.panel });
-  line(s, M + 4 * step + nw / 2, ny + nh, M + 4 * step + nw / 2, c2 - 0.22, { color: C.ui });
-  line(s, M + nw / 2, c2, M + 4 * step + nw - 1.37, c2, { color: C.agent });
-  label(s, "plain chat, or a question state can already answer", M + nw + 0.25, c2 - 0.3, 4.6,
-    { fs: 10, color: C.agent, align: "left" });
-
-  code(s, [
-    'destinations = {',
-    '  "coordinator":  ("initializer", "orchestrator",',
-    '                   "analyst", "interpreter", END),',
-    '  "initializer":  ("orchestrator", END),',
-    '  "orchestrator": ("analyst", "interpreter", END),',
-    '  "analyst":      ("orchestrator", "interpreter", END),',
-    '  "interpreter":  (END,),',
-    '}',
-    'builder.add_edge(START, "coordinator")   # the only static edge',
-  ], M, 5.5, 7.4, 1.45, { anchor: "graph/build.py:147–164  ·  VERBATIM" });
-
-  card(s, M + 7.7, 5.5, 5.13, 1.45, "Why no conditional edges", [
-    "A node returns Command(goto=…, update=…): the decision and the state write are one atomic return.",
-    "destinations= is a declaration for validation and the drawn graph, not control flow.",
-  ], { fill: C.agentTint, hc: C.agent, fs: 11 });
-  s.addNotes(
-`[2:05] Five nodes, matching the spec: coordinator, design initializer, redesign orchestrator, analyst, interpreter.
-
-The coordinator is the only entry and the only re-entry point. It classifies the prompt and, where it can, answers straight from state without waking anything up — "what is the lead design?" costs one node visit.
-
-The interesting edge is the red one. The analyst decides whether to go round again, and the test is whether the key metric actually improved, bounded by a round budget. In the measured campaign that fired once: round one improved on nothing, round two improved on round one, and then the budget and the interpreter took over.
-
-Note how little static wiring there is. One static edge, START to coordinator. Everything else is a Command with a goto, which means the routing decision and the state write are the same atomic return — a node cannot update state and then fail to say where it went. The destinations tuple is a declaration so LangGraph can validate and draw the graph; it is not control flow.`);
-}
-
-// ================================================================ 5. Architecture (F2)
+// ============================================== 5. Architecture (F2)
 {
   const s = pres.addSlide(); s.background = { color: C.white };
   title(s, "Architecture, and where the RADICAL stack sits", "Architecture · F2");
@@ -423,7 +474,7 @@ Note how little static wiring there is. One static edge, START to coordinator. E
     sub: "\noptional extra", line: C.muted, fill: C.white, status: "tested", fs: 11.5, sfs: 9.5 });
 
   box(s, cx, 5.66, cw * 0.48, 0.62, { title: "RADICAL Orbit", sub: "\nRhapsodyClient + PSIJClient",
-    line: C.radical, fill: C.radicalTint, fs: 11.5, sfs: 9.5, tc: C.radical, status: "tested" });
+    line: C.radical, fill: C.radicalTint, fs: 11.5, sfs: 9.5, tc: C.radical });
   box(s, cx + cw * 0.5, 5.66, cw * 0.5, 0.62, { title: "Globus Compute / hpc-bridge",
     sub: "\nGlobusRunner, injected executor", line: C.muted, fill: C.white, status: "planned",
     fs: 11.5, sfs: 9.5 });
@@ -439,7 +490,7 @@ Note how little static wiring there is. One static edge, START to coordinator. E
   const rx = cx + cw + 0.25, rwd = W - M - rx;
   card(s, rx, 1.5, rwd, 2.2, "The one rule", [
     "A node reaches the outside only through Deps — never an interface or a store directly.",
-    "That is what makes 93 of 99 tests run with no network, no pool and no endpoint.",
+    "That is what makes 417 of 441 tests run with no network, no pool and no endpoint.",
     "Convention, not an enforced check.",
   ], { fill: C.agentTint, hc: C.agent, fs: 10.5 });
   card(s, rx, 3.85, rwd, 1.5, "Where it leaves the process", [
@@ -452,15 +503,113 @@ Note how little static wiring there is. One static edge, START to coordinator. E
 
 Browser, then FastAPI with a single SSE chat endpoint. Then the LangGraph graph, checkpointed to SQLite. Then a small Deps object, which is the only thing a node closes over — settings, the task manager, the history lake, the artifact store.
 
-Then the three task interfaces. Then the substrate, which is flowgentic over asyncflow over a rhapsody concurrent backend on a four-worker process pool. Then remote: ORBIT solid-but-dotted, meaning it genuinely works and has only ever met a localhost broker; Globus dashed, meaning designed for and not implemented against anything live. Then the three lake tiers.
+Then the three task interfaces, then the substrate — flowgentic over asyncflow over a rhapsody concurrent backend on a four-worker pool — then remote: ORBIT solid, because since the ninth of October it has run jobs on a real cluster; Globus dashed, designed for and never run against anything live. Then the three lake tiers.
 
-Two things in the rail. The rule that nodes only ever reach through Deps is what makes 93 of the 99 tests run with no network and no pool. And the band that crosses into asyncflow is exactly one: the local task interface. Everything above it is ordinary async Python, which is deliberate — I wanted the middleware dependency confined to a layer I could swap or stub.`);
+Two things in the rail. The rule that nodes reach out only through Deps is what makes 417 of the 441 tests run with no network and no pool. And exactly one band crosses into asyncflow: the local task interface. Everything above it is ordinary async Python, deliberately, so the middleware dependency stays in a layer I can stub.`);
 }
 
-// ================================================================ 6. State
+// ======================================== 6. FUNCTIONALITY — divider
+{
+  const s = pres.addSlide();
+  dimension(s, {
+    n: 1, name: "Functionality",
+    definition: "The specific new tasks a piece of software makes possible \u2014 what you can do now that you could not before.",
+    claims: [
+      ["One prompt runs a redesign campaign end to end",
+       `classify \u2192 initialize \u2192 propose \u2192 fold \u2192 score \u2192 rank \u2192 summarize, every step recorded: ${T1.nodes.Task} tasks, ${T1.nodes.Design} designs, ${T2.counts.scores} scores, ${R.artifacts.n} artifacts in the session on the next slide`],
+      ["A multi-day cluster protocol becomes a conversation",
+       "nine stages, one per turn, three of them stopping for a human \u2014 and the turn boundary is the checkpoint, because there is no interrupt() anywhere in this repo"],
+      ["A campaign becomes a record the next campaign can query",
+       "three tiers behind one facade; best_designs(exclude_campaign=\u2026) is how the interpreter finds prior art without rediscovering its own designs"],
+    ],
+    caveat: "the protocol's nine stages have never run on a cluster. 203 offline tests, zero real runs \u2014 so every resource figure in protocol/specs.py is an estimate.",
+  });
+  s.addNotes(
+`[0:20] Act one, functionality: the new tasks this makes possible. Three claims — a prompt that runs a campaign, a multi-day cluster protocol turned into a conversation, and a campaign that becomes a queryable record. The weakest of the three is the second one: the protocol has two hundred and three tests and has never run on a cluster.`);
+}
+
+// ================================================== 7. The loop (F1)
 {
   const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "State, its reducers, and what must never enter it", "State");
+  title(s, "Six nodes, and the nodes do their own routing", "Functionality · the loop · F1");
+  text(s, "F1 is the campaign loop. The sixth node, protocol, answers in place and goes straight to END \u2014 it is slide 10.",
+    M, 1.46, 12.3, 0.24, { fontSize: 10.5, color: C.muted, italic: true });
+
+  // F1: coordinator on the left, the three working nodes across, interpreter right.
+  // The per-edge goto labels were dropped: the gaps are too narrow to hold them and
+  // the destinations block below already names every target.
+  const ny = 1.95, nh = 1.3, nw = 2.1, step = 2.62;
+  const nodes = [
+    ["Coordinator", "classify · answer\nfrom state", M, ny + 1.5, C.agent],
+    ["Design Initializer", "PDB · UniProt\nliterature", M + step, ny, C.task],
+    ["Redesign Orchestrator", "key_metric\nworklist", M + 2 * step, ny, C.task],
+    ["Analyst", "score · persist\nrank · visualize", M + 3 * step, ny, C.lake],
+    ["Interpreter", "summarize\nprior art", M + 4 * step, ny, C.ui],
+  ];
+  nodes.forEach(([t, sub, x, y, col]) =>
+    box(s, x, y, nw, nh, { title: t, sub: "\n" + sub, line: col, fs: 12.5, sfs: 9.5,
+      fill: C.white, lw: 2 }));
+
+  // forward edges, drawn in the gaps
+  const mid = ny + nh / 2;
+  line(s, M + nw, ny + 1.5 + nh / 2, M + step, mid + 0.35, { color: C.agent });
+  [1, 2, 3].forEach(i =>
+    line(s, M + i * step + nw, mid, M + (i + 1) * step, mid, { color: C.muted }));
+
+  // the back edge: analyst -> orchestrator, the only cycle
+  const by = ny + nh + 0.42;
+  line(s, M + 3 * step + nw / 2, ny + nh, M + 3 * step + nw / 2, by, { color: C.fail, w: 2, noArrow: true });
+  line(s, M + 3 * step + nw / 2, by, M + 2 * step + nw / 2, by, { color: C.fail, w: 2, noArrow: true });
+  line(s, M + 2 * step + nw / 2, by, M + 2 * step + nw / 2, ny + nh, { color: C.fail, w: 2 });
+  label(s, "improved  AND  round < max_rounds", M + 2 * step - 0.1, by + 0.04, nw + step + 0.2,
+    { fs: 10.5, color: C.fail, bold: true });
+
+  // coordinator fan-out
+  const c1 = by + 0.75, c2 = by + 1.18;
+  line(s, M + nw / 2, ny + 1.5 + nh, M + nw / 2, c2, { color: C.agent, noArrow: true });
+  line(s, M + nw, c1, M + 2 * step + nw / 2 - 0.35, c1, { color: C.agent, noArrow: true });
+  line(s, M + 2 * step + nw / 2 - 0.35, c1, M + 2 * step + nw / 2 - 0.35, ny + nh + 0.02, { color: C.agent });
+  label(s, "a reference already loaded skips the initializer", M + nw + 0.25, c1 - 0.3, 4.4,
+    { fs: 10, color: C.agent, align: "left" });
+
+  box(s, M + 4 * step + nw - 1.35, c2 - 0.22, 1.35, 0.44,
+    { title: "END", fs: 12, line: C.muted, fill: C.panel });
+  line(s, M + 4 * step + nw / 2, ny + nh, M + 4 * step + nw / 2, c2 - 0.22, { color: C.ui });
+  line(s, M + nw / 2, c2, M + 4 * step + nw - 1.37, c2, { color: C.agent });
+  label(s, "plain chat, or a question state can already answer", M + nw + 0.25, c2 - 0.3, 4.6,
+    { fs: 10, color: C.agent, align: "left" });
+
+  code(s, [
+    'destinations = {',
+    '  "coordinator":  ("initializer", "orchestrator", "analyst",',
+    '                   "interpreter", "protocol", END),',
+    '  "initializer":  ("orchestrator", END),',
+    '  "orchestrator": ("analyst", "interpreter", END),',
+    '  "analyst":      ("orchestrator", "interpreter", END),',
+    '  "interpreter":  (END,),',
+    '  "protocol":     (END,),',
+    '}',
+    'builder.add_edge(START, "coordinator")   # the only static edge',
+  ], M, 5.5, 7.4, 1.45, { anchor: "graph/build.py:147–158  ·  VERBATIM, two comment lines elided", fs: 10.5 });
+
+  card(s, M + 7.7, 5.5, 5.13, 1.45, "Why no conditional edges", [
+    "A node returns Command(goto=…, update=…): the decision and the state write are one atomic return.",
+    "destinations= is a declaration for validation and the drawn graph, not control flow.",
+  ], { fill: C.agentTint, hc: C.agent, fs: 11 });
+  s.addNotes(
+`[1:55] Five nodes in the campaign loop, matching the spec: coordinator, design initializer, redesign orchestrator, analyst, interpreter. There is a sixth in the graph, the protocol node, and it is its own slide later — it answers the user and goes straight to END, so drawing it here would add a box and no information.
+
+The coordinator is the only entry and the only re-entry point. It classifies the prompt and, where it can, answers straight from state without waking anything up — "what is the lead design?" costs one node visit.
+
+The interesting edge is the red one. The analyst decides whether to go round again, and the test is whether the key metric actually improved, bounded by a round budget. In the measured campaign that fired once: round one improved on nothing, round two improved on round one, and then the budget and the interpreter took over.
+
+Note how little static wiring there is. One static edge, START to coordinator. Everything else is a Command with a goto, which means the routing decision and the state write are the same atomic return — a node cannot update state and then fail to say where it went. The destinations tuple is a declaration so LangGraph can validate and draw the graph; it is not control flow.`);
+}
+
+// ========================================================== 8. State
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "State, its reducers, and what must never enter it", "Functionality · state");
 
   code(s, [
     'class DesignState(TypedDict, total=False):',
@@ -525,10 +674,184 @@ The right-hand side is a finding worth your time. I originally passed fold resul
 What makes that a real lesson rather than a tidy-up is that nothing breaks when you get it wrong. It just gets slower every turn, forever. So it is pinned by a test that serializes the state and asserts the string "ATOM" never appears in it.`);
 }
 
-// ================================================================ 7. One campaign, measured (F3)
+// ================================================== 9. The lake (F4)
 {
   const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, `One campaign, measured: ${T1.tasks.length} tasks in 146 seconds`, "Data flow · F3");
+  title(s, "Design History: three tiers, and what is actually in them", "Functionality · the record · F4");
+
+  const tiers = [
+    ["Tier 1 — raw task outputs", "Kuzu, embedded graph DB", [
+      `${T1.n_node_tables} node tables · ${T1.n_rel_tables} rel tables`,
+      `Campaign ${T1.nodes.Campaign} · Reference ${T1.nodes.Reference} · Design ${T1.nodes.Design}`,
+      `Task ${T1.nodes.Task} · Output ${T1.nodes.Output} · Structure ${T1.nodes.Structure}`,
+      `properties columns hold JSON, so a new task needs no migration`,
+      `single writer behind an RLock`,
+    ]],
+    ["Tier 2 — scores, rankings, analysis", "SQLite", [
+      `${T2.counts.scores} score rows over ${T2.n_metrics} metrics`,
+      `${T2.counts.rankings} ranking rows (round 1: 6, round 2: 11 cumulative)`,
+      `${T2.counts.analyses} round analyses, with the failures list`,
+      `best_designs() can exclude the current campaign — that is how the`,
+      `interpreter finds prior art without finding itself`,
+    ]],
+    ["Tier 3 — golden sets", "Parquet + manifest", [
+      `${T3.n_rows} rows, one metric_<name> column per metric seen`,
+      `rules: metric=${T3.rules.metric}, direction=${T3.rules.direction}, top_k=${T3.rules.top_k},`,
+      `dedupe_sequences=${T3.rules.dedupe_sequences} → 12 designs became ${T3.n_rows} rows`,
+      `the manifest records the rules, so a set is reproducible`,
+      `staged for ML training, not for reading`,
+    ]],
+  ];
+  const tw = 4.04;
+  tiers.forEach(([h, sub, items], i) => {
+    const x = M + i * (tw + 0.1);
+    s.addShape(pres.shapes.RECTANGLE, { x, y: 1.5, w: tw, h: 0.62,
+      fill: { color: C.lake }, line: { color: C.lake } });
+    text(s, h, x + 0.12, 1.54, tw - 0.24, 0.32,
+      { fontSize: 12.5, bold: true, color: C.white });
+    text(s, sub, x + 0.12, 1.84, tw - 0.24, 0.24, { fontSize: 10, color: "BFE0CF", fontFace: MF });
+    s.addShape(pres.shapes.RECTANGLE, { x, y: 2.12, w: tw, h: 1.75,
+      fill: { color: C.lakeTint }, line: { color: C.lakeTint } });
+    text(s, items.map((t, j) => ({ text: t, options: { bullet: true, breakLine: j < items.length - 1 } })),
+      x + 0.15, 2.22, tw - 0.3, 1.6, { fontSize: 10, color: C.text, paraSpaceAfter: 3 });
+  });
+
+  code(s, [
+    'def record_task_result(self, campaign_id, task_id, *, name, interface, state,',
+    '                      result=None, error="", designs=None, round_no=0,',
+    '                      reference_id=None, blob=None) -> dict:',
+    '    """Write one task\'s outcome across tiers 1 and 2.',
+    '',
+    '    `blob` is an optional (data, suffix) pair for bulky raw output.',
+    '    Returns {"output_id", "blob_path"} for the caller to reference.',
+    '    """',
+  ], M, 4.05, 7.5, 1.5, { anchor: "lake/store.py:89–108  ·  TRIMMED", fs: 10 });
+
+  card(s, M + 7.8, 4.05, 5.03, 1.5, "One facade, three stores", [
+    "DesignHistory is the only thing nodes see; tiers 1 and 2 are written together or not at all.",
+    `Bulky output goes to a content-addressed blob (sha256[:16]) — ${R.blobs.n} files, ${(R.blobs.bytes / 1e6).toFixed(1)} MB on disk.`,
+  ], { fill: C.lakeTint, hc: C.lake, fs: 10.5 });
+
+  text(s, [
+    { text: "Worth noticing: ", options: { bold: true, color: C.ink } },
+    { text: "only tier 1 needs a running process to read. Tiers 2 and 3 are a SQLite file and a " +
+      "Parquet file, so the figures on this slide were produced by a script that opened them " +
+      "directly while the server held the Kuzu lock." },
+  ], M, 5.7, 12.3, 0.65, { fontSize: 12.5 });
+  footer(s, "Every count read from slides/run.json by slides/run_model.py — the same script that drew F3.");
+  s.addNotes(
+`[1:35] Three tiers, exactly as the brief specified, and these are the real contents of the measured campaign.
+
+Tier one is a Kuzu graph: six node tables, eight relationship tables, the whole provenance chain from campaign to reference to design to task to output to structure. One design decision there worth flagging — the properties columns hold JSON, so adding a task type needs no migration. That is a deliberate trade: queryability for evolvability, and I would make it again at this stage.
+
+Tier two is SQLite: 114 score rows over ten metrics, seventeen rankings, two round analyses. The method worth pointing at is best_designs, which can exclude the current campaign — that is how the interpreter finds comparable prior work without rediscovering its own designs, and it is the new task this tier makes possible.
+
+Tier three is Parquet plus a manifest: eleven rows from twelve designs, because the curation rules deduplicate sequences, and the manifest records the rules so the set is reproducible rather than merely present.
+
+And only tier one needs a running process to read, which is why the script that mined these numbers could read the other two while the server held the Kuzu lock.`);
+}
+
+// ============================================= 10. The protocol node
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "A multi-day cluster pipeline, one stage per turn", "Functionality · the protocol node");
+
+  // Nine stages. Indigo = the stage answers and waits for a human; teal = it submits work.
+  const stages = [
+    ["intake", "inputs · method"], ["structure", "AF2 · trim"], ["conservation", "hhblits · cpos"],
+    ["mpnn", "ProteinMPNN · Halo"], ["score", "rank · select"], ["af3 submit", "~1 GPU-hr each"],
+    ["af3 collect", "read the tree"], ["report", "notebook · docx"], ["done", "—"],
+  ];
+  const WAITS = new Set(["intake", "structure", "score"]);
+  const sw = (12.333 - 8 * 0.08) / 9;
+  stages.forEach(([t, sub], i) => {
+    const waits = WAITS.has(t);
+    box(s, M + i * (sw + 0.08), 1.5, sw, 0.72, { title: t, sub: "\n" + sub,
+      line: waits ? C.agent : C.task, fill: waits ? C.agentTint : C.white,
+      fs: 10, sfs: 8.5, tc: waits ? C.agent : C.ink });
+  });
+  text(s, [
+    { text: "Indigo", options: { bold: true, color: C.agent } },
+    { text: " = the stage asks the user something and stops. Four questions, three stages, and " +
+      "no " },
+    { text: "interrupt()", options: { fontFace: MF } },
+    { text: " anywhere in this repo: " },
+    { text: "the turn boundary is the checkpoint mechanism.", options: { bold: true } },
+  ], M, 2.3, 12.333, 0.3, { fontSize: 11.5 });
+
+  code(s, [
+    'protocol = state.get("protocol") or {}',
+    'if protocol.get("awaiting") and not _wants_out(text):',
+    '    return Command(',
+    '        goto="protocol",',
+    '        update={"intent": "protocol",',
+    '                "status": "Continuing the protocol…"},',
+    '    )',
+  ], M, 2.7, 6.0, 1.5, { anchor: "coordinator.py:269–274  ·  VERBATIM, one line wrapped", fs: 10 });
+  text(s, "It has to come before classification: \"liu\", \"310,364\" and \"go\" all classify as " +
+    "chat, which answers from session state and leaves the campaign waiting forever. " +
+    "ESCAPE_WORDS is the explicit way out.",
+    M, 4.45, 6.0, 0.55, { fontSize: 10.5, color: C.muted, italic: true });
+
+  card(s, M + 6.33, 2.7, 6.0, 1.4, "Two tables, so each entry is testable alone", [
+    "STAGES: stage → what it runs. ANSWERS: an awaiting key → how the reply is read. A stage sets awaiting and returns; the next message answers it.",
+    "It is the only node that replies every turn and never routes onward — and the only one whose state has to survive the checkpoint to be useful.",
+  ], { fill: C.agentTint, hc: C.agent, fs: 10.5 });
+
+  card(s, M, 5.0, 6.0, 1.35, "Two job modes, and the choice that matters", [
+    "Transfer specs declare inputs/outputs, so artifacts.wrap rewrites them into a mktemp -d script on the local executor: no queue slot.",
+    "Compute specs declare neither and set directory under $PROJ, so their files persist for the next stage and their stdout is the chip's log tail.",
+  ], { fill: C.taskTint, hc: C.task, fs: 10 });
+  card(s, M + 6.33, 5.0, 6.0, 1.35, "specs.py is the source of truth", [
+    "The skill's #SBATCH headers are dead here: PSI/J generates its own submit script. Every walltime, core count and memory figure lives in protocol/specs.py.",
+    "ResourceSpecV1.memory is in bytes: {\"memory\": 32} renders --mem=0K, which Slurm reads as the whole node. Everything goes through gib().",
+  ], { fill: C.panel, fs: 10 });
+
+  text(s, [
+    { text: "Progress is read from the filesystem, never from a handle. ",
+      options: { bold: true, color: C.ink } },
+    { text: "Handles are in-memory, so a restart cannot re-attach; af3_collect lists the output " +
+      "tree instead, which makes it idempotent and identical whether the submit was minutes or " +
+      "days ago. 203 of the 417 offline tests are this node. No stage has run on a cluster yet." },
+  ], M, 6.5, 12.333, 0.5, { fontSize: 12 });
+  s.addNotes(
+`[1:15] This is the newest part, and the reason the rest of the machinery exists.
+
+The enzyme redesign protocol is a multi-day cluster pipeline — model the target, trim it, search conservation, redesign with ProteinMPNN, select, fold with AlphaFold3, collect, report — written for a human at a terminal over several days.
+
+It runs here one stage per turn, because the protocol has three points where it must stop for a person and there is no interrupt() anywhere in this repository. The turn boundary is the checkpoint instead: a stage sets awaiting and returns, and the next message answers it.
+
+The code block is the bug I would otherwise have shipped. The route to the protocol has to come before classification, because "liu", "310,364" and "go" all classify as chat — which answers from session state and leaves the campaign waiting forever.
+
+Bottom left is the decision I would flag to anyone building this. A transfer step declares inputs and outputs and gets rewritten into a temp-directory script on the local executor, no queue slot. A compute step declares neither and sets a working directory under the project, so its files persist for the next stage.
+
+And the honest line: two hundred and three of the four hundred and seventeen offline tests cover this node, and no stage of it has run on a cluster, so every number in specs.py is an estimate.`);
+}
+
+// ========================================= 11. PERFORMANCE — divider
+{
+  const s = pres.addSlide();
+  dimension(s, {
+    n: 2, name: "Performance",
+    definition: "Runtime efficiency and effectiveness \u2014 and the places where scale and scientific yield are not linear in each other.",
+    claims: [
+      ["The chat answers in milliseconds while the work takes minutes",
+       `mean ${CONC.mean.toFixed(2)} tasks in flight over ${CONC.span.toFixed(1)} s, peak ${CONC.peak}, longest single task ${CONC.longest.toFixed(1)} s \u2014 nothing in the graph awaits at submission time`],
+      ["The seam is what buys that, and it costs one contract",
+       "five verbs, four implementations; a failed submission becomes a settled FAILED handle rather than an exception, so a caller has one shape to handle and gather() never raises"],
+      ["One number here is a curve, and it was measured for this talk",
+       `what a file costs to cross the broker: \u00d7${(STG.rows.find(r => r.shape === "random" && r.payload_bytes === 1048576).ratio).toFixed(2)} of stdout per byte for incompressible data, \u00d7${(STG.rows.find(r => r.shape === "structure" && r.payload_bytes === 1048576).ratio).toFixed(2)} for structure text`],
+    ],
+    caveat: "there is no scaling study. One host, one pool of four, one campaign \u2014 mean in-flight depth is not a speedup, and this act ends with the slide that says exactly which measurements are missing.",
+  });
+  s.addNotes(
+`[0:20] Act two, performance, and this is the act where I have the least to offer. Three claims: the loop never blocks, the seam is what buys that, and one figure in this deck is an actual curve I measured for this talk. The caveat is the whole act's caveat — there is no scaling study here, and the concurrency number is a mean depth, not a speedup.`);
+}
+
+// =================================== 12. One campaign, measured (F3)
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, `One campaign, measured: ${T1.tasks.length} tasks in 146 seconds`, "Performance · one campaign, measured · F3");
 
   // Gantt from run.json
   const tasks = T1.tasks.filter(t => t.submitted_at && t.finished_at)
@@ -537,7 +860,7 @@ What makes that a real lesson rather than a tidy-up is that nothing breaks when 
   tasks.forEach(t => { t.rs = (t.s - t0) / 1000; t.rf = (t.f - t0) / 1000; });
   const campaignTasks = tasks.filter(t => t.rs >= 60);   // the redesign turn
   const span = Math.max(...campaignTasks.map(t => t.rf)) - 60;
-  const gx = M + 1.6, gw = 6.45, gy = 1.95, rowH = 0.127;
+  const gx = M + 1.6, gw = 6.45, gy = 1.95, rowH = 0.108;
   const sx = (v) => gx + ((v - 60) / span) * gw;
 
   const colorOf = (n) => n.startsWith("fold") ? C.radical
@@ -587,23 +910,36 @@ What makes that a real lesson rather than a tidy-up is that nothing breaks when 
     "That design survived as a sequence-only entry with 4 metrics; the round scored the other 5 and the user got a warning.",
   ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
 
+  // Derived from the same rows the Gantt is drawn from, at build time.
+  s.addShape(pres.shapes.RECTANGLE, { x: M, y: 5.88, w: gx + gw - M, h: 0.86,
+    fill: { color: C.ink }, line: { color: C.ink } });
+  text(s, [
+    { text: `${CONC.n} tasks · ${CONC.sum.toFixed(1)} s of handle lifetime in ${CONC.span.toFixed(1)} s of wall clock · ` +
+      `mean ${CONC.mean.toFixed(2)} in flight, peak ${CONC.peak}`,
+      options: { bold: true, color: "F0C898", breakLine: true } },
+    { text: "Derived from these rows at build time, not transcribed. It is also not a speedup: a handle's " +
+      "lifetime includes time queued inside a pool of four, and this deck has no serial baseline to divide by. " +
+      `The critical path is one ${CONC.longest.toFixed(1)} s fold.`,
+      options: { color: "C8D4DD" } },
+  ], M + 0.18, 5.96, gx + gw - M - 0.36, 0.72, { fontSize: 10 });
+
   footer(s, "Drawn from run.json — the Task nodes of tier 1, with their recorded submit and finish times. Nothing here is illustrative.");
   s.addNotes(
 `[1:45] This is the real task ledger of the measured campaign, straight out of tier one of the lake, with submit and finish times as recorded.
 
 Look at the orange fold rows. Six go out in the same instant and come back at 13.3, 13.3, 14.3, 17.9, 26.0 and 31.7 seconds — out of order, reaped as they land. That is the whole point of the futures design, and it is the one thing that would be invisible in a sequence diagram.
 
-It also settles an argument in your favour and against a default. Round two ran from 13.2 to 42.4 seconds. flowgentic's RetryConfig defaults to a 30-second per-attempt timeout with three attempts, so with the defaults roughly half of these folds would have been cancelled and silently retried. I'll come back to that.
+It also settles an argument against a default. Round two ran from 13.2 to 42.4 seconds, and flowgentic's RetryConfig defaults to a 30-second per-attempt timeout, so with the defaults roughly half of these folds would have been cancelled and silently retried. I'll come back to that.
 
-The blue lookups show the initializer's concurrency: PDB and UniProt together, a cross-reference follow-up, then structure and literature together.
+The band underneath is the only aggregate I will quote: thirty-seven tasks, two hundred and ninety-eight seconds of handle lifetime inside a hundred and forty-six of wall clock, so mean concurrency of two, peaking at six. The deck computes it from these rows at build time, so it cannot go stale. But notice what it is not — a lifetime includes time queued inside a pool of four, and I have no serial baseline, so that two is a depth, not a speedup. The critical path is a single forty-two second fold.
 
-And the bottom right is not a contrived example. ESM Atlas genuinely dropped one of six requests. That design came through as sequence-only, got four metrics instead of eleven, the other five scored normally, and the user saw a warning. I did not have to construct a failure to talk about degradation.`);
+And the bottom right is not contrived. ESM Atlas genuinely dropped one of six requests: that design came through as sequence-only with four metrics instead of eleven, the other five scored normally, and the user saw a warning.`);
 }
 
-// ================================================================ 8. The seam: contract
+// ============================================ 13. The seam: contract
 {
   const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "★ The Task Interface contract", "The seam · 1 of 3");
+  title(s, "★ The Task Interface contract", "Performance · the seam · 1 of 3");
 
   code(s, [
     'class TaskInterface(ABC):',
@@ -684,10 +1020,10 @@ The bottom-left code is the piece I would defend hardest. When submission itself
 The state enum normalizes across vocabularies, because ORBIT and PSI/J each have their own and I did not want those leaking upward.`);
 }
 
-// ================================================================ 9. The seam: substrate
+// =========================================== 14. The seam: substrate
 {
   const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "★ Through flowgentic to a rhapsody process pool", "The seam · 2 of 3");
+  title(s, "★ Through flowgentic to a rhapsody process pool", "Performance · the seam · 2 of 3");
 
   // the path
   const pw = 2.35, py = 1.5;
@@ -760,17 +1096,15 @@ The state enum normalizes across vocabularies, because ORBIT and PSI/J each have
 
 Top left is the wrapper. The comment in it is doing real work: flowgentic's RetryConfig defaults to a 30-second per-attempt timeout with three attempts, which is right for a service call and wrong for a fold. We saw on the last slide that half the round-two folds exceed it. So we pass timeout_sec None and max_attempts one, and own retries ourselves.
 
-Bottom left: submission has to return immediately, and the flowgentic wrapper for FUNCTION_TASK is a coroutine function rather than a future factory, so we wrap it in ensure_future. That comment exists because I got it wrong first and blocked the loop.
-
-Top right: the pool imposes three real constraints. Bodies at module level, clients built inside the body, and a main guard on the entry point.
+Bottom left: submission has to return immediately, and flowgentic's FUNCTION_TASK wrapper is a coroutine function rather than a future factory, so we wrap it in ensure_future — that comment exists because I got it wrong first and blocked the loop. Top right, the pool's three constraints: bodies at module level, clients built inside the body, a main guard on the entry point.
 
 And the red block is the first of the findings. That is verbatim flowgentic. The comment says "try to include aiohttp timeouts if present" and the handler says raise. So aiohttp becomes a hard requirement, and so does httpx twelve lines up. It fires whenever retryable_exceptions is left at its default, which is the empty tuple — the common case. I think that except clause wants to be a pass, and I would like to know if you agree.`);
 }
 
-// ================================================================ 10. Orbit
+// ========================================================= 15. Orbit
 {
   const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "★ RADICAL Orbit: two clients, two concurrency bridges", "The seam · 3 of 3");
+  title(s, "★ RADICAL Orbit: two clients, two concurrency bridges", "Performance · the seam · 3 of 3");
 
   // the two client paths
   box(s, M, 1.5, 5.9, 0.42, { title: "EndpointRuntime(broker_url, cert, name, token)",
@@ -822,9 +1156,9 @@ And the red block is the first of the findings. That is verbatim flowgentic. The
     "reported no reason at all — only the code — so FAILED always synthesises an explanation.",
     M + 6.2, 4.6, 6.63, 0.55, { fontSize: 11, color: C.fail });
 
-  card(s, M + 6.2, 5.2, 6.63, 1.1, "Proven, and only this far", [
+  card(s, M + 6.2, 5.2, 6.63, 1.1, "How far this is proven", [
     "12 tests against a real localhost broker + endpoint: push states, incremental log tailing by offset, a failing job, cancelling a running one, that stdout comes back whole and unduplicated, that declared inputs and outputs actually travel, and one real ProteinMPNN run on CPU.",
-    "Never run against a scheduler. That is the next real step.",
+    "And, since 2026-10-09, 8 more against a real one: a broker on a public VM, an endpoint registered from a cluster login node, Slurm ids back in handle.meta. Slide 19.",
   ], { fill: C.panel, fs: 10.5 });
   footer(s, "tests/test_orbit_local.py — skipped unless the Orbit CLI scripts are runnable; LocalOrbitStack brings up broker and endpoint as subprocesses.");
   s.addNotes(
@@ -832,17 +1166,650 @@ And the red block is the first of the findings. That is verbatim flowgentic. The
 
 Two clients, two different jobs. RhapsodyClient handles function and executable tasks and pushes status events at us. PSIJClient handles batch jobs, and it is the one place in either backend where you can tail a running job's output — get_job_status takes stdout and stderr byte offsets. That is what the whole log-streaming story is built on, and it works.
 
-Two threading problems. Every client method is synchronous and blocking, so all 23 call sites go through to_thread. And push callbacks arrive on Orbit's own listener thread, so _dispatch hops them onto our loop with call_soon_threadsafe. Neither is a complaint; they are just facts you need to know before you build on this.
+Two threading problems, neither a complaint: every client method is synchronous, so all 23 call sites go through to_thread, and push callbacks arrive on Orbit's own listener thread, so _dispatch hops them onto our loop with call_soon_threadsafe.
 
 The red half is findings four and five. A completed task's terminal event carries state and exit code but not stdout, so my first version resolved futures with empty results — the fix re-fetches with get_task, and lets the event win on state while the fetch fills in output. And a failed job reports only a non-zero exit code; no reason reaches the client at all. So FAILED always synthesises an explanation from the exit code, then stderr, then the log tail. I would rather Orbit told me.
 
-Status, plainly: six tests against a real localhost broker and endpoint, covering push states, incremental tailing, a failing job and cancelling a running one. It has never met a scheduler.`);
+Status, plainly: twelve tests against a real localhost broker and endpoint, including one real ProteinMPNN run — and since the ninth of October, this same client code reaching a cluster login node through a public broker and coming back with Slurm job ids.`);
 }
 
-// ================================================================ 11. Globus
+// ======================= 16. What we have and have not measured (F5)
 {
   const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "Designed for two, implemented for one", "Remote · the other backend");
+  title(s, "What we have measured, and what we have not", "Performance · the honest part");
+
+  // --- F5: the staging channel, measured by slides/bench_staging.py ---------
+  const pts = STG.rows.filter(r => r.payload_bytes <= STG.limits.artifact_max_bytes);
+  const sizes = [...new Set(pts.map(r => r.payload_bytes))].sort((a, b) => a - b);
+  const x0 = 1.12, x1 = 6.3, yTop = 1.95, yBot = 4.18, RMAX = 1.6;
+  const px = i => x0 + ((i + 0.5) * (x1 - x0)) / sizes.length;
+  const py = r => yBot - (Math.min(r, RMAX) / RMAX) * (yBot - yTop);
+
+  text(s, "F5 · what one file costs to cross the broker", M, 1.5, 5.9, 0.26,
+    { fontSize: 12, bold: true, color: C.task });
+  [0, 0.5, 1.0, 1.5].forEach(g => {
+    s.addShape(pres.shapes.LINE, { x: x0, y: py(g), w: x1 - x0, h: 0,
+      line: { color: g === 1 ? C.muted : C.rule, width: g === 1 ? 1 : 0.75,
+              dashType: g === 1 ? "dash" : "solid" } });
+    text(s, `×${g.toFixed(1)}`, M, py(g) - 0.11, 0.56, 0.22,
+      { fontSize: 9.5, color: C.muted, align: "right" });
+  });
+  text(s, "break-even: stdout = payload", x1 - 2.05, py(1.0) - 0.22, 2.0, 0.2,
+    { fontSize: 8.5, color: C.muted, align: "right", italic: true });
+
+  [["random", C.radical, "incompressible"], ["structure", C.lake, "structure text"]].forEach(
+    ([shape, col, lab]) => {
+      const series = sizes.map(sz => pts.find(r => r.shape === shape && r.payload_bytes === sz));
+      series.forEach((r, i) => {
+        if (i) {
+          const a = series[i - 1];
+          s.addShape(pres.shapes.LINE, { x: px(i - 1), y: py(a.ratio),
+            w: px(i) - px(i - 1), h: py(r.ratio) - py(a.ratio),
+            line: { color: col, width: 2 } });
+        }
+        s.addShape(pres.shapes.OVAL, { x: px(i) - 0.065, y: py(r.ratio) - 0.065, w: 0.13, h: 0.13,
+          fill: { color: col }, line: { color: col } });
+      });
+      const last = series[series.length - 1];
+      text(s, `${lab}  ×${last.ratio.toFixed(2)}`, px(sizes.length - 1) - 2.2,
+        py(last.ratio) + (shape === "random" ? -0.28 : 0.06), 2.15, 0.24,
+        { fontSize: 10, bold: true, color: col, align: "right" });
+    });
+
+  s.addShape(pres.shapes.LINE, { x: x0, y: yBot, w: x1 - x0, h: 0,
+    line: { color: C.text, width: 1 } });
+  sizes.forEach((sz, i) => text(s, sz >= 1024 * 1024 ? "1 MiB" : `${sz / 1024} KiB`,
+    px(i) - 0.45, yBot + 0.06, 0.9, 0.22,
+    { fontSize: 9.5, color: C.muted, align: "center" }));
+  text(s, "payload size  →", x0, yBot + 0.3, 2.2, 0.22, { fontSize: 9.5, color: C.muted });
+  text(s, "stdout bytes per payload byte, gzip + base64, framed", x1 - 3.6, yBot + 0.3, 3.6, 0.22,
+    { fontSize: 9, color: C.muted, align: "right", italic: true });
+
+  const big = STG.rows.find(r => r.shape === "structure" && r.payload_bytes === 2 * 1024 * 1024);
+  const bigR = STG.rows.find(r => r.shape === "random" && r.payload_bytes === 2 * 1024 * 1024);
+  const mib = STG.rows.find(r => r.shape === "random" && r.payload_bytes === 1024 * 1024);
+  card(s, M, 4.7, 5.9, 1.5, "Both ceilings are in the wrong units", [
+    `Outbound: a 2 MiB PDB is refused as too_large — the cap is checked on the raw size — ` +
+    `though it compresses to ${(big.argv_bytes / 1e6).toFixed(2)} MB. A 1 MiB random file is accepted, ` +
+    `and costs ${(mib.stdout_bytes / 1e6).toFixed(2)} MB.`,
+    `Inbound has no declared cap at all: the chunks must fit ARG_MAX, so exec fails with E2BIG ` +
+    `at ~${(STG.argv_ceiling_bytes / 1048576).toFixed(1)} MiB of incompressible payload. Our backlog, not an ask.`,
+  ], { fill: C.failTint, hc: C.fail, fs: 10, hfs: 12 });
+
+  // --- right: the ledger ---------------------------------------------------
+  const RX = 6.72, RW = 6.11;
+  card(s, RX, 1.5, RW, 2.42, "Measured, and in this deck", [
+    `mean ${CONC.mean.toFixed(2)} tasks in flight over ${CONC.span.toFixed(1)} s, peak ${CONC.peak} — derived from run.json at build time`,
+    `the critical path is one ${CONC.longest.toFixed(1)} s fold; six folds share four pool slots, so two of each round wait`,
+    "~320 KB of checkpoint per turn before coordinates moved to blobs — growing, and breaking nothing",
+    "the staging channel, left: measured against the real wrap() and collect()",
+    "417 offline tests in ~155 s with no network, no pool and no endpoint",
+  ], { fill: C.panel, fs: 10.5, hfs: 13 });
+  card(s, RX, 4.02, RW, 2.11, "Not measured — so not claimed", [
+    "no scaling curve: pool width has never been varied, and 4 is a default, not a finding",
+    "no GPU occupancy. ORBIT_JOB_GPUS=1 is a request; nothing here has read a GPU's utilisation",
+    "no multi-node run, and never two endpoints at once",
+    "no serial baseline, so nothing above divides into a speedup",
+    "every walltime and memory figure in protocol/specs.py is still an estimate",
+  ], { fill: C.failTint, hc: C.fail, fs: 10.5, hfs: 13 });
+
+  s.addShape(pres.shapes.RECTANGLE, { x: M, y: 6.28, w: W - 2 * M, h: 0.72,
+    fill: { color: C.ink }, line: { color: C.ink } });
+  text(s, [
+    { text: "Where scale and science stop being linear:  ", options: { bold: true, color: "F0C898" } },
+    { text: "stage_score prints “AlphaFold3 is about an hour of GPU each, so that is N GPU-hours” " +
+      "and stops for an answer (protocol.py:616). Cost is linear in the designs you fold; yield is not — " +
+      "they are diversity-selected, so the tenth is less like the other nine than the second was. " +
+      "That trade is the one checkpoint in the protocol a human cannot skip.",
+      options: { color: "C8D4DD" } },
+  ], M + 0.2, 6.37, 11.9, 0.6, { fontSize: 11.5 });
+
+  footer(s, `F5: slides/bench_staging.py on ${STG.source.host}, ${STG.source.date} — no broker in the path, ` +
+    `so a floor on what a real job pays. The structure series is a real ${REF.pdb_id} PDB, tiled above 462 KB.`);
+
+  s.addNotes(
+`[1:25] The slide I would want to see if I were you, so it is here rather than in an appendix.
+
+The figure is the only curve in this deck, and I measured it for this talk. It is about the one data path this system has to a cluster: because the broker forwards neither outputs nor stdin_text — finding five, later — a job returns a file by printing it on stdout, gzipped, base64'd and framed. So I measured what that costs, driving the real wrap and collect functions locally.
+
+Orange is incompressible data, about one and a third bytes of stdout per byte of payload, which is base64 doing what base64 does. Green is structure text, a third of a byte per byte, because a PDB gzips about four to one. Cost depends entirely on entropy.
+
+The ceilings do not, and that is the finding. Outbound the cap is checked on the raw file size, so a two megabyte PDB is refused even though it would compress to two thirds of a megabyte, while a one megabyte random file sails through and costs one point four. Inbound there is no declared cap at all: exec fails with E2BIG at about one and a half megabytes of incompressible payload. Both caps are in the wrong units — that is going in our backlog, not on your list.
+
+On the right, the ledger. Measured: in-flight depth, the critical path, checkpoint growth, this curve, the suite. Not measured and therefore not claimed: no scaling curve, no GPU occupancy, no multi-node run, no serial baseline.
+
+At the bottom is where this stops being a systems question. When the protocol selects designs it says AlphaFold3 is about an hour of GPU each, and waits. Cost is linear in how many you fold; yield is not, because they are diversity-selected — the tenth is less like the other nine than the second was. That is the nonlinearity, and it is the piece of this story I would most like to measure and cannot.`);
+}
+
+// =================================================== 17. Degradation
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "Degradation is a feature, and it is tested", "Performance · effectiveness when a dependency fails");
+
+  const rows = [
+    ["No ANTHROPIC_API_KEY", "every node has a deterministic rule-based path", "the measured campaign ran this way"],
+    ["No Orbit endpoint", "interface_for falls hpc → local and logs it", "tests/test_tasks.py"],
+    ["ChemGraph not installed", "the task reports unavailable; nothing else changes", "chemgraph_available()"],
+    ["ESM Atlas drops a request", "design survives sequence-only; round scores the rest", `really happened: ${CAMP}-r2-5`],
+    ["Tier 1/2 write fails", "warn, rank in memory, tell the user in the reply", "test_lake_write_failure_does_not_lose_the_round"],
+    ["No SQLite checkpointer", "InMemorySaver, with a note on /api/health", "runtime.py:466"],
+  ];
+  const cw = [2.9, 5.0, 4.43];
+  const tbl = [["when", "what happens", "evidence"].map(h => ({ text: h,
+    options: { bold: true, color: C.white, fill: { color: C.task }, fontSize: 11.5 } }))]
+    .concat(rows.map((r, i) => r.map((c, j) => ({ text: c, options: {
+      fontFace: j === 2 ? MF : BF, fontSize: j === 2 ? 9.5 : 11.5, bold: j === 0,
+      color: j === 2 ? C.muted : C.text,
+      fill: { color: i % 2 ? C.white : C.panel } } }))));
+  s.addTable(tbl, { x: M, y: 1.55, w: cw.reduce((a, b) => a + b), colW: cw,
+    border: { type: "solid", color: C.rule, pt: 0.75 }, fontFace: BF, valign: "middle",
+    rowH: [0.32, 0.34, 0.34, 0.34, 0.36, 0.42, 0.34], margin: 0.07 });
+
+  code(s, [
+    '# A storage failure must not lose the user\'s round: the designs are',
+    '# already in state, so we log, warn, and carry on.',
+    'try:',
+    '    ranked = deps.history.rank_round(campaign_id, round_no, ...)',
+    'except Exception as exc:',
+    '    storage_error = storage_error or str(exc)',
+    '    log.warning("persisting the ranking failed: %s", exc)',
+    '    ranked = _rank_in_memory(combined, metric_name, direction)',
+    '...',
+    'if storage_error:',
+    '    update["warnings"] = [f"Design History write failed: {storage_error}"]',
+  ], M, 4.15, 7.6, 1.8, { anchor: "graph/nodes/analyst.py:166–233  ·  TRIMMED", fs: 10 });
+
+  card(s, M + 7.9, 4.15, 4.93, 0.95, "How the user finds out", [
+    "The interpreter appends a \"Caveats from this run\" section to its reply, from the warnings channel.",
+  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
+  card(s, M + 7.9, 5.25, 4.93, 0.7, "Where this came from", [
+    "A readonly-SQLite error during a live run. My own fault — but it exposed unguarded writes.",
+  ], { fill: C.panel, fs: 10.5 });
+  s.addNotes(
+`[1:15] Six failure modes, what each does, and the evidence that it does it.
+
+The fifth row is the one to dwell on. During a live run I hit "attempt to write a readonly database" — my own fault, I deleted a data directory under a running server — but it exposed something real: the analyst wrote to the lake unguarded, so a storage problem could lose a round the user had waited two minutes for.
+
+The fix is at the bottom. Each tier write is guarded independently, a failure falls back to ranking in memory, and the error goes onto a warnings channel that survives the turn, so the interpreter appends a "Caveats from this run" section rather than silently handing back a thinner answer. A test kills the lake mid-round and asserts the designs still come back.
+
+And the fourth row is the one I did not have to arrange. ESM Atlas dropped a request during the measured campaign, the design came through sequence-only, the round scored the other five, and the warning surfaced. That is the whole mechanism working on a failure I did not choose.`);
+}
+
+// =========================================== 18. USABILITY — divider
+{
+  const s = pres.addSlide();
+  dimension(s, {
+    n: 3, name: "Usability",
+    definition: "Not the interface \u2014 the use cases: what this lends itself to as an application, as a platform, and as a component in someone else's workflow.",
+    claims: [
+      ["As an application: a chat with a structure viewer",
+       "seven SSE frame kinds in one ordered stream, task chips that name their interface, and artifacts \u2014 Markdown, .docx, a sortable ensemble table, two Mol* specs \u2014 you can hand to a collaborator"],
+      ["As a platform: other people's keys, endpoints and allocations",
+       "logins, per-user credentials as Fernet ciphertext, one OrbitInterface per user under its own client name; 22 HTTP routes and a CLI, so no part of it needs the browser"],
+      ["As a component: one contract, and a record that outlives the process",
+       "the Task Interface is the extension point \u2014 four implementations over ~102 shared lines \u2014 and tiers 2 and 3 of the lake are a SQLite file and a Parquet file, readable with nothing running"],
+    ],
+    caveat: "one deployment, one lab, and no second consumer. Nothing has yet driven this as a component except its own tests \u2014 the component claim is the shape of the code, not evidence.",
+  });
+  s.addNotes(
+`[0:20] Act three, usability — use cases, not user interface. Three modes: as an application, as a platform that holds other people's credentials and endpoints, and as a component something else drives. All three are built. The caveat is that nothing outside this repo has driven it as a component yet, so that third claim is the shape of the code rather than evidence.`);
+}
+
+// ====================================================== 19. Frontend
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "The web app: seven frame kinds and one viewer", "Usability · as an application");
+
+  // frame kinds
+  const frames = [
+    ["token", "LLM text delta", C.ui], ["status", "node progress line", C.agent],
+    ["task", "submitted · log · state", C.radical], ["state", "UI_STATE_KEYS slice", C.agent],
+    ["message", "a complete reply", C.ui], ["error", "stream-fatal", C.fail],
+    ["done", "end of turn", C.muted],
+  ];
+  const fw = 1.72;
+  frames.forEach(([t, sub, col], i) => {
+    const x = M + i * (fw + 0.08);
+    box(s, x, 1.55, fw, 0.78, { title: t, sub: "\n" + sub, line: col, fill: C.white,
+      fs: 12, sfs: 9, subMono: false });
+  });
+  text(s, "POST /api/chat returns text/event-stream. One asyncio.Queue merges the graph's own " +
+    "astream frames with TaskManager events, so task progress and node status share one ordered stream.",
+    M, 2.45, 12.3, 0.5, { fontSize: 11.5, color: C.text });
+
+  code(s, [
+    'let buffer = "";',
+    'while (true) {',
+    '  const { done, value } = await reader.read();',
+    '  if (done) break;',
+    '  buffer += decoder.decode(value, { stream: true });',
+    '  let split;',
+    '  while ((split = buffer.indexOf("\\n\\n")) !== -1) {',
+    '    const raw = buffer.slice(0, split);',
+    '    buffer = buffer.slice(split + 2);',
+    '    ...  yield JSON.parse(line.slice(6)) as Frame;',
+    '  }',
+    '}',
+  ], M, 3.05, 6.1, 2.1, { anchor: "frontend/src/lib/api.ts:42–61  ·  TRIMMED", fs: 10 });
+  text(s, "A chunk boundary can land mid-frame, so partial frames are held in a buffer until a " +
+    "blank line. A malformed frame is skipped, never fatal.",
+    M, 5.25, 6.1, 0.5, { fontSize: 11, color: C.muted, italic: true });
+
+  card(s, M + 6.4, 3.05, 6.43, 1.3, "The Mol* viewer", [
+    "rcsb-molstar 2.14.7 UMD from jsDelivr, loader cached on window.__molstarLoader so one fetch serves every mount.",
+    "One viewer per mount; the spec is re-applied on change; ResizeObserver → handleResize.",
+  ], { fill: C.uiTint, hc: C.ui, fs: 10.5 });
+  card(s, M + 6.4, 4.45, 6.43, 1.3, "Two things that bit", [
+    "createComponent takes no colour, so colours go through pluginCall → updateRepresentationsTheme.",
+    "Coordinates are inlined as a json artifact by the analyst, so the viewer needs no second authenticated fetch.",
+  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
+
+  text(s, [
+    { text: "Confirmed rendering ", options: { bold: true, color: C.good } },
+    { text: "in a browser on 2026-10-01. It was built without one — the dev server, the proxy, a " +
+      "real artifact through it and the CDN assets were all that could be checked at the time." },
+  ], M, 5.85, 12.3, 0.6, { fontSize: 12.5 });
+  s.addNotes(
+`[1:10] Briefly, because the backend is what you came for.
+
+The chat endpoint is a POST that returns an event stream — not EventSource, because the prompt goes in the body. Seven frame kinds. The thing I would point at is that a single asyncio queue merges LangGraph's own stream with TaskManager events, so node status and task progress arrive in one ordered stream rather than two the client has to interleave.
+
+The client code is there for a bug class people hit constantly: a network chunk boundary lands mid-frame, so partial frames are held in a buffer until a blank line arrives, and a malformed frame is skipped rather than killing the stream.
+
+The viewer is rcsb-molstar from the CDN, the loader cached on window, one viewer per mount. The usability point rather than the implementation one: what the agent sends the browser is a sanitized JSON view spec, never generated JavaScript, because the brief asked for the latter and that would put a prompt's output into the page as code. There is a backup slide on it.
+
+And this was built without a browser available, so for a while the canvas was the one thing nobody had looked at — everything around it checked out, which is exactly when you convince yourself it is fine. Confirmed rendering on the first of October.`);
+}
+
+// ====================================================== 20. Deployed
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "Deployed, and every user brings their own keys", "Usability · as a platform");
+
+  const hops = [
+    ["browser", "HttpOnly session cookie", C.ui],
+    ["Caddy :443", "HTTPS, same host", C.muted],
+    ["designagent :8000", "loopback · per-user settings", C.agent],
+    ["Orbit broker :8443", "systemd, on the VM", C.radical],
+    ["amarel3 endpoint", "psij,sysinfo → Slurm", C.radical],
+  ];
+  const hw = (12.333 - 4 * 0.32) / 5;
+  hops.forEach(([t, sub, col], i) => {
+    const x = M + i * (hw + 0.32);
+    box(s, x, 1.5, hw, 0.8, { title: t, sub: "\n" + sub, line: col,
+      fill: col === C.radical ? C.radicalTint : C.white, fs: 11.5, sfs: 9,
+      tc: col === C.muted ? C.ink : col });
+    if (i < hops.length - 1) line(s, x + hw + 0.03, 1.9, x + hw + 0.29, 1.9, { both: i === 2 });
+  });
+  label(s, "one VM: Caddy, the agent and the broker", M, 2.38, 7.3, { align: "left" });
+  label(s, "the endpoint is a cluster login node, across the internet",
+    M + 7.3, 2.38, 5.03, { align: "right" });
+
+  card(s, M, 2.78, 6.0, 1.45, "Logins are off by default, and off they change nothing", [
+    "No runtime.auth → _user() returns None and every ownership check passes, which is why the other 399 tests needed no edit when logins arrived.",
+    "On: every route but login, logout and a bare /api/health needs the cookie; a session must be the caller's (404 otherwise); settings need the admin role, not a shared token.",
+  ], { fill: C.panel, fs: 10.5 });
+
+  card(s, M + 6.33, 2.78, 6.0, 1.7, "A key that must not be written down anywhere", [
+    "Not in configurable: LangGraph copies every string in it into checkpoint metadata, so the key would be saved every turn.",
+    "Not in spec.params: those are written to the lake and returned by the task routes. A pool task is handed the key as a call argument instead.",
+    "test_no_user_secret_is_persisted_by_a_turn scans the checkpointer, the task snapshots and the data dir for it.",
+  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
+
+  code(s, [
+    'def settings(self) -> Settings:',
+    '    turn = current_turn.get()',
+    '    return turn.settings if turn is not None else self.base_settings',
+  ], M, 4.6, 6.0, 0.8, { anchor: "graph/deps.py:49–51  ·  VERBATIM", fs: 10 });
+  text(s, "A turn's user travels in a ContextVar, which asyncio copies into every task the turn " +
+    "creates. So every node gets that user's key and endpoint without knowing users exist, and " +
+    "each user's endpoint gets its own OrbitInterface under its own client name.",
+    M, 5.55, 6.0, 0.7, { fontSize: 10.5, color: C.muted, italic: true });
+
+  card(s, M + 6.33, 4.6, 6.0, 1.65, "What this does not give you — backlog A21", [
+    "The broker is shared, and it is not a tenant boundary: one ingress token, and anyone holding it can submit to every endpoint on it. Per-user HPC isolation needs a broker per user.",
+    "Sessions from before logins have no owner, so they are unreachable under logins.",
+    "The lockout is in memory, and trusts X-Forwarded-For only from a loopback peer — right behind this proxy, wrong behind any other.",
+  ], { fill: C.panel, fs: 10.5 });
+
+  footer(s, "plans/LINODE_DEPLOY.md is the plan and the record; plans/AMAREL_ENDPOINT.md is the cluster side, with the acceptance ladder.");
+  s.addNotes(
+`[1:10] One slide on where this actually runs, because "it works on my laptop" is not an architecture claim.
+
+Left to right: a browser, Caddy terminating TLS, the agent on loopback and the Orbit broker under systemd — all on one small VM — then the endpoint, a cluster login node registered to that broker across the internet. The two-way arrow is the only one, because push events come back over the same websocket.
+
+Logins are off by default, and off they change nothing: with no auth object the user lookup returns None and every ownership check passes, which is why the rest of the suite needed no edit when they arrived.
+
+The red card is the part I would want reviewed. A user's key must not end up written down, and there were two places it would have gone by default: LangGraph copies every string in configurable into checkpoint metadata, and task params are written to the lake. So the key travels in a ContextVar for the turn, a pool task is handed it as a call argument, and a test scans the checkpointer, the task snapshots and the data directory for it.
+
+What this does not give you is a tenant boundary. The broker is shared — one ingress token, and anyone holding it can submit to every endpoint on it — so per-user isolation needs a broker per user, which is the next phase.`);
+}
+
+// ==================================================== 21. Running it
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "Running it, driving it, and what each tier proves", "Usability · as a component");
+
+  code(s, [
+    '$ ./scripts/setup.sh                       # builds .venv, then verifies it',
+    '$ python -m designagent --reload           # :8000',
+    '$ python -m designagent --check-config --probe   # config, each credential tried',
+    '$ python -m designagent --add-user NAME --admin  # and --gen-secrets-key',
+    '$ cd frontend && npm install && npm run dev      # :5173, proxies /api',
+    '$ pytest -q                                # 417 tests, no network',
+    '$ pytest -q -m live                        # 12 tests, starts a real broker',
+    '$ pytest -q -m remote                      # 8 tests, a real endpoint',
+  ], M, 1.55, 7.3, 1.52, { anchor: "VERBATIM", fs: 10 });
+
+  card(s, M + 7.6, 1.55, 5.23, 1.72, "Driving it without the browser", [
+    "22 HTTP routes: /api/chat is the SSE stream, the rest REST — sessions, tasks, artifacts, settings, catalog. Plus the CLI above.",
+    "The record outlives the process: tiers 2 and 3 are a SQLite file and a Parquet file, read by run_model.py under the Kuzu lock.",
+    "uv sync cannot work here — four editable installs from refcodes/, and flowgentic pins two of its deps to git URLs.",
+  ], { fill: C.panel, fs: 9 });
+
+  const rows = [
+    ["tests/test_protocol_*.py", "203", "the validators between a chat message and a shell script, every job spec run under bash, the stage machine turn by turn"],
+    ["tests/test_graph.py", "55", "18 classifier cases, a full loop end to end, artifacts, lake-write failure, no structures in state"],
+    ["test_tasks · _jobspec · _proteinmpnn", "70", "the contract; the job spec, in-band staging and its ceiling, the FASTA adapter"],
+    ["test_auth.py · test_settings.py", "46", "off, logins change nothing; a session belongs to its owner; everything writable is reported"],
+    ["test_lake · _api · _artifacts", "43", "all three lake tiers against a tmp_path; SSE frames; cancel → 409 with a reason"],
+    ["-m live · -m remote · -m llm", "12·8·4", "a broker and endpoint as subprocesses · a real scheduler · a real API key"],
+  ];
+  const cw = [3.4, 0.8, 8.13];
+  const tbl = [["file", "n", "what it actually proves"].map(h => ({ text: h,
+    options: { bold: true, color: C.white, fill: { color: C.task }, fontSize: 11.5 } }))]
+    .concat(rows.map((r, i) => r.map((c, j) => ({ text: c, options: {
+      fontFace: j === 0 ? MF : BF, fontSize: j === 0 ? 10.5 : 11.5,
+      align: j === 1 ? "center" : "left", color: C.text,
+      fill: { color: i % 2 ? C.white : C.panel } } }))));
+  s.addTable(tbl, { x: M, y: 3.35, w: cw.reduce((a, b) => a + b), colW: cw,
+    border: { type: "solid", color: C.rule, pt: 0.75 }, fontFace: BF, valign: "middle",
+    rowH: [0.28, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4], margin: 0.06 });
+
+  text(s, [
+    { text: "The split that matters: ", options: { bold: true, color: C.ink } },
+    { text: "417 tests need no network, no pool and no endpoint, because nodes only reach through " +
+      "Deps. The 24 that do are marked " },
+    { text: "live", options: { fontFace: MF } },
+    { text: ", " },
+    { text: "remote", options: { fontFace: MF } },
+    { text: " and " },
+    { text: "llm", options: { fontFace: MF } },
+    { text: " — each deselected separately, so the cheap tier can never pull in one that needs an " +
+      "allocation or spends money." },
+  ], M, 6.5, 12.3, 0.6, { fontSize: 12.5 });
+  s.addNotes(
+`[1:00] How you actually use this, in all three senses. Four commands to run it, three to test it, and no configuration step that has to succeed first — with no API key every layer notes on the health endpoint what it could not do and keeps going.
+
+The card on the right is the component claim made concrete. Nothing here needs the browser: twenty-two HTTP routes, of which the chat is the SSE stream and the rest are ordinary REST, plus a command line for config, credentials and accounts. And the record outlives the process — two of the three lake tiers are a SQLite file and a Parquet file, which is exactly how the script that mined the numbers for this deck read them while the server held the Kuzu lock.
+
+The test split is the part I would defend. 417 of the 441 tests need no network, no process pool and no endpoint, which is a direct consequence of the Deps rule from the architecture slide: the suite hands a node an in-process task manager and a temp-directory lake, and the whole graph runs in seconds.
+
+The twenty-four that need a substrate are split three ways and deselected separately: live brings up its own broker and endpoint as subprocesses, remote wants a real scheduler and an allocation, and llm spends money. Keeping them apart means the cheap tier can never drag in an expensive one. The live ones are not mocks of ORBIT; they are ORBIT, on localhost.
+
+The top row is the protocol node, half the suite — deliberate, because it is the part with no endpoint to try it against, so the tests are the only thing holding it.`);
+}
+
+// ======================================================== 22. Status
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "What is real, and what is not — in all three", "Status · do not compress this slide");
+
+  const cols = [
+    ["FUNCTIONALITY", C.agent, [
+      ["The campaign loop, all six nodes", "two redesign rounds, routed by the improvement test, on a real target"],
+      ["All three lake tiers", `${T2.counts.scores} scores, ${T1.nodes.Task} task nodes, an ${T3.n_rows}-row Parquet set`],
+      ["Artifacts and streaming", "Markdown, .docx, a sortable table, two Mol* specs — pane confirmed in a browser"],
+    ], [
+      ["No protocol stage has run on a cluster", "nine stages, 203 tests, zero real runs — specs.py is a guess"],
+      ["A restart during a protocol run", "handles are in-memory: recovery is a re-fetch, nothing re-attaches"],
+      ["ChemGraph", "wired behind the interface, exercised by tests, never by a campaign"],
+    ]],
+    ["PERFORMANCE", C.radical, [
+      ["Work really leaves the process", "12 real ESMFold predictions on the rhapsody pool, reaped out of order"],
+      ["Orbit against a real cluster", "2026-10-09: Slurm jobs through a public broker, logs, a cancel, native_id back"],
+      ["ProteinMPNN, the real model", "v_48_020 on CPU through a real broker; designs carry its score and hash"],
+    ], [
+      ["No scaling study of any kind", "one host, a pool of four never varied, no multi-node, no occupancy"],
+      ["No GPU of our own", "every AF3 walltime and memory figure is an estimate until a queue says otherwise"],
+      ["wrap_nodes", "ships off, against the approved design. That is the ask on the next slide"],
+    ]],
+    ["USABILITY", C.ui, [
+      ["As an application, deployed", "a VM behind Caddy, sign-in, the viewer driven in a real browser"],
+      ["As a platform", "per-user logins and credentials encrypted at rest; each user's own endpoint"],
+      ["As a component, in shape", "22 HTTP routes and a CLI; lake tiers 2 and 3 read with nothing running"],
+    ], [
+      ["A broker per user", "one shared ingress token, so HPC is not yet a tenant boundary"],
+      ["Driven by anything but itself", "no second consumer — the component claim is the code's shape, not evidence"],
+      ["The Globus adapter", "structurally complete, tested with an injected executor, never run live"],
+    ]],
+  ];
+
+  cols.forEach(([name, col, real, notReal], i) => {
+    const x = M + i * 4.28, w = 4.0;
+    s.addShape(pres.shapes.RECTANGLE, { x, y: 1.44, w, h: 0.4,
+      fill: { color: col }, line: { color: col } });
+    text(s, name, x + 0.14, 1.44, w - 0.28, 0.4,
+      { fontSize: 13, bold: true, color: C.white, valign: "middle", charSpacing: 1 });
+
+    [[real, C.good, "Runs end to end against something real", 1.88],
+     [notReal, C.fail, "Built, and has never run for real", 4.02]].forEach(
+      ([rows, band, heading, y0]) => {
+        s.addShape(pres.shapes.RECTANGLE, { x, y: y0, w, h: 0.28,
+          fill: { color: band }, line: { color: band } });
+        text(s, heading, x + 0.12, y0, w - 0.24, 0.28,
+          { fontSize: 9.5, bold: true, color: C.white, valign: "middle" });
+        rows.forEach(([h, b], j) => {
+          const y = y0 + 0.28 + j * 0.6;
+          s.addShape(pres.shapes.RECTANGLE, { x, y, w, h: 0.58,
+            fill: { color: j % 2 ? C.white : (band === C.fail ? C.failTint : C.panel) },
+            line: { color: C.rule, width: 0.5 } });
+          text(s, h, x + 0.12, y + 0.01, w - 0.24, 0.21, { fontSize: 10, bold: true, color: C.ink });
+          text(s, b, x + 0.12, y + 0.22, w - 0.24, 0.34, { fontSize: 8.5, color: C.muted });
+        });
+      });
+  });
+
+  text(s, [
+    { text: "Three red columns as long as the three green ones, on purpose. ",
+      options: { bold: true, color: C.fail } },
+    { text: "The single most load-bearing caveat is still the first one: no stage of the protocol has " +
+      "run on a cluster. The path under it works — real jobs, real logs, a real cancel — and the " +
+      "performance column is the one I would attack if I were you." },
+  ], M, 6.24, 12.33, 0.7, { fontSize: 12 });
+  s.addNotes(
+`[1:25] Same slide as before, cut three ways instead of two, so each dimension has to answer for itself. Green runs end to end against something real; red is built and has never run for real.
+
+Functionality is the strongest column: the loop runs, all three tiers are written, the artifacts open. What has never run is the protocol on a cluster — two hundred and three tests, zero real runs — and nothing re-attaches to an in-flight job after a restart.
+
+Performance: work genuinely leaves this process, ORBIT has run against a real cluster, ProteinMPNN is the real model. What is missing is every form of scaling evidence — one host, a pool of four I never varied, no multi-node run, no occupancy, no GPU of my own, which is why the AlphaFold3 figures are estimates.
+
+Usability: deployed, holding other people's keys, drivable over HTTP and from a CLI. What is not there is a broker per user, so HPC is not yet a tenant boundary, and no second consumer has driven it as a component.
+
+I made the red columns the same length as the green ones deliberately. If one of them were short you should be suspicious of it, and the one I would attack if I were in your seat is the middle one.`);
+}
+
+// ========================================================== 23. Asks
+{
+  const s = pres.addSlide(); s.background = { color: C.ink };
+  text(s, "FINDINGS AND ASKS", M, 0.45, 9, 0.3,
+    { fontSize: 12, bold: true, color: "8FB8C9", charSpacing: 2 });
+  text(s, "Eight reproducibles, by what each one costs", M, 0.75, 12.3, 0.6,
+    { fontFace: HF, fontSize: 28, bold: true, color: C.white });
+
+  // Grouped by the dimension each one damages, which is also the order I would
+  // fix them in. The numbers are the ones CODE_FOR_DECK.md reproduces, so they
+  // keep their identity even though the column order is not 1..8.
+  const groups = [
+    ["A wrong answer, or real time lost", [
+      ["3", "Orbit's terminal task event omits stdout", "functionality", "A completed task resolves with an empty result until get_task is called again. Worked around in _finish_task_enriched."],
+      ["4", "A FAILED Orbit job carries no reason", "functionality", "Only a non-zero exit code reaches the client, so FAILED synthesises an explanation from code, then stderr, then the log tail."],
+      ["5", "Neither outputs nor stdin_text is forwarded", "performance", "So stdout is a job's only channel for a file. Hence in-band staging — and the curve two slides back is what that costs."],
+      ["2", "RetryConfig defaults cancel long tasks silently", "performance", "30 s per attempt, 3 attempts. This repo's own folds take 13–42 s, so half of round 2 would be cancelled and re-run."],
+    ]],
+    ["Paid by whoever adopts the stack next", [
+      ["6", "asyncflow swallows SIGTERM", "usability", "It installs its own handler, reports a completed shutdown, and leaves the process running — so every stop has to escalate."],
+      ["1", "flowgentic hard-imports aiohttp — and httpx", "usability", "fault_tolerance.py:71–72 and :83–84 are except Exception: raise where the comment says \"if present\"."],
+      ["7", "The broker has no HTTP topology route", "usability", "/topology → 307 → 404, read as a plugin name. Readiness has to come from rt.topology(), which propagates asynchronously."],
+      ["8", "--no-auth still requires cert and key", "usability", "It disables ingress auth only; the broker always serves TLS and refuses to start without a pair. One line in the docs."],
+    ]],
+  ];
+  const TAG = { functionality: "7E96D8", performance: C.radical, usability: "B28ACD" };
+  groups.forEach(([heading, items], col) => {
+    const x = M + col * 6.5;
+    s.addShape(pres.shapes.RECTANGLE, { x, y: 1.44, w: 6.14, h: 0.02,
+      fill: { color: "4A5B68" }, line: { color: "4A5B68" } });
+    text(s, heading.toUpperCase(), x, 1.5, 6.14, 0.26,
+      { fontSize: 10, bold: true, color: "8FB8C9", charSpacing: 1.5 });
+    items.forEach(([n, h, dim, b], i) => {
+      const y = 1.84 + i * 1.0;
+      s.addShape(pres.shapes.OVAL, { x, y, w: 0.32, h: 0.32,
+        fill: { color: C.radical }, line: { color: C.radical } });
+      text(s, n, x, y, 0.32, 0.32, { fontSize: 12, bold: true, color: C.white,
+        align: "center", valign: "middle" });
+      text(s, h, x + 0.44, y - 0.03, 4.6, 0.3, { fontSize: 12, bold: true, color: "F0C898" });
+      text(s, dim, x + 5.1, y - 0.01, 1.04, 0.24,
+        { fontSize: 8.5, bold: true, color: TAG[dim], align: "right", charSpacing: 0.5 });
+      text(s, b, x + 0.44, y + 0.26, 5.7, 0.68, { fontSize: 9.5, color: "C8D4DD" });
+    });
+  });
+
+  s.addShape(pres.shapes.RECTANGLE, { x: M, y: 5.86, w: 12.33, h: 1.16,
+    fill: { color: "2A3A47" }, line: { color: C.radical, width: 2 } });
+  text(s, [
+    { text: "The question:  ", options: { bold: true, color: C.radical, fontSize: 15 } },
+    { text: "is flowgentic's EXECUTION_BLOCK meant to preserve the caller's context?",
+      options: { bold: true, color: C.white, fontSize: 15, breakLine: true } },
+    { text: "A node wrapped as one runs on asyncflow's loop, outside LangGraph's runnable context. " +
+      "get_stream_writer() raises \"Called get_config outside of a runnable context\" and every " +
+      "custom event is dropped silently — the graph completes, the chat just goes quiet. " +
+      "If yes, it is a bug and wrap_nodes=True becomes our default. If no, flowgentic's node " +
+      "wrapping and LangGraph's streaming are mutually exclusive, and that belongs in the README.",
+      options: { color: "C8D4DD", fontSize: 11 } },
+  ], M + 0.2, 5.94, 11.9, 1.0, { fontSize: 12 });
+  text(s, "Thanks. Repo: main @ 7e72b74 · slides/CODE_FOR_DECK.md carries every anchor and the reproduction for each finding.",
+    M, H - 0.45, 12.3, 0.3, { fontSize: 10.5, color: "7E8F9C", italic: true });
+  s.addNotes(
+`[1:50] Eight things I had to work around in two weeks on your stack. Each names a file and a line and CODE_FOR_DECK.md has the reproduction, so none of it needs taking on my word. They are grouped by what they cost: the left column produces a wrong answer or burns real time, the right column is paid by whoever adopts the stack after me.
+
+Left column first. Three, four and five are ORBIT, and they are the ones I would most like fixed, because all three produce a silent wrong answer rather than an error: an empty result, a failure with no reason, and declared outputs that never arrive. Five is the expensive one — stdout becomes a job's only channel for a file, so this repo carries a staging protocol whose cost you saw two slides ago, and I would delete all of it the day the field is forwarded. Two is the retry default, which is a judgement call rather than a bug, but the wrong one for a workload where some tasks are models.
+
+The right column is cheaper. One is, I think, a one-character fix: raise wants to be pass. Six is asyncflow's SIGTERM handler, which reports a completed shutdown and leaves the process running, so every stop script escalates to SIGKILL on a process holding a database lock. Seven and eight are documentation — I lost an afternoon to --no-auth, because no auth meaning no TLS is a reasonable reading.
+
+And then the question, which is the actual ask. The approved design for this project had every graph node wrapped as an EXECUTION_BLOCK. It ships disabled, because a wrapped node runs on asyncflow's loop, outside LangGraph's runnable context, so the stream writer raises and every status event is dropped — silently. The graph still completes. The chat just goes quiet.
+
+So: is EXECUTION_BLOCK meant to preserve the caller's context? If it is, that is a bug worth fixing and I flip my default back. If it is not, then flowgentic's node wrapping and LangGraph's streaming are mutually exclusive, and I think that sentence belongs in the README, because I would have liked to read it.`);
+}
+
+// ============================================= B1. Backup: streaming
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "The streaming experiment, in full", "Backup");
+
+  card(s, M, 1.55, 6.2, 2.72, "What was tried", [
+    "The approved design: wrap every node as AsyncFlowType.EXECUTION_BLOCK with RetryConfig(timeout_sec=None, max_attempts=1), same as tasks.",
+    "Symptom: the graph completed correctly and the chat showed no status lines at all. No error surfaced anywhere.",
+    "Isolation: one plain node and one wrapped node, each calling get_stream_writer() and emitting one event.",
+    "Plain node: writer obtained, event received by astream(stream_mode=[\"custom\"]).",
+    "Wrapped node: RuntimeError \"Called get_config outside of a runnable context\"; zero events.",
+  ], { fill: C.panel, fs: 10.5 });
+
+  card(s, M + 6.5, 1.55, 6.33, 2.72, "Why", [
+    "flowgentic's EXECUTION_BLOCK submits the body to the asyncflow WorkflowEngine, which runs it on its own loop.",
+    "LangGraph's get_stream_writer() reads the runnable context, which is a contextvar set by the LangGraph executor around the node call.",
+    "Crossing to another loop loses the contextvar. The writer cannot be found, and LangGraph's own helper degrades to a no-op rather than raising — which is why it is silent.",
+    "This is not a flowgentic bug unless EXECUTION_BLOCK intends to propagate context. Hence the question, not the accusation.",
+  ], { fill: C.agentTint, hc: C.agent, fs: 10.5 });
+
+  code(s, [
+    'def wrap_node(integration, fn):',
+    '    """Wrap a node body as a flowgentic EXECUTION_BLOCK, if enabled."""',
+    '    if integration is None:',
+    '        return fn',
+    '    return integration.execution_wrappers.asyncflow(',
+    '        fn, flow_type=AsyncFlowType.EXECUTION_BLOCK, retry=node_retry_config())',
+    '',
+    '# build_graph(): integration is set to None unless settings.wrap_nodes',
+  ], M, 4.45, 7.6, 1.5, { anchor: "graph/build.py:41–133  ·  TRIMMED", fs: 10 });
+
+  card(s, M + 7.9, 4.45, 4.93, 1.5, "What ships", [
+    "wrap_nodes=False, the code path kept and documented.",
+    "Tasks are still wrapped — FUNCTION_TASK runs task bodies, which never touch the stream writer.",
+    "So the pool is genuinely used; only node bodies stayed in-process.",
+  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
+
+  text(s, "Verified after the change: 11 status lines stream for one redesign turn.",
+    M, 6.15, 12.3, 0.4, { fontSize: 12.5, italic: true, color: C.good });
+  s.addNotes(
+`Backup, for the EXECUTION_BLOCK discussion if it goes deep.
+
+The approved plan said wrap every node. I did, and the graph worked perfectly while the chat went completely silent — no error, no warning, just no status.
+
+Isolating it took one plain node and one wrapped node, each asking for a stream writer and emitting one event. The plain one works. The wrapped one raises "Called get_config outside of a runnable context" and emits nothing.
+
+The mechanism: EXECUTION_BLOCK hands the body to asyncflow's engine, which runs it on its own loop. LangGraph's stream writer lives in a contextvar that its executor sets around the node call. Cross loops and you lose the contextvar. And LangGraph's helper degrades to a no-op rather than raising, which is exactly why the failure is invisible.
+
+Important fairness point: this is only a flowgentic bug if EXECUTION_BLOCK intends to propagate caller context. I do not know that it does, which is why slide 18 asks rather than asserts.
+
+What ships: wrap_nodes false, the path kept and documented. Tasks are still wrapped, so the process pool is genuinely in use — task bodies never touch the stream writer, so nothing is lost there.`);
+}
+
+// =========================================== B2. Backup: local Orbit
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "Standing up a local Orbit stack", "Backup");
+
+  code(s, [
+    '# broker: --no-auth disables INGRESS AUTH ONLY. TLS is always served,',
+    '# and it refuses to start without a cert and key.',
+    'openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem \\',
+    '  -days 3 -subj /CN=127.0.0.1 \\',
+    '  -addext subjectAltName=IP:127.0.0.1,DNS:localhost     # SAN must cover 127.0.0.1',
+    'chmod 600 key.pem                                        # refuses a looser mode',
+    '',
+    'radical-orbit-broker.py --no-auth --host 127.0.0.1 --port N \\',
+    '    --cert cert.pem --key key.pem',
+    '',
+    'RADICAL_ORBIT_RHAPSODY_BACKEND=concurrent \\',
+    'radical-orbit-endpoint.py --name local -p rhapsody,psij \\',
+    '    --url https://127.0.0.1:N --cert cert.pem',
+  ], M, 1.55, 7.6, 2.5, { anchor: "tasks/hpc/local_orbit.py  ·  EDITED for the slide", fs: 10 });
+
+  card(s, M + 7.9, 1.55, 4.93, 1.2, "Readiness", [
+    "There is no HTTP topology route — /topology reads as a plugin name and 404s.",
+    "The stack greps the endpoint's own log for registered as '<name>'.",
+  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
+  card(s, M + 7.9, 2.9, 4.93, 1.15, "Then the client decides", [
+    "OrbitInterface.connect() polls rt.topology() until the endpoint appears, bounded by connect_timeout — topology propagates asynchronously.",
+  ], { fill: C.panel, fs: 10.5 });
+
+  card(s, M, 4.3, 6.2, 1.7, "Why subprocesses, not EmbeddedBroker", [
+    "The embedded broker expects operator-placed credentials in ~/.radical/orbit, which a test must not create or touch.",
+    "Subprocesses with a throwaway cert keep the whole thing inside tmp_path and leave no state behind.",
+    "Cost: the stack has to detect readiness from logs, which is the fragile part of the fixture.",
+  ], { fill: C.radicalTint, hc: C.radical, fs: 10.5 });
+  card(s, M + 6.5, 4.3, 6.33, 1.7, "What the fixture then proves", [
+    "An executable task runs and its stdout comes back (after the get_task re-fetch).",
+    "A bash loop's output tails incrementally — log_offset advances, so it is not refetched whole.",
+    "A job exiting 3 lands FAILED with a non-empty error.",
+    "A sleeping job cancels while running, and reports CANCELED.",
+  ], { fill: C.panel, fs: 10.5 });
+  s.addNotes(
+`Backup, for anyone who wants to reproduce the ORBIT work.
+
+The thing that cost me most of an afternoon is the first comment. --no-auth disables the ingress token check only. The broker always serves TLS and refuses to start without a cert and key, so with --no-auth alone it exits at startup. The fixture generates a throwaway self-signed pair, with a SAN covering 127.0.0.1 because that is what the client connects to, and chmods the key to 600 because the broker rejects anything looser.
+
+Readiness was the other trap. I went looking for an HTTP topology endpoint and got a 307 then a 404 saying endpoint 'topology' unknown — because the gateway reads it as a plugin name. There is no such route. So the fixture waits on the endpoint's own log line, and the authoritative check moved to where it belongs: the client polls rt.topology() until the endpoint appears, bounded by a timeout, because topology propagates asynchronously.
+
+Subprocesses rather than the embedded broker, because the embedded one expects operator-placed credentials in the user's home directory and a test has no business creating those.
+
+What it buys is the four assertions on the right, all against real processes.`);
+}
+
+// ================================================ B3. Backup: Globus
+{
+  const s = pres.addSlide(); s.background = { color: C.white };
+  title(s, "Designed for two, implemented for one", "Backup · the other remote backend");
 
   box(s, M + 3.2, 1.55, 6.7, 0.5, { title: "RemoteWorkflowInterface(TaskInterface)",
     sub: "   connect · connected · _track · get · _settle", line: C.task, fill: C.taskTint,
@@ -851,8 +1818,8 @@ Status, plainly: six tests against a real localhost broker and endpoint, coverin
   line(s, M + 8.1, 2.05, M + 8.9, 2.5, { color: C.task, status: "planned" });
 
   box(s, M + 1.9, 2.5, 4.5, 1.0, { title: "OrbitInterface", sub:
-    "\nimplemented, tested against a live localhost stack",
-    line: C.radical, fill: C.radicalTint, fs: 13, sfs: 10.5, tc: C.radical, status: "tested" });
+    "\nrun against a localhost stack and a real cluster",
+    line: C.radical, fill: C.radicalTint, fs: 13, sfs: 10.5, tc: C.radical });
   box(s, M + 6.9, 2.5, 4.5, 1.0, { title: "GlobusComputeInterface", sub:
     "\nstructurally complete, never met a live endpoint",
     line: C.muted, fill: C.white, fs: 13, sfs: 10.5, status: "planned" });
@@ -884,7 +1851,7 @@ Status, plainly: six tests against a real localhost broker and endpoint, coverin
       "the manager and the UI behave correctly against a backend they were not written for." },
   ], M, 5.45, 6.3, 0.85, { fontSize: 12.5 });
   s.addNotes(
-`[1:15] The brief said design for both Globus hpc-bridge and ORBIT, implement ORBIT first. So: one ABC, two implementations, and one of them has never touched a live endpoint.
+`[1:15] The brief said design for both Globus hpc-bridge and ORBIT, implement ORBIT first. So: one ABC, two implementations, and one of them still has never touched a live endpoint.
 
 What the abstraction cost is worth saying, because "we abstracted over two backends" is usually a boast hiding a mess. It cost almost nothing, because the shared surface is tiny — connect, track, settle, and a log drain, 102 lines in total. The interesting work is irreducibly backend-specific: Orbit's push callbacks have no Globus analogue, and pretending otherwise would have meant inventing a polling shim nobody wanted.
 
@@ -895,10 +1862,10 @@ And it is testable without Globus at all, because hpc-bridge's runner takes an i
 The claim I will defend is that the flags earned their keep and the base class merely did not get in the way.`);
 }
 
-// ================================================================ 12. Local task agents
+// ===================================== B4. Backup: local task agents
 {
   const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "Local Task Agents: a spec, not generated code", "Task agents");
+  title(s, "Local Task Agents: a spec, not generated code", "Backup · task agents");
 
   const flow = [
     ["design state\n+ prompt", C.agent], ["default_spec()", C.task],
@@ -957,481 +1924,6 @@ The visualization one is where I deviated, and I want to be explicit about it. T
 I think that keeps the full expressive range of what a reviewer actually asks for — "colour the mutated residue, focus on it, show the rest as cartoon" — without executing anything.
 
 The table is the honest status of all four. The visualizer runs and drew both leads in the measured campaign. ChemGraph is wired behind the same interface but has only ever been exercised by tests. ESMFold has twelve real predictions on disk. ProteinMPNN has a job spec and a FASTA parser and no endpoint, so what actually ran was the heuristic proposer — which is why the variants in this campaign are single-point substitutions.`);
-}
-
-// ================================================================ 13. The lake (F4)
-{
-  const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "Design History: three tiers, and what is actually in them", "Design History · F4");
-
-  const tiers = [
-    ["Tier 1 — raw task outputs", "Kuzu, embedded graph DB", [
-      `${T1.n_node_tables} node tables · ${T1.n_rel_tables} rel tables`,
-      `Campaign ${T1.nodes.Campaign} · Reference ${T1.nodes.Reference} · Design ${T1.nodes.Design}`,
-      `Task ${T1.nodes.Task} · Output ${T1.nodes.Output} · Structure ${T1.nodes.Structure}`,
-      `properties columns hold JSON, so a new task needs no migration`,
-      `single writer behind an RLock`,
-    ]],
-    ["Tier 2 — scores, rankings, analysis", "SQLite", [
-      `${T2.counts.scores} score rows over ${T2.n_metrics} metrics`,
-      `${T2.counts.rankings} ranking rows (round 1: 6, round 2: 11 cumulative)`,
-      `${T2.counts.analyses} round analyses, with the failures list`,
-      `best_designs() can exclude the current campaign — that is how the`,
-      `interpreter finds prior art without finding itself`,
-    ]],
-    ["Tier 3 — golden sets", "Parquet + manifest", [
-      `${T3.n_rows} rows, one metric_<name> column per metric seen`,
-      `rules: metric=${T3.rules.metric}, direction=${T3.rules.direction}, top_k=${T3.rules.top_k},`,
-      `dedupe_sequences=${T3.rules.dedupe_sequences} → 12 designs became ${T3.n_rows} rows`,
-      `the manifest records the rules, so a set is reproducible`,
-      `staged for ML training, not for reading`,
-    ]],
-  ];
-  const tw = 4.04;
-  tiers.forEach(([h, sub, items], i) => {
-    const x = M + i * (tw + 0.1);
-    s.addShape(pres.shapes.RECTANGLE, { x, y: 1.5, w: tw, h: 0.62,
-      fill: { color: C.lake }, line: { color: C.lake } });
-    text(s, h, x + 0.12, 1.54, tw - 0.24, 0.32,
-      { fontSize: 12.5, bold: true, color: C.white });
-    text(s, sub, x + 0.12, 1.84, tw - 0.24, 0.24, { fontSize: 10, color: "BFE0CF", fontFace: MF });
-    s.addShape(pres.shapes.RECTANGLE, { x, y: 2.12, w: tw, h: 1.75,
-      fill: { color: C.lakeTint }, line: { color: C.lakeTint } });
-    text(s, items.map((t, j) => ({ text: t, options: { bullet: true, breakLine: j < items.length - 1 } })),
-      x + 0.15, 2.22, tw - 0.3, 1.6, { fontSize: 10, color: C.text, paraSpaceAfter: 3 });
-  });
-
-  code(s, [
-    'def record_task_result(self, campaign_id, task_id, *, name, interface, state,',
-    '                      result=None, error="", designs=None, round_no=0,',
-    '                      reference_id=None, blob=None) -> dict:',
-    '    """Write one task\'s outcome across tiers 1 and 2.',
-    '',
-    '    `blob` is an optional (data, suffix) pair for bulky raw output.',
-    '    Returns {"output_id", "blob_path"} for the caller to reference.',
-    '    """',
-  ], M, 4.05, 7.5, 1.5, { anchor: "lake/store.py:89–108  ·  TRIMMED", fs: 10 });
-
-  card(s, M + 7.8, 4.05, 5.03, 1.5, "One facade, three stores", [
-    "DesignHistory is the only thing nodes see; tiers 1 and 2 are written together or not at all.",
-    `Bulky output goes to a content-addressed blob (sha256[:16]) — ${R.blobs.n} files, ${(R.blobs.bytes / 1e6).toFixed(1)} MB on disk.`,
-  ], { fill: C.lakeTint, hc: C.lake, fs: 10.5 });
-
-  text(s, [
-    { text: "Worth noticing: ", options: { bold: true, color: C.ink } },
-    { text: "only tier 1 needs a running process to read. Tiers 2 and 3 are a SQLite file and a " +
-      "Parquet file, so the figures on this slide were produced by a script that opened them " +
-      "directly while the server held the Kuzu lock." },
-  ], M, 5.7, 12.3, 0.65, { fontSize: 12.5 });
-  footer(s, "Every count read from slides/run.json by slides/run_model.py — the same script that drew F3.");
-  s.addNotes(
-`[1:35] Three tiers, exactly as the brief specified, and these are the real contents of the measured campaign.
-
-Tier one is a Kuzu graph: six node tables, eight relationship tables, the whole provenance chain from campaign to reference to design to task to output to structure. One design decision there worth flagging — the properties columns hold JSON, so adding a task type needs no migration. That is a deliberate trade: queryability for evolvability, and I would make it again at this stage.
-
-Tier two is SQLite: 114 score rows over ten metrics, seventeen ranking rows, two round analyses. The method I would point at is best_designs, which can exclude the current campaign — that is how the interpreter finds comparable prior work without rediscovering its own designs.
-
-Tier three is Parquet plus a manifest. Eleven rows from twelve designs, because the curation rules deduplicate sequences, and the manifest records the rules so the set is reproducible rather than just present.
-
-The bottom line is a small thing I only noticed when building this deck: only tier one needs a running process to read. Tiers two and three are just files, which is why the script that produced these numbers could read them while the server held the Kuzu lock.`);
-}
-
-// ================================================================ 14. Degradation
-{
-  const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "Degradation is a feature, and it is tested", "Failure behaviour");
-
-  const rows = [
-    ["No ANTHROPIC_API_KEY", "every node has a deterministic rule-based path", "the measured campaign ran this way"],
-    ["No Orbit endpoint", "interface_for falls hpc → local and logs it", "tests/test_tasks.py"],
-    ["ChemGraph not installed", "the task reports unavailable; nothing else changes", "chemgraph_available()"],
-    ["ESM Atlas drops a request", "design survives sequence-only; round scores the rest", `really happened: ${CAMP}-r2-5`],
-    ["Tier 1/2 write fails", "warn, rank in memory, tell the user in the reply", "test_lake_write_failure_does_not_lose_the_round"],
-    ["No SQLite checkpointer", "InMemorySaver, with a note on /api/health", "runtime.py:466"],
-  ];
-  const cw = [2.9, 5.0, 4.43];
-  const tbl = [["when", "what happens", "evidence"].map(h => ({ text: h,
-    options: { bold: true, color: C.white, fill: { color: C.task }, fontSize: 11.5 } }))]
-    .concat(rows.map((r, i) => r.map((c, j) => ({ text: c, options: {
-      fontFace: j === 2 ? MF : BF, fontSize: j === 2 ? 9.5 : 11.5, bold: j === 0,
-      color: j === 2 ? C.muted : C.text,
-      fill: { color: i % 2 ? C.white : C.panel } } }))));
-  s.addTable(tbl, { x: M, y: 1.55, w: cw.reduce((a, b) => a + b), colW: cw,
-    border: { type: "solid", color: C.rule, pt: 0.75 }, fontFace: BF, valign: "middle",
-    rowH: [0.32, 0.34, 0.34, 0.34, 0.36, 0.42, 0.34], margin: 0.07 });
-
-  code(s, [
-    '# A storage failure must not lose the user\'s round: the designs are',
-    '# already in state, so we log, warn, and carry on.',
-    'try:',
-    '    ranked = deps.history.rank_round(campaign_id, round_no, ...)',
-    'except Exception as exc:',
-    '    storage_error = storage_error or str(exc)',
-    '    log.warning("persisting the ranking failed: %s", exc)',
-    '    ranked = _rank_in_memory(combined, metric_name, direction)',
-    '...',
-    'if storage_error:',
-    '    update["warnings"] = [f"Design History write failed: {storage_error}"]',
-  ], M, 4.15, 7.6, 1.8, { anchor: "graph/nodes/analyst.py:166–233  ·  TRIMMED", fs: 10 });
-
-  card(s, M + 7.9, 4.15, 4.93, 0.95, "How the user finds out", [
-    "The interpreter appends a \"Caveats from this run\" section to its reply, from the warnings channel.",
-  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
-  card(s, M + 7.9, 5.25, 4.93, 0.7, "Where this came from", [
-    "A readonly-SQLite error during a live run. My own fault — but it exposed unguarded writes.",
-  ], { fill: C.panel, fs: 10.5 });
-  s.addNotes(
-`[1:15] Six failure modes, what each does, and the evidence that it does it.
-
-The one I want to dwell on is the fifth row. During a live run I hit "attempt to write a readonly database" from SQLite. The cause was mine — I deleted a data directory under a running server — so it was not a product bug. But it exposed something real: the analyst was writing to the lake unguarded, which meant a storage problem could lose a round of work the user had already waited two minutes for.
-
-The fix is the code at the bottom. Each tier write is guarded independently, a failure falls back to ranking in memory, and the error goes into a warnings channel that survives the turn. The interpreter then appends a "Caveats from this run" section to its reply, so the user is told rather than silently given a thinner answer. There is a test that kills the lake mid-round and asserts the designs still come back.
-
-And the fourth row is the one I did not have to arrange. ESM Atlas dropped a request during the measured campaign, the design came through sequence-only, the round scored the other five, and the warning surfaced. That is the whole mechanism working on a failure I did not choose.`);
-}
-
-// ================================================================ 15. Frontend
-{
-  const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "The web app: seven frame kinds and one viewer", "Frontend");
-
-  // frame kinds
-  const frames = [
-    ["token", "LLM text delta", C.ui], ["status", "node progress line", C.agent],
-    ["task", "submitted · log · state", C.radical], ["state", "UI_STATE_KEYS slice", C.agent],
-    ["message", "a complete reply", C.ui], ["error", "stream-fatal", C.fail],
-    ["done", "end of turn", C.muted],
-  ];
-  const fw = 1.72;
-  frames.forEach(([t, sub, col], i) => {
-    const x = M + i * (fw + 0.08);
-    box(s, x, 1.55, fw, 0.78, { title: t, sub: "\n" + sub, line: col, fill: C.white,
-      fs: 12, sfs: 9, subMono: false });
-  });
-  text(s, "POST /api/chat returns text/event-stream. One asyncio.Queue merges the graph's own " +
-    "astream frames with TaskManager events, so task progress and node status share one ordered stream.",
-    M, 2.45, 12.3, 0.5, { fontSize: 11.5, color: C.text });
-
-  code(s, [
-    'let buffer = "";',
-    'while (true) {',
-    '  const { done, value } = await reader.read();',
-    '  if (done) break;',
-    '  buffer += decoder.decode(value, { stream: true });',
-    '  let split;',
-    '  while ((split = buffer.indexOf("\\n\\n")) !== -1) {',
-    '    const raw = buffer.slice(0, split);',
-    '    buffer = buffer.slice(split + 2);',
-    '    ...  yield JSON.parse(line.slice(6)) as Frame;',
-    '  }',
-    '}',
-  ], M, 3.05, 6.1, 2.1, { anchor: "frontend/src/lib/api.ts:42–61  ·  TRIMMED", fs: 10 });
-  text(s, "A chunk boundary can land mid-frame, so partial frames are held in a buffer until a " +
-    "blank line. A malformed frame is skipped, never fatal.",
-    M, 5.25, 6.1, 0.5, { fontSize: 11, color: C.muted, italic: true });
-
-  card(s, M + 6.4, 3.05, 6.43, 1.3, "The Mol* viewer", [
-    "rcsb-molstar 2.14.7 UMD from jsDelivr, loader cached on window.__molstarLoader so one fetch serves every mount.",
-    "One viewer per mount; the spec is re-applied on change; ResizeObserver → handleResize.",
-  ], { fill: C.uiTint, hc: C.ui, fs: 10.5 });
-  card(s, M + 6.4, 4.45, 6.43, 1.3, "Two things that bit", [
-    "createComponent takes no colour, so colours go through pluginCall → updateRepresentationsTheme.",
-    "Coordinates are inlined as a json artifact by the analyst, so the viewer needs no second authenticated fetch.",
-  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
-
-  text(s, [
-    { text: "Confirmed rendering ", options: { bold: true, color: C.good } },
-    { text: "in a browser on 2026-10-01. It was built without one — the dev server, the proxy, a " +
-      "real artifact through it and the CDN assets were all that could be checked at the time." },
-  ], M, 5.85, 12.3, 0.6, { fontSize: 12.5 });
-  s.addNotes(
-`[1:10] Briefly, because the backend is what you came for.
-
-The chat endpoint is a POST that returns an event stream — not EventSource, because the prompt goes in the body. Seven frame kinds. The thing I would point at is that a single asyncio queue merges LangGraph's own stream with TaskManager events, so node status and task progress arrive in one ordered stream rather than two the client has to interleave.
-
-The client code is there because of a bug class people hit constantly: a network chunk boundary lands in the middle of an SSE frame, so you hold partial frames in a buffer until you see a blank line. And a malformed frame is skipped rather than killing the stream.
-
-The viewer: rcsb-molstar from the CDN, loader cached on window so one fetch serves every mount, one viewer per mount, resize observed. Two things bit me — createComponent takes no colour, so colours have to go through a plugin call to update the representation theme; and the analyst inlines coordinates as a JSON artifact so the viewer does not need a second authenticated fetch.
-
-Last line: this was built without a browser available, so for a while the canvas was the one thing nobody had actually looked at — everything around it checked out, which is exactly the situation where you convince yourself it is fine. It was confirmed rendering on the first of October. I am mentioning it because it was on the status slide as an open item until then, and some of you may have seen that version.`);
-}
-
-// ================================================================ 16. Running it
-{
-  const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "Running it, and what each test tier proves", "How to run it");
-
-  code(s, [
-    '$ ./scripts/setup.sh                        # builds .venv, then verifies it',
-    '$ ./scripts/setup.sh --check                # verify only, install nothing',
-    '$ python -m designagent --reload            # :8000',
-    '$ cd frontend && npm install && npm run dev # :5173, proxies /api',
-    '',
-    '$ pytest -q                                 # 93 tests, no network',
-    '$ pytest -q -m live                         # 12 tests, starts a real broker',
-  ], M, 1.55, 7.3, 1.35, { anchor: "VERBATIM", fs: 10.5 });
-
-  card(s, M + 7.6, 1.55, 5.23, 1.6, "Two things to know", [
-    "No key is required: every layer notes what it could not do on /api/health and keeps going.",
-    "uv sync cannot work here: the three middleware packages are local editable installs from refcodes/, and flowgentic pins two of its own deps to git URLs. setup.sh encodes that, and --check fails loudly instead of letting an import die.",
-  ], { fill: C.panel, fs: 10.5 });
-
-  const rows = [
-    ["tests/test_lake.py", "11", "all three tiers against a tmp_path lake: provenance, upserts, ranking, curation rules"],
-    ["tests/test_tasks.py", "25", "the contract: futures resolve, failures settle, capability flags honoured, Globus with an injected executor"],
-    ["tests/test_graph.py", "—", "18 parametrized classifier cases, a full loop end to end, artifacts, lake-write failure, and the no-structures-in-state guard"],
-    ["tests/test_api.py", "12", "SSE frames, artifact serving, task cancel returning 409 with a reason, health"],
-    ["pytest -m live", "6", "a real broker + endpoint as subprocesses: push states, offset log tailing, a failing job, cancelling a running one"],
-  ];
-  const cw = [3.0, 0.7, 8.63];
-  const tbl = [["file", "n", "what it actually proves"].map(h => ({ text: h,
-    options: { bold: true, color: C.white, fill: { color: C.task }, fontSize: 11.5 } }))]
-    .concat(rows.map((r, i) => r.map((c, j) => ({ text: c, options: {
-      fontFace: j === 0 ? MF : BF, fontSize: j === 0 ? 10.5 : 11.5,
-      align: j === 1 ? "center" : "left", color: C.text,
-      fill: { color: i % 2 ? C.white : C.panel } } }))));
-  s.addTable(tbl, { x: M, y: 3.15, w: cw.reduce((a, b) => a + b), colW: cw,
-    border: { type: "solid", color: C.rule, pt: 0.75 }, fontFace: BF, valign: "middle",
-    rowH: [0.32, 0.42, 0.48, 0.52, 0.42, 0.52], margin: 0.07 });
-
-  text(s, [
-    { text: "The split that matters: ", options: { bold: true, color: C.ink } },
-    { text: "93 tests need no network, no pool and no endpoint, because nodes only reach through " +
-      "Deps. The 6 that do are marked " },
-    { text: "live", options: { fontFace: MF } },
-    { text: ", deselected by default, and start their own broker." },
-  ], M, 6.2, 12.3, 0.6, { fontSize: 13 });
-  s.addNotes(
-`[1:00] Three commands to run it, two to test it, and no configuration step that has to succeed first.
-
-The test split is the part I would defend. 93 of the 99 tests need no network, no process pool and no endpoint. That is a direct consequence of the rule from the architecture slide — nodes only reach the outside through Deps — so the suite hands them an in-process task manager and a temp-directory lake and the whole graph runs in under a second.
-
-The six that genuinely need a substrate are marked live and bring up their own broker and endpoint as subprocesses. They are not mocks of ORBIT; they are ORBIT, on localhost.
-
-What I would call out in the middle column is that test_graph covers the classifier with eighteen parametrized cases. That is there because two real bugs hid in it: "what is the lead design?" classified as a design request because it contains the word design, and "make it more stable" classified as chat because it matched nothing at all. Both are the kind of bug an LLM path would have masked and the rule path makes visible.`);
-}
-
-// ================================================================ 17. Status
-{
-  const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "What is real, and what is not", "Status");
-
-  const real = [
-    ["The LangGraph loop, all five nodes", "two rounds, routed by the improvement test, on a real target"],
-    ["Query interface", "RCSB, UniProt, Europe PMC — live, with cross-referencing both directions"],
-    ["Local interface on the rhapsody pool", "12 real ESMFold predictions, 6 at a time, reaped out of order"],
-    ["All three lake tiers", `${T2.counts.scores} scores, ${T1.nodes.Task} task nodes, an ${T3.n_rows}-row Parquet set`],
-    ["Artifacts", "Markdown, .docx, a sortable table, two Mol* specs — all on disk"],
-    ["Streaming", "11 status lines plus task chips over one SSE stream"],
-    ["The Mol* artifact pane", "confirmed rendering in a browser, 2026-10-01"],
-  ];
-  const notReal = [
-    ["ProteinMPNN", "a job spec and a parser. No endpoint → a heuristic proposer, labelled as such"],
-    ["The Globus adapter", "structurally complete, tested with an injected executor, never met a live endpoint"],
-    ["Orbit", "works — against a localhost broker only. Never seen a scheduler or a queue"],
-    ["ChemGraph", "wired behind the interface; exercised by tests, never by a campaign"],
-    ["wrap_nodes", "ships off, against the approved design. Next slide"],
-  ];
-
-  s.addShape(pres.shapes.RECTANGLE, { x: M, y: 1.5, w: 6.25, h: 0.38,
-    fill: { color: C.good }, line: { color: C.good } });
-  text(s, "Runs end to end against something real", M + 0.12, 1.5, 6.0, 0.38,
-    { fontSize: 13, bold: true, color: C.white, valign: "middle" });
-  real.forEach(([h, b], i) => {
-    const y = 1.98 + i * 0.6;
-    s.addShape(pres.shapes.RECTANGLE, { x: M, y, w: 6.25, h: 0.55,
-      fill: { color: i % 2 ? C.white : C.panel }, line: { color: C.rule, width: 0.5 } });
-    text(s, h, M + 0.12, y + 0.02, 6.0, 0.25, { fontSize: 11, bold: true, color: C.ink });
-    text(s, b, M + 0.12, y + 0.26, 6.0, 0.27, { fontSize: 10, color: C.muted });
-  });
-
-  s.addShape(pres.shapes.RECTANGLE, { x: M + 6.58, y: 1.5, w: 6.25, h: 0.38,
-    fill: { color: C.fail }, line: { color: C.fail } });
-  text(s, "Built, but has never run for real", M + 6.7, 1.5, 6.0, 0.38,
-    { fontSize: 13, bold: true, color: C.white, valign: "middle" });
-  notReal.forEach(([h, b], i) => {
-    const y = 1.98 + i * 0.6;
-    s.addShape(pres.shapes.RECTANGLE, { x: M + 6.58, y, w: 6.25, h: 0.55,
-      fill: { color: i % 2 ? C.white : C.failTint }, line: { color: C.rule, width: 0.5 } });
-    text(s, h, M + 6.7, y + 0.02, 6.0, 0.25, { fontSize: 11, bold: true, color: C.ink });
-    text(s, b, M + 6.7, y + 0.26, 6.0, 0.27, { fontSize: 10, color: C.muted });
-  });
-
-  text(s, [
-    { text: "The single most load-bearing caveat: ", options: { bold: true, color: C.fail } },
-    { text: "no HPC endpoint has ever run a task for this agent. The remote interface is proven " +
-      "against a localhost broker, which proves the client path and nothing about a scheduler." },
-  ], M, 6.2, 12.3, 0.6, { fontSize: 13 });
-  s.addNotes(
-`[1:20] Two columns. Left is what runs end to end against something real, right is what is built and has never run for real.
-
-Left, briefly: the loop, two rounds, routed by the improvement test. The query interface against live RCSB, UniProt and Europe PMC. Twelve real folds on the rhapsody pool, six at a time, reaped out of order. All three lake tiers with the counts you saw. Four artifacts on disk. Streaming working.
-
-Right is the column that matters. ProteinMPNN is a job spec and a FASTA parser; with no endpoint, the orchestrator falls back to a heuristic proposer, and the output says so in a note field rather than quietly implying ProteinMPNN ran. The Globus adapter has never met a live endpoint. ORBIT works, against localhost only — which proves the client path and proves nothing about a queue. ChemGraph has been exercised by tests and never by a campaign.
-
-And the bottom line is the one I would put on a slide even if nobody asked: no HPC endpoint has ever run a task for this agent. Everything I have said about the remote path is a statement about the client, not about HPC.`);
-}
-
-// ================================================================ 18. Asks
-{
-  const s = pres.addSlide(); s.background = { color: C.ink };
-  text(s, "FINDINGS AND ASKS", M, 0.45, 9, 0.3,
-    { fontSize: 12, bold: true, color: "8FB8C9", charSpacing: 2 });
-  text(s, "Six reproducibles, and one question", M, 0.75, 11, 0.6,
-    { fontFace: HF, fontSize: 28, bold: true, color: C.white });
-
-  const items = [
-    ["1", "flowgentic hard-imports aiohttp — and httpx", "fault_tolerance.py:71–72 and :83–84 are except Exception: raise where the comment says \"if present\". Both become hard requirements. Fires whenever retryable_exceptions is left at its default ()."],
-    ["2", "RetryConfig defaults cancel long tasks silently", "30 s per attempt, 3 attempts. Measured against this repo's own folds: 13–42 s, so roughly half of round 2 would be cancelled and re-run. Long work must pass timeout_sec=None."],
-    ["3", "Orbit's terminal task event omits stdout", "A completed task resolves with an empty result until get_task is called again. Worked around in _finish_task_enriched."],
-    ["4", "A FAILED Orbit job carries no reason", "Only a non-zero exit code reaches the client. We synthesise an explanation from exit code, then stderr, then the log tail."],
-    ["5", "The broker has no HTTP topology route", "/topology → 307 → 404, read as a plugin name. Readiness has to come from the client's rt.topology(), which propagates asynchronously."],
-    ["6", "--no-auth still requires cert and key", "It disables ingress auth only; the broker always serves TLS and refuses to start without a pair. Worth one line in the docs."],
-  ];
-  items.forEach(([n, h, b], i) => {
-    const col = i < 3 ? 0 : 1;
-    const y = 1.6 + (i % 3) * 1.25;
-    const x = M + col * 6.5;
-    s.addShape(pres.shapes.OVAL, { x, y, w: 0.34, h: 0.34,
-      fill: { color: C.radical }, line: { color: C.radical } });
-    text(s, n, x, y, 0.34, 0.34, { fontSize: 12, bold: true, color: C.white,
-      align: "center", valign: "middle" });
-    text(s, h, x + 0.46, y - 0.02, 5.7, 0.3, { fontSize: 13, bold: true, color: "F0C898" });
-    text(s, b, x + 0.46, y + 0.3, 5.7, 0.85, { fontSize: 10.5, color: "C8D4DD" });
-  });
-
-  s.addShape(pres.shapes.RECTANGLE, { x: M, y: 5.42, w: 12.33, h: 1.35,
-    fill: { color: "2A3A47" }, line: { color: C.radical, width: 2 } });
-  text(s, [
-    { text: "The question:  ", options: { bold: true, color: C.radical, fontSize: 15 } },
-    { text: "is flowgentic's EXECUTION_BLOCK meant to preserve the caller's context?",
-      options: { bold: true, color: C.white, fontSize: 15, breakLine: true } },
-    { text: "A node wrapped as one runs on asyncflow's loop, outside LangGraph's runnable context. " +
-      "get_stream_writer() raises \"Called get_config outside of a runnable context\" and every " +
-      "custom event is dropped silently — the graph completes, the chat just goes quiet. " +
-      "If yes, it is a bug and wrap_nodes=True becomes our default. If no, flowgentic's node " +
-      "wrapping and LangGraph's streaming are mutually exclusive, and that belongs in the README.",
-      options: { color: "C8D4DD", fontSize: 11.5 } },
-  ], M + 0.2, 5.52, 11.9, 1.2, { fontSize: 12 });
-  text(s, "Thanks. Repo: main @ e8467e6 · slides/CODE_FOR_DECK.md carries every anchor and the reproduction for each finding.",
-    M, H - 0.45, 12.3, 0.3, { fontSize: 10.5, color: "7E8F9C", italic: true });
-  s.addNotes(
-`[1:50] I built on your stack for two weeks and these are the six things I had to work around. Each one names a file and a line, and the deck's CODE_FOR_DECK.md has the reproduction, so none of this needs to be taken on my word.
-
-One and two are flowgentic. The aiohttp import is, I think, a one-character fix: raise wants to be pass. The retry defaults are a judgement call rather than a bug, but I would argue the default is wrong for the workload flowgentic is most likely to be used for — if you are wrapping agent tasks, some of them are models.
-
-Three through six are ORBIT, and three and four are the ones I would most like fixed, because both of them produce a silent wrong answer rather than an error: an empty result, and a failure with no reason.
-
-Five and six are documentation. I lost an afternoon to --no-auth, because it is a reasonable reading that no auth means no TLS.
-
-And then the question, which is the actual ask. The approved design for this project had every graph node wrapped as an EXECUTION_BLOCK. It ships disabled, because a wrapped node runs on asyncflow's loop, outside LangGraph's runnable context, so the stream writer raises and every status event is dropped — silently. The graph still completes. The chat just goes quiet.
-
-So: is EXECUTION_BLOCK meant to preserve the caller's context? If it is, that is a bug worth fixing and I flip my default back. If it is not, then flowgentic's node wrapping and LangGraph's streaming are mutually exclusive, and I think that sentence belongs in the README, because I would have liked to read it.`);
-}
-
-// ================================================================ B1. Backup: streaming
-{
-  const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "The streaming experiment, in full", "Backup");
-
-  card(s, M, 1.55, 6.2, 2.72, "What was tried", [
-    "The approved design: wrap every node as AsyncFlowType.EXECUTION_BLOCK with RetryConfig(timeout_sec=None, max_attempts=1), same as tasks.",
-    "Symptom: the graph completed correctly and the chat showed no status lines at all. No error surfaced anywhere.",
-    "Isolation: one plain node and one wrapped node, each calling get_stream_writer() and emitting one event.",
-    "Plain node: writer obtained, event received by astream(stream_mode=[\"custom\"]).",
-    "Wrapped node: RuntimeError \"Called get_config outside of a runnable context\"; zero events.",
-  ], { fill: C.panel, fs: 10.5 });
-
-  card(s, M + 6.5, 1.55, 6.33, 2.72, "Why", [
-    "flowgentic's EXECUTION_BLOCK submits the body to the asyncflow WorkflowEngine, which runs it on its own loop.",
-    "LangGraph's get_stream_writer() reads the runnable context, which is a contextvar set by the LangGraph executor around the node call.",
-    "Crossing to another loop loses the contextvar. The writer cannot be found, and LangGraph's own helper degrades to a no-op rather than raising — which is why it is silent.",
-    "This is not a flowgentic bug unless EXECUTION_BLOCK intends to propagate context. Hence the question, not the accusation.",
-  ], { fill: C.agentTint, hc: C.agent, fs: 10.5 });
-
-  code(s, [
-    'def wrap_node(integration, fn):',
-    '    """Wrap a node body as a flowgentic EXECUTION_BLOCK, if enabled."""',
-    '    if integration is None:',
-    '        return fn',
-    '    return integration.execution_wrappers.asyncflow(',
-    '        fn, flow_type=AsyncFlowType.EXECUTION_BLOCK, retry=node_retry_config())',
-    '',
-    '# build_graph(): integration is set to None unless settings.wrap_nodes',
-  ], M, 4.45, 7.6, 1.5, { anchor: "graph/build.py:41–133  ·  TRIMMED", fs: 10 });
-
-  card(s, M + 7.9, 4.45, 4.93, 1.5, "What ships", [
-    "wrap_nodes=False, the code path kept and documented.",
-    "Tasks are still wrapped — FUNCTION_TASK runs task bodies, which never touch the stream writer.",
-    "So the pool is genuinely used; only node bodies stayed in-process.",
-  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
-
-  text(s, "Verified after the change: 11 status lines stream for one redesign turn.",
-    M, 6.15, 12.3, 0.4, { fontSize: 12.5, italic: true, color: C.good });
-  s.addNotes(
-`Backup, for the EXECUTION_BLOCK discussion if it goes deep.
-
-The approved plan said wrap every node. I did, and the graph worked perfectly while the chat went completely silent — no error, no warning, just no status.
-
-Isolating it took one plain node and one wrapped node, each asking for a stream writer and emitting one event. The plain one works. The wrapped one raises "Called get_config outside of a runnable context" and emits nothing.
-
-The mechanism: EXECUTION_BLOCK hands the body to asyncflow's engine, which runs it on its own loop. LangGraph's stream writer lives in a contextvar that its executor sets around the node call. Cross loops and you lose the contextvar. And LangGraph's helper degrades to a no-op rather than raising, which is exactly why the failure is invisible.
-
-Important fairness point: this is only a flowgentic bug if EXECUTION_BLOCK intends to propagate caller context. I do not know that it does, which is why slide 18 asks rather than asserts.
-
-What ships: wrap_nodes false, the path kept and documented. Tasks are still wrapped, so the process pool is genuinely in use — task bodies never touch the stream writer, so nothing is lost there.`);
-}
-
-// ================================================================ B2. Backup: local Orbit
-{
-  const s = pres.addSlide(); s.background = { color: C.white };
-  title(s, "Standing up a local Orbit stack", "Backup");
-
-  code(s, [
-    '# broker: --no-auth disables INGRESS AUTH ONLY. TLS is always served,',
-    '# and it refuses to start without a cert and key.',
-    'openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem \\',
-    '  -days 3 -subj /CN=127.0.0.1 \\',
-    '  -addext subjectAltName=IP:127.0.0.1,DNS:localhost     # SAN must cover 127.0.0.1',
-    'chmod 600 key.pem                                        # refuses a looser mode',
-    '',
-    'radical-orbit-broker.py --no-auth --host 127.0.0.1 --port N \\',
-    '    --cert cert.pem --key key.pem',
-    '',
-    'RADICAL_ORBIT_RHAPSODY_BACKEND=concurrent \\',
-    'radical-orbit-endpoint.py --name local -p rhapsody,psij \\',
-    '    --url https://127.0.0.1:N --cert cert.pem',
-  ], M, 1.55, 7.6, 2.5, { anchor: "tasks/hpc/local_orbit.py  ·  EDITED for the slide", fs: 10 });
-
-  card(s, M + 7.9, 1.55, 4.93, 1.2, "Readiness", [
-    "There is no HTTP topology route — /topology reads as a plugin name and 404s.",
-    "The stack greps the endpoint's own log for registered as '<name>'.",
-  ], { fill: C.failTint, hc: C.fail, fs: 10.5 });
-  card(s, M + 7.9, 2.9, 4.93, 1.15, "Then the client decides", [
-    "OrbitInterface.connect() polls rt.topology() until the endpoint appears, bounded by connect_timeout — topology propagates asynchronously.",
-  ], { fill: C.panel, fs: 10.5 });
-
-  card(s, M, 4.3, 6.2, 1.7, "Why subprocesses, not EmbeddedBroker", [
-    "The embedded broker expects operator-placed credentials in ~/.radical/orbit, which a test must not create or touch.",
-    "Subprocesses with a throwaway cert keep the whole thing inside tmp_path and leave no state behind.",
-    "Cost: the stack has to detect readiness from logs, which is the fragile part of the fixture.",
-  ], { fill: C.radicalTint, hc: C.radical, fs: 10.5 });
-  card(s, M + 6.5, 4.3, 6.33, 1.7, "What the fixture then proves", [
-    "An executable task runs and its stdout comes back (after the get_task re-fetch).",
-    "A bash loop's output tails incrementally — log_offset advances, so it is not refetched whole.",
-    "A job exiting 3 lands FAILED with a non-empty error.",
-    "A sleeping job cancels while running, and reports CANCELED.",
-  ], { fill: C.panel, fs: 10.5 });
-  s.addNotes(
-`Backup, for anyone who wants to reproduce the ORBIT work.
-
-The thing that cost me most of an afternoon is the first comment. --no-auth disables the ingress token check only. The broker always serves TLS and refuses to start without a cert and key, so with --no-auth alone it exits at startup. The fixture generates a throwaway self-signed pair, with a SAN covering 127.0.0.1 because that is what the client connects to, and chmods the key to 600 because the broker rejects anything looser.
-
-Readiness was the other trap. I went looking for an HTTP topology endpoint and got a 307 then a 404 saying endpoint 'topology' unknown — because the gateway reads it as a plugin name. There is no such route. So the fixture waits on the endpoint's own log line, and the authoritative check moved to where it belongs: the client polls rt.topology() until the endpoint appears, bounded by a timeout, because topology propagates asynchronously.
-
-Subprocesses rather than the embedded broker, because the embedded one expects operator-placed credentials in the user's home directory and a test has no business creating those.
-
-What it buys is the four assertions on the right, all against real processes.`);
 }
 
 pres.writeFile({ fileName: path.join(__dirname, "designagent-codewalk.pptx") })

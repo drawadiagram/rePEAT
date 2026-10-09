@@ -23,7 +23,10 @@ DECK = HERE / "build_deck.js"
 OUT = HERE / "DECK_SCRIPT.md"
 WPM = 155
 # Slides that may be dropped for a shorter running order, by leading number.
-CUT = {"12", "15"}
+CUT = {"9", "19", "20"}
+# Order C drops two more: the layer map and the state slide are both recoverable
+# in a sentence, and neither is a claim about one of the three dimensions.
+CUT_C = CUT | {"5", "8"}
 
 
 def spoken_words(notes: str) -> int:
@@ -52,13 +55,15 @@ def main() -> int:
     cut = total - sum(
         e[2] for e in main_entries if e[0].split(".")[0] in CUT
     )
-    globus = next((e[2] for e in main_entries if e[0].startswith("11.")), 0)
+    cut_c = total - sum(
+        e[2] for e in main_entries if e[0].split(".")[0] in CUT_C
+    )
 
     head: list[str] = ["# designagent walkthrough — speaking script\n"]
     head.append(
         """Companion to [`DECK_OUTLINE.md`](DECK_OUTLINE.md) (slide structure) and
 [`CODE_FOR_DECK.md`](CODE_FOR_DECK.md) (the staged code blocks). Slide numbers and snippet IDs match
-across all three. Derived against `main` @ `e8467e6`.
+across all three. Derived against `main` @ `7e72b74`.
 
 **This file is generated from the `addNotes` blocks in `build_deck.js`.** The deck is the single
 source of the spoken prose, so a presenter reading from the notes pane and a presenter reading from
@@ -84,33 +89,37 @@ realistic rate for technical material delivered with pauses.
 
     head.append("")
     head.append(
-        f"**Main path (slides 1–18): {total} words = {total / WPM:.1f} minutes of speech.** "
+        f"**Main path (slides 1–23): {total} words = {total / WPM:.1f} minutes of speech.** "
         f"Backups add {sum(e[2] for e in backups) / WPM:.1f} min if used.\n"
     )
     head.append("| Order | What's in | Speech | Fits |")
     head.append("|---|---|---|---|")
     head.append(
-        f"| **A · full** | slides 1–18 | **{total / WPM:.1f}** | a 30-minute slot, questions inline |"
+        f"| **A · full** | slides 1–23, all three acts | **{total / WPM:.1f}** | "
+        "a 30-minute slot with questions at the end |"
     )
     head.append(
-        f"| **B · twenty-five** | drop 12 (task agents) and 15 (frontend) | "
-        f"**{cut / WPM:.1f}** | a 25-minute slot with real Q&A |"
+        f"| **B · questions inline** | drop 9 (the lake), 19 (frontend) and 20 (deployment) | "
+        f"**{cut / WPM:.1f}** | the 30-minute slot as briefed, or a 25 with questions after |"
     )
     head.append(
-        f"| **C · twenty** | B, and fold 11 (Globus) into 10 as one sentence | "
-        f"**~{(cut - globus) / WPM:.1f}** | a hard 20 with questions after |"
+        f"| **C · twenty** | B, and drop 5 (the layer map) and 8 (state) | "
+        f"**{cut_c / WPM:.1f}** | a hard 20 with questions after |"
     )
     head.append(
         """
-**Protect 8, 9, 10 and 18.** Those are the seam and the asks, and they are what this room came for.
-Slides 12 and 15 are the designated cuts: the visualization-agent decision and the SSE details are
-both recoverable in one sentence elsewhere. Do **not** compress 17 (status) — an audience that
-catches you overclaiming stops believing the rest, and this deck's whole bet is that the honesty is
-the credibility.
+**Protect 3 (the three dimensions), 13, 14 and 15 (the seam), 16 (measured and not measured), 22
+(status) and 23 (asks).** The seam and the asks are what this room came for; 3 and 16 are what make
+the performance claims honest rather than decorative. The three dividers are 20 seconds each and
+cheap to keep — if the clock goes, cut a content slide, not the frame.
 
-**Two things to say out loud even if nothing prompts them:** no HPC endpoint has ever run a task for
-this agent (slide 17), and the variants in the worked example are heuristic proposals rather than
-ProteinMPNN samples (slide 2).
+Do **not** compress 16 or 22. An audience that catches you overclaiming stops believing the rest,
+and those two slides are where this deck does its volunteering.
+
+**Three things to say out loud even if nothing prompts them:** no stage of the protocol has run on a
+cluster, so every figure in `specs.py` is an estimate (slides 6 and 22); the concurrency figure is a
+mean in-flight depth and not a speedup, because there is no serial baseline (slides 12 and 16); and
+the variants in the worked example are heuristic proposals, not ProteinMPNN samples (slide 2).
 """
     )
 
@@ -134,7 +143,7 @@ python3 slides/make_script.py        # rewrites DECK_SCRIPT.md from build_deck.j
     print(f"wrote {OUT}")
     print(
         f"  main path: {total} words = {total / WPM:.1f} min  ·  "
-        f"order B = {cut / WPM:.1f} min  ·  order C = {(cut - globus) / WPM:.1f} min"
+        f"order B = {cut / WPM:.1f} min  ·  order C = {cut_c / WPM:.1f} min"
     )
     return 0
 

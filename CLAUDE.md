@@ -9,11 +9,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./scripts/setup.sh --check   # verify an existing one, install nothing
 ```
 
-That script is the only supported path and **`uv sync` is not an alternative**. The three middleware
-packages are local editable installs from `refcodes/`, which is gitignored and absent from a fresh
-clone; flowgentic pins `radical-asyncflow` and `academy-py` to git URLs that fight the local
-checkouts, so it goes in `--no-deps` and the three deps it then lacks are unused here. `pyproject.toml`
-carries the full reasoning where a `[tool.uv.sources]` block used to be.
+That script is the only supported path and **`uv sync` is not an alternative**. The four middleware
+packages — `radical.asyncflow`, `rhapsody`, `flowgentic` and `radical.orbit` — are local editable
+installs from `refcodes/`, which is gitignored and absent from a fresh clone; flowgentic pins
+`radical-asyncflow` and `academy-py` to git URLs that fight the local checkouts, so it goes in
+`--no-deps` and the three deps it then lacks are unused here. `pyproject.toml` carries the full
+reasoning where a `[tool.uv.sources]` block used to be.
+
+Orbit goes in `--no-deps` too, with `opentelemetry-sdk` and `nvidia-ml-py` added by hand: its
+rhapsody plugin calls `start_telemetry`, and without the sdk every session fails to open and the
+whole `live` tier *skips* itself on an import error rather than failing (`plans/AMAREL_ENDPOINT.md`
+rung 1). `setup.sh --check` imports both for that reason.
 
 Run `--check` after a pull: it fails with the missing piece named, rather than letting the app die
 deep inside an import.
@@ -29,7 +35,8 @@ needs it, so a fresh clone should not pay for it. It pins ProteinMPNN's revision
 `DESIGNAGENT_MPNN_COMMAND` to export; with `DESIGNAGENT_ORBIT_LOCAL=true` and
 `DESIGNAGENT_ORBIT_JOB_GPUS=0` the `hpc` path then runs the real model on this host through a real
 broker. A 76-residue target takes a few seconds on CPU. It proves the model, not a scheduler, a
-queue, an allocation or a GPU — the local PSI/J executor forks a process (`plans/BACKLOG.md` A1).
+queue, an allocation or a GPU — the local PSI/J executor forks a process. The real thing is
+`plans/AMAREL_ENDPOINT.md` §6, rung 4.
 
 A child process that gets a path must get an absolute one. `LocalOrbitStack` resolves its work dir
 in `__init__` because `_spawn` runs the broker and endpoint with `cwd=work_dir`, and
@@ -57,7 +64,8 @@ with no fallback once it finds a file. Run everything from the repo root.
 ./scripts/dev.sh up                             # backend + frontend, endpoint if installed
 ./scripts/dev.sh up --no-mpnn                   # no endpoint: the heuristic path
 ./scripts/dev.sh down | status | restart | logs
-./scripts/amarel_endpoint.sh selftest           # Orbit endpoint on Amarel; also check|start|stop
+./scripts/amarel_endpoint.sh selftest           # Orbit endpoint on Amarel; the rest
+#   is install | check | start | run | stop | status | logs
 .venv/bin/python -m designagent --reload        # backend on :8000
 .venv/bin/python -m designagent --check-config  # effective config, secrets masked
 .venv/bin/python -m designagent --check-config --probe   # ...and try each credential
@@ -173,10 +181,13 @@ fresh process: the first keeps the override bookkeeping, the second resets it.
 
 **Logins are off unless `DESIGNAGENT_AUTH_ENABLED=true`, and off they change nothing.** With no
 `runtime.auth`, `app._user` returns None and every ownership check passes, which is why the rest of
-the suite needed no edit when they arrived. On (the Linode), every route except `/api/login` and a
+the suite needed no edit when they arrived. On (the Linode), every route except `/api/login`,
+`/api/logout` (which reads a cookie but does not require one, so signing out is idempotent) and a
 bare `/api/health` needs the session cookie. A chat session must be the caller's (404 otherwise),
 session ids are minted by `POST /api/sessions`, and the operator's settings routes need the admin
-role instead of the shared token. `tests/test_auth.py` is the contract.
+role instead of the shared token. `tests/test_auth.py` is the contract. One consequence to remember:
+`/api/health` tells an anonymous or non-admin caller only `{ok, auth}`, so anything that waits on
+`hpc: true` — `scripts/dev.sh` does — has to sign in first (backlog A21).
 
 **A turn's user travels in a `ContextVar`, never in `configurable` or state.** `context.current_turn`
 is set inside `/api/chat`'s `run_graph` task, and asyncio copies it to every task the turn creates.
@@ -251,7 +262,9 @@ the `warnings` state channel, which the interpreter appends to its reply as "Cav
 
 **Kuzu takes an exclusive file lock.** A running backend holds it, so read `data/lake/graph` by
 copying it aside (see `slides/run_model.py`). Tiers 2 and 3 are a plain SQLite file and Parquet, and
-can be read in place.
+can be read in place. It also sizes its buffer pool at ~80% of the host's RAM by default, which is
+most of a small VM and is why `DESIGNAGENT_KUZU_BUFFER_POOL_MB` exists; the 4 GB Linode runs with
+256. Environment-only, like `data_dir`.
 
 ### The protocol node
 
@@ -461,26 +474,47 @@ reproduce.
 `plans/AMAREL_ENDPOINT.md` is how to stand up the Orbit broker and endpoint the protocol needs, with
 an acceptance ladder whose rungs are meant to be filled in with what they actually returned. The
 pair is up: the broker runs on the Linode under systemd and the `amarel3` endpoint has registered
-with `psij,sysinfo` across the internet, and rung 4 has put real Slurm jobs through it (backlog
-**A1** answered: the path works). What it found is **A18–A20**, the sharpest being that a missing
+with `psij,sysinfo` across the internet, and rung 4 has put real Slurm jobs through it — the path
+works, which retired backlog A1. What it found is **A18–A20**, the sharpest being that a missing
 `--chdir` runs a job in `/tmp` and reports success. No protocol stage has run yet, so every
 walltime, core count and memory figure in `protocol/specs.py` is still a guess.
 
-`plans/LINODE_DEPLOY.md` is the phased plan for the Linode (97.107.137.219) that hosts the broker and
-the agent: host setup, the UI exposed by IP behind Caddy, then per-user logins and per-user secrets.
-It records one trap worth knowing before touching auth: behind a same-host proxy, `bound_to_loopback`
-is true for every caller, so the loopback-open settings routes are open to the internet unless
-`DESIGNAGENT_ADMIN_TOKEN` is set.
+`plans/LINODE_DEPLOY.md` is the plan *and* the record for the Linode (97.107.137.219) that hosts the
+broker and the agent. **Phases 0, 1 and 2 have shipped:** host setup, the UI behind Caddy, and then
+per-user logins as the gate — Caddy's basic auth was removed once they worked, and the Phase 1
+Caddyfile is kept beside it. Phase 3, a broker per user, is open, and what Phase 2 leaves open is
+backlog A21. The trap it records is still worth knowing: behind a same-host proxy,
+`bound_to_loopback` is true for every caller, so the loopback-open settings routes are open to the
+internet unless something closes them. With logins on the admin role does (A17), and
+`DESIGNAGENT_ADMIN_TOKEN` is then not consulted at all; with logins off that token is the only thing
+standing there.
 
 ## Slides
 
 `slides/` holds a code-walk deck built from real data. If you change backend code that a slide cites:
 
 ```bash
-.venv/bin/python slides/check_anchors.py        # 39 cited line numbers, re-derived
-.venv/bin/python slides/run_model.py            # regenerate run.json from data/lake
+.venv/bin/python slides/check_anchors.py        # 46 cited line numbers, re-derived
+.venv/bin/python slides/run_model.py            # re-mine run.json — read M2 first
+.venv/bin/python slides/bench_staging.py        # re-measure the staging channel → staging.json
 .venv/bin/python slides/make_script.py          # regenerate DECK_SCRIPT.md from the deck's notes
 NODE_PATH=<dir with pptxgenjs> node slides/build_deck.js
 ```
 
 `DECK_SCRIPT.md` is generated — edit the `addNotes` blocks in `build_deck.js`, not the Markdown.
+`run.json` is generated too, but **do not re-run `run_model.py` casually**: it aggregates the whole
+lake and takes whichever campaign Kuzu lists first, so on today's data dir it replaces the deck's
+worked example wholesale and exits 0 (backlog M2). The committed file is the 2026-10-01 campaign
+with only its `code` block refreshed.
+
+`staging.json` is generated by `bench_staging.py` and is deliberately a **separate** file, so
+re-measuring F5 on another host cannot touch that campaign. It runs the real `wrap()`/`collect()`
+through a local `bash -lc` in a temp dir, and it is where backlog **A22** came from — the outbound
+cap is checked on raw bytes while the cost is paid in compressed ones, and the inbound half has no
+cap at all and dies at `exec`.
+
+The deck is in three acts — functionality (what new tasks it makes possible), performance (what it
+costs to run, and what was never measured) and usability (what it is usable *as*: application,
+platform, component). Slides are numbered within that spine, so a slide number in `CODE_FOR_DECK.md`,
+`DECK_OUTLINE.md` and `check_anchors.py` is load-bearing; the framing itself is written up in the
+`code-walk-deck` skill.

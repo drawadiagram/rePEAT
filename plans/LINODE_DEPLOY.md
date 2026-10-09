@@ -33,7 +33,7 @@ Phase 1's checks, from the VM, before logins:
 
 The Let's Encrypt cert (issuer YE2) expires 2027-01-07 and Caddy renews it.
 
-The AMAREL_ENDPOINT.md ladder records rungs 0a–4. A1 is answered (the path works); rung 4's
+The AMAREL_ENDPOINT.md ladder records rungs 0a–4. The path works, which retired backlog A1; rung 4's
 findings are backlog A18–A20.
 
 Learned on the way, and folded into the steps below:

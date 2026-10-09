@@ -357,7 +357,7 @@ async def test_real_proteinmpnn_runs_and_its_samples_reach_the_adapter(orbit):
 
     This is what makes a round attributable to specific weights. It says
     nothing about a scheduler, a queue or a GPU -- the local PSI/J executor
-    forks a process. See plans/BACKLOG.md A1.
+    forks a process. See plans/AMAREL_ENDPOINT.md, rung 4, for the real thing.
     """
     from designagent.tools.proteinmpnn import mpnn_job_spec, variants_from_mpnn_fasta
 
