@@ -123,7 +123,8 @@ the work dir twice, and the broker exited "TLS cert not found" (the trap recorde
 | agent (rePEAT backend) | the same VM, `127.0.0.1:8000` | `tmux` or a systemd service (§3) | the broker at `https://127.0.0.1:8443` |
 | endpoint | `amarel3` login node | `tmux` (§4) | the broker at `https://<linode-ip>:8443`, outbound |
 | protocol jobs | Amarel compute nodes | Slurm, one job each | nothing |
-| browser | the user's laptop | — | the agent, over `ssh -L` to the VM |
+| Caddy | the same VM, `:80`/`:443` | `caddy.service` | the agent at `127.0.0.1:8000`; serves the built frontend from `/srv/repeat/www` |
+| browser | the user's laptop | — | Caddy, over HTTPS with basic auth (`plans/LINODE_DEPLOY.md` Phase 1); `ssh -L` still works |
 
 This is Orbit's intended pattern, not an adaptation of it. Upstream's `DEPLOYMENT.md` puts the broker
 on a "public-facing" host under systemd and the endpoint on "one per cluster or login node",
@@ -142,10 +143,12 @@ because it is the broker's only other client, the protocol's scripts are read on
 - **The broker's port faces the internet**, so the token is the gate. Auth is on by default and must
   stay on: **never `--no-auth`** on this broker. Narrow the port with a Linode Cloud Firewall to the
   Rutgers range the endpoint egresses from (§3), and keep the key on the VM.
-- **The agent's backend stays on loopback.** It ships no CORS middleware, and `_authorize_write`
-  (`app.py`) opens settings writes to loopback callers when `DESIGNAGENT_ADMIN_TOKEN` is unset. On a
-  VM only we log into, loopback is ours, which is what that design assumes; set the token anyway.
-  Never bind the backend to a public address; the browser reaches it over `ssh -L`.
+- **The agent's backend stays on loopback**, and Caddy fronts it (`plans/LINODE_DEPLOY.md`
+  Phase 1). It ships no CORS middleware, and `_authorize_write` (`app.py`) opens settings writes to
+  loopback callers when `DESIGNAGENT_ADMIN_TOKEN` is unset.
+  - **Behind a same-host proxy that test is true for every caller** (backlog **A17**), so on this
+    VM the token is mandatory, not optional. It is set in `/etc/repeat/backend.env`.
+  - Never bind the backend to a public address.
 - **Nothing listens on `amarel3`.** The shared-loopback problem found in the survey — about 86 users
   on one `127.0.0.1` — now matters only to the dev stack (`pytest -m live`,
   `DESIGNAGENT_ORBIT_LOCAL=true`), which starts a `--no-auth` broker (backlog **A16**). Run that on
@@ -496,7 +499,7 @@ with every logged-in user (backlog **A16**), and the role is `login`, so rhapsod
 | 1 | VM | `.venv/bin/python -m pytest -q -m live` | the client path against a localhost broker we start ourselves | 2026-10-09: **11 passed, 1 skipped** (the ProteinMPNN test, which is not installed on the VM by design). The first run skipped all 12 with `No module named 'opentelemetry.sdk'`: Orbit's rhapsody plugin calls `start_telemetry`, which needs rhapsody's `telemetry` extra. `setup.sh` now installs and checks it |
 | 2 | VM | `DESIGNAGENT_ORBIT_LOCAL=true .venv/bin/python -m pytest -q -m remote` | the remote tier's assertions, rehearsed with no allocation | 2026-10-09: **8 passed** |
 | 3 | VM | `.venv/bin/python -m designagent --check-config --probe` | the agent's credentials reach the real broker and the endpoint is visible | 2026-10-09, with `/etc/repeat/backend.env` loaded: `orbit [ok] endpoint amarel3`, `hpc: configured`, exit 0. `llm` absent (no key yet); `protocol_*` cluster paths still unset |
-| 4 | VM | `.venv/bin/python -m pytest -q -m remote` | submit → poll → logs → cancel across a real scheduler. **This is backlog A1's question.** | |
+| 4 | VM | `.venv/bin/python -m pytest -q -m remote` | submit → poll → logs → cancel across a real scheduler. **This is backlog A1's question.** | 2026-10-09, run with `DESIGNAGENT_ORBIT_CLIENT_NAME=designagent-rung4`, since the backend holds the default name (backlog **A18**). **4 passed**: endpoint names itself; a PSI/J job runs through Slurm and returns its logs; a queued job is cancelled; the manager routes `hpc` work here. **4 failed, none of them the path itself:** rhapsody is absent on a login node (**D4**, expected); `custom_attributes` with `slurm.requeue: ""` → HTTP 500, a test bug, fixed and re-run green (**A19**); `directory` and the fetch test name paths that exist only on the VM (**A20**). A1 is answered: **the path works** |
 | 5 | VM | one real hhblits run | a 12-hour walltime, 0 GPUs, 32 GiB, and a `directory` that persists | |
 | 6 | VM | the full protocol spine | everything else | |
 
@@ -517,3 +520,19 @@ Four things to write down from rung 4, because each is the first evidence we wil
   fails a job whose `--chdir` does not exist before anything runs, so `$PROJ` must be created first;
 - **how long a known-size output takes to come back.** Job stdout and in-band staged files now
   travel `amarel3` → Linode over the internet (backlog **D5**).
+
+**What rung 4 answered (2026-10-09):**
+
+- **`native_id` comes back.** A probe job reported `native_id: "62380976"`, which matched the
+  `SLURM_JOB_ID` it printed. It ran on `hal0140`.
+- **Batch system:** `host_role` returned `role: login`, `scheduler: slurm`, `psij_executor: slurm`
+  (rung 0c, from the endpoint side). Nothing site-specific surfaced as a rejection. The only 500 was
+  our own malformed attribute (**A19**). No kept submit script has been read yet.
+- **`directory` is honoured when it exists, and silently replaced when it does not.**
+  - `directory=/scratch/mh1314` printed `/scratch/mh1314` (job `62380976`).
+  - `directory=/scratch/mh1314/no-such-dir-rung4` printed **`/tmp`** and still reported **DONE,
+    exit 0** (job `62380977`).
+  - So the claim above, "Slurm fails a job whose `--chdir` does not exist", is **wrong on Amarel**:
+    it falls back to `/tmp`. `$PROJ` must exist before a compute stage, and a stage cannot rely on
+    Slurm to notice when it does not (backlog **A20**).
+- **Output transfer time** is still unmeasured (D5): rung 4's jobs printed a few lines each.

@@ -16,6 +16,11 @@ when fixed and the rest close up, so refer to issues by their title in commit me
 ## A — correctness and honesty
 
 ### A1 · No HPC endpoint has ever executed a task
+**Answered 2026-10-09: the path works.** `pytest -m remote` against the `amarel3` endpoint through
+the Linode broker submitted real Slurm jobs, polled them, read their logs, cancelled one, and got
+the Slurm id back in `native_id` (`plans/AMAREL_ENDPOINT.md` §6, rung 4). What rung 4 found instead
+is in **A18**, **A19** and **A20**. The entry stays below as the record of how it got here.
+
 The remote path is proven against a localhost broker only (`tests/test_orbit_local.py`, 12 tests).
 That exercises the client — websocket, plugin sessions, push events, PSI/J offset tailing,
 cancellation — and says nothing about a scheduler, a queue, staging, or an allocation.
@@ -310,6 +315,84 @@ local to `local_orbit.py` and the client settings it hands back.
 **Not on the production path.** The deployed broker runs on a Linode VM with auth on, and
 `plans/AMAREL_ENDPOINT.md` runs ladder rungs 1–2 on that VM, where loopback is private. The entry
 stands for anyone who runs the dev stack on a login node.
+
+### A17 · Behind a same-host proxy, `bound_to_loopback` is true for every caller
+`Settings.bound_to_loopback` (`config.py`) reads the address uvicorn *binds*, not the address a
+request comes from. On the Linode the backend binds `127.0.0.1` and Caddy proxies the internet to it
+(`plans/LINODE_DEPLOY.md` Phase 1), so every request is local by that test. With no
+`DESIGNAGENT_ADMIN_TOKEN`, `_authorize_write` then opens `PUT`/`DELETE /api/settings` and
+`POST /api/settings/test` to anyone who gets past the proxy.
+
+**Repro:** with the token unset, start the backend on loopback behind any reverse proxy. A `PUT
+/api/settings` through the proxy is accepted.
+
+**Mitigated on the Linode, not fixed:** `/etc/repeat/backend.env` sets the token, and Caddy's
+`basic_auth` sits in front. The fix is Phase 2 of the deploy plan: per-user logins, with
+`_authorize_write` becoming a role check and the loopback-open default retired. Until then, **any
+deployment behind a proxy must set the token.**
+
+### A18 · Two clients with the same Orbit name silently steal each other's replies
+`orbit_client_name` defaults to `designagent`, and the broker evidently routes replies by that
+name (inferred from behaviour, not yet read in its source). Found 2026-10-09 on the Linode:
+- The backend service was started while `pytest -m remote` was mid-run, with the same environment.
+- The backend logged `[Runtime] name 'designagent' in use; retrying with backoff`, then registered a
+  few seconds later.
+- From then on the test process's calls got no answers. Its job-status polls blocked forever in
+  `orbit/runtime.py:876` (`call` → `future.result()`, no timeout), the last three tests failed, and
+  pytest hung in teardown, shutting down an executor whose threads would never return.
+
+Nothing errors: the second process looks healthy and the first just stops hearing back.
+
+**Repro:** run the backend and `pytest -m remote` against the same broker with the same
+`DESIGNAGENT_ORBIT_CLIENT_NAME`.
+
+**Workaround:** give every extra client its own name. The rung 4 re-run used
+`DESIGNAGENT_ORBIT_CLIENT_NAME=designagent-rung4`.
+
+**Fix:**
+- A per-process suffix on the default name (hostname plus pid, or a random tag).
+- Phase 2's per-user `OrbitRegistry` **must** mint a distinct client name per interface, or two
+  users' interfaces will collide in exactly this way.
+- The unbounded `future.result()` is upstream's (backlog C), and is worth reporting.
+
+### A19 · A `custom_attributes` flag that takes no value cannot be expressed
+PSI/J's Slurm template renders every custom attribute as `--<name>=<value>`. `{"slurm.requeue": ""}`
+therefore became `--requeue=`, and the endpoint answered **HTTP 500**: `sbatch: option '--requeue'
+doesn't allow an argument`. Found by rung 4 on 2026-10-09, in
+`test_custom_attributes_are_accepted_by_the_endpoint`. That was a bug in the *test*, which now sends
+`slurm.comment` and passes on Amarel and against the development stack.
+
+**Why it matters anyway:** `--requeue` is exactly the flag CLAUDE.md lists as lost in the move off
+the skill's `#SBATCH` headers, so restoring it is not a one-line `custom_attributes` change.
+
+The protocol's own use, `slurm.constraint` with a value (`protocol/specs.py`), renders correctly.
+
+### A20 · A missing `--chdir` runs the job in `/tmp` and reports success
+On Amarel, a job whose `directory` does not exist is **not** rejected: Slurm falls back to `/tmp`,
+and the job ends DONE with exit 0. Probe of 2026-10-09:
+- `directory=/scratch/mh1314/no-such-dir-rung4` printed `/tmp`, job `62380977`, DONE, exit 0;
+- the same body with `directory=/scratch/mh1314` printed that directory.
+
+`AMAREL_ENDPOINT.md` §6 had assumed the opposite.
+
+**Exposure in the protocol:** small but real.
+- The push stage `mkdir -p`s the project subdirectories before any compute stage, and compute bodies
+  read relative inputs under `set -euo pipefail`. So a missing directory *usually* fails loudly on
+  the first missing input.
+- A stage whose first act is to create its own output (`mkdir -p "$out"` in the MPNN and AF3 specs)
+  could instead do its work in the compute node's `/tmp` and report success, and those files would
+  be lost.
+
+**Fix:** a guard line at the top of every compute body in `protocol/specs.py`:
+`[ "$PWD" = <directory> ] || { echo "not in <directory>: Slurm fell back to $PWD" >&2; exit 97; }`.
+This turns the silent fallback into a named failure.
+
+**And two remote tests assume a shared filesystem.** `test_a_jobs_working_directory_is_honoured`
+and `test_a_file_comes_back_out_of_a_project_directory` build their directories under the test's
+`tmp_path`, on the machine running pytest. That holds for the development stack and never for a real
+endpoint, so both fail on Amarel for that reason alone. They need a remote base directory, for
+example `DESIGNAGENT_REMOTE_TEST_DIR`, defaulting to `tmp_path` when `ORBIT_LOCAL`, with the files
+created and checked by jobs rather than by the test process.
 
 ---
 

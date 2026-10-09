@@ -1,5 +1,31 @@
 # Linode deployment: broker and agent on this VM, UI by IP, then per-user logins
 
+## Status (2026-10-09)
+
+**Phases 0 and 1 are done.** The UI is up at `https://97-107-137-219.ip.linodeusercontent.com`
+behind basic auth: user `repeat`, password in `/root/repeat-ui-password`. Checked from the VM:
+- no or wrong credentials → 401;
+- with credentials, `/` → 200 and `/api/health` → `hpc: true`;
+- `PUT /api/settings` without `X-Designagent-Admin` → 403;
+- the bare IP → 301 to the hostname;
+- a chat turn ("Load PDB 1OIL") streams its frames over 2.8 s, unbuffered.
+
+The Let's Encrypt cert (issuer YE2) expires 2027-01-07 and Caddy renews it.
+
+The AMAREL_ENDPOINT.md ladder records rungs 0a–4. A1 is answered (the path works); rung 4's
+findings are backlog A18–A20.
+
+Learned on the way, and folded into the steps below:
+- **Every Cloud Firewall rule had to be added in Cloud Manager as well as UFW.** Port 80 timed out
+  for the ACME challenge until it was. Caddy was stopped meanwhile so its retries would not spend
+  Let's Encrypt's failed-validation allowance.
+- **The repo is private**, so `orbit` needs a deploy key before it can `git pull`. Until then, deploy
+  by pulling from `/root/rePEAT` as root.
+- **Anything else that talks to the broker while the backend is up needs its own
+  `DESIGNAGENT_ORBIT_CLIENT_NAME`** (A18).
+
+Next: Phase 2. Before a second user is invited, Phase 3's tenancy decision.
+
 ## Context
 
 `plans/AMAREL_ENDPOINT.md` describes the layout: the Orbit endpoint runs on `amarel3`, and the broker
@@ -190,8 +216,17 @@ credentials. In a browser with credentials, one chat turn streams. `PUT /api/set
 
 ## Resource budget (Linode 4 GB: 2 vCPU, 3.9 GB RAM)
 
-Estimates to replace with measured RSS at the end of Phase 1. These numbers are planning figures,
-not observations.
+Measured 2026-10-09, idle and after one chat turn:
+
+| Process | RSS |
+| --- | --- |
+| backend main | 181 MB idle, 220 MB after a turn (cgroup 184 MB) |
+| broker | 81 MB |
+| Caddy | 48 MB |
+| `npm run build` | peak 250 MB, 5 s |
+
+`free` reported 2.5 GB available. The pool workers had not been measured under a fold when this
+was written. The original estimates follow; they were generous.
 
 | Process | Expected | Lever |
 | --- | --- | --- |

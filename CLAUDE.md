@@ -97,8 +97,12 @@ the only thing that measures the LLM classifier and the LLM summary.
 Three of the `remote` tests exist for the protocol and cover plumbing no offline
 test can reach: that a job's `directory` is honoured, that `custom_attributes`
 is accepted rather than answered with an HTTP 500, and that a file stages back
-out of a project directory. All three pass against the development stack; none
-has met a real scheduler.
+out of a project directory. All three pass against the development stack. Against
+Amarel (rung 4, 2026-10-09) `custom_attributes` passes; the other two fail only
+because they build their directories on the machine running pytest, and a real
+endpoint does not share it (backlog A20). Run them against a real endpoint with
+a `DESIGNAGENT_ORBIT_CLIENT_NAME` of their own while the backend is up, or the
+two clients steal each other's replies (A18).
 
 **The lint is clean and should stay that way** — `E,F,I` at line-length 100, pinned in
 `pyproject.toml` so the rule set does not drift with the ruff version. Two places not to "fix": the
@@ -422,9 +426,10 @@ reproduce.
 `plans/AMAREL_ENDPOINT.md` is how to stand up the Orbit broker and endpoint the protocol needs, with
 an acceptance ladder whose rungs are meant to be filled in with what they actually returned. The
 pair is up: the broker runs on the Linode under systemd and the `amarel3` endpoint has registered
-with `psij,sysinfo` across the internet, so rungs 0-pre through 3 record real results. **No job has
-been submitted yet** — rung 4 is the first that spends queue time, and backlog **A1** stands until
-it lands, so every walltime, core count and memory figure in `protocol/specs.py` is still a guess.
+with `psij,sysinfo` across the internet, and rung 4 has put real Slurm jobs through it (backlog
+**A1** answered: the path works). What it found is **A18–A20**, the sharpest being that a missing
+`--chdir` runs a job in `/tmp` and reports success. No protocol stage has run yet, so every
+walltime, core count and memory figure in `protocol/specs.py` is still a guess.
 
 `plans/LINODE_DEPLOY.md` is the phased plan for the Linode (97.107.137.219) that hosts the broker and
 the agent: host setup, the UI exposed by IP behind Caddy, then per-user logins and per-user secrets.
