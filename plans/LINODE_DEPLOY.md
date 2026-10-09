@@ -2,8 +2,29 @@
 
 ## Status (2026-10-09)
 
-**Phases 0 and 1 are done.** The UI is up at `https://97-107-137-219.ip.linodeusercontent.com`
-behind basic auth: user `repeat`, password in `/root/repeat-ui-password`. Checked from the VM:
+**Phases 0, 1 and 2 are done.** The UI is at `https://97-107-137-219.ip.linodeusercontent.com`,
+and the gate is now the app's own logins. Caddy's basic auth was removed once they worked; the
+Phase 1 file is kept as `/etc/caddy/Caddyfile.phase1-basicauth`.
+- **Admin:** `mh1314`, password in `/root/repeat-admin-password`. Change it with
+  `python -m designagent --passwd mh1314` run as `orbit` from the repo with `backend.env` loaded,
+  and add accounts with `--add-user NAME`.
+- **`/etc/repeat/backend.env`** gained `DESIGNAGENT_AUTH_ENABLED=true`, a
+  `DESIGNAGENT_SECRETS_KEY`, and `DESIGNAGENT_ORBIT_ALLOWED_BROKERS=https://127.0.0.1:8443`. The
+  previous file is `backend.env.pre-phase2`.
+- **Back up the secrets key with the broker key:** losing it means every user re-enters their
+  credentials.
+
+Checked through Caddy after the switch:
+- no cookie → 401 on every API route, and `/api/health` → `{ok, auth}` only;
+- wrong password → 401, sign-in → 200 with an HttpOnly cookie;
+- `/api/me` → admin, on the shared `amarel3` endpoint;
+- a cross-origin write → 403, an unminted session id → 404;
+- a real turn streamed in a minted session, which `/api/sessions` then listed.
+
+What Phase 2 leaves open is backlog A21. The largest item is Phase 3, below: the broker is still
+shared.
+
+Phase 1's checks, from the VM, before logins:
 - no or wrong credentials → 401;
 - with credentials, `/` → 200 and `/api/health` → `hpc: true`;
 - `PUT /api/settings` without `X-Designagent-Admin` → 403;
@@ -24,7 +45,8 @@ Learned on the way, and folded into the steps below:
 - **Anything else that talks to the broker while the backend is up needs its own
   `DESIGNAGENT_ORBIT_CLIENT_NAME`** (A18).
 
-Next: Phase 2. Before a second user is invited, Phase 3's tenancy decision.
+Next: **Phase 3's tenancy decision before a second user is invited**: with one broker, every
+endpoint's holder can reach every other endpoint (A21).
 
 ## Context
 

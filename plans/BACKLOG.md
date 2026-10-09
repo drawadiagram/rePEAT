@@ -317,6 +317,10 @@ local to `local_orbit.py` and the client settings it hands back.
 stands for anyone who runs the dev stack on a login node.
 
 ### A17 · Behind a same-host proxy, `bound_to_loopback` is true for every caller
+**Closed on the Linode 2026-10-09 by logins** (`DESIGNAGENT_AUTH_ENABLED=true`). With logins on,
+`_authorize_write` needs a signed-in admin and a same-origin request, and never consults the bind
+address. The trap below still applies to any deployment behind a proxy with logins **off**.
+
 `Settings.bound_to_loopback` (`config.py`) reads the address uvicorn *binds*, not the address a
 request comes from. On the Linode the backend binds `127.0.0.1` and Caddy proxies the internet to it
 (`plans/LINODE_DEPLOY.md` Phase 1), so every request is local by that test. With no
@@ -352,7 +356,11 @@ Nothing errors: the second process looks healthy and the first just stops hearin
 **Fix:**
 - A per-process suffix on the default name (hostname plus pid, or a random tag).
 - Phase 2's per-user `OrbitRegistry` **must** mint a distinct client name per interface, or two
-  users' interfaces will collide in exactly this way.
+  users' interfaces will collide in exactly this way. **Done** (`runtime.OrbitRegistry`,
+  `test_each_users_orbit_interface_is_their_own`). The process-wide interface still uses the bare
+  default, so a backend restart collides with *its own* previous connection. The new process
+  retries until the broker drops the old one, about 10 s on 2026-10-09, during which `hpc` is not
+  yet available.
 - The unbounded `future.result()` is upstream's (backlog C), and is worth reporting.
 
 ### A19 · A `custom_attributes` flag that takes no value cannot be expressed
@@ -395,6 +403,31 @@ example `DESIGNAGENT_REMOTE_TEST_DIR`, defaulting to `tmp_path` when `ORBIT_LOCA
 created and checked by jobs rather than by the test process.
 
 ---
+
+### A21 · What Phase 2's logins leave open
+Logins and per-user credentials landed 2026-10-09 (`plans/LINODE_DEPLOY.md` Phase 2,
+`tests/test_auth.py`). Known gaps, none of them a hole in what was built:
+
+- **The broker is still shared, and it is not a tenant boundary** (the plan's Phase 3). A user who
+  brings their own endpoint must point at the allow-listed broker on this VM, with its one ingress
+  token. Every endpoint holds that token, and anyone with it can submit to every endpoint on the
+  broker. Per-user isolation of *HPC* needs one broker per user. Until then, give only trusted users
+  the token.
+- **`OrbitRegistry` never closes an idle interface.** One connection stays open per user who has
+  used `hpc` since the last restart, closed only on sign-out or a credential change. That is fine at
+  lab scale and a slow leak beyond it.
+- **Sessions from before logins have no owner** and are unreachable under logins (404 for everyone).
+  `AuthStore.assign_session` exists for adoption, but no CLI exposes it yet.
+- **The login lockout is in memory**: a restart forgets the counts. It also keys on
+  `X-Forwarded-For` only from a loopback peer, which is correct behind Caddy and wrong behind any
+  other proxy that is not on this host.
+- **The Playwright tier was not run on this change.** The VM has no Chromium. Both e2e tests stub
+  `/api/**` without `auth: true`, which reads as logins off, so they should be unaffected. Run
+  them on a workstation to confirm.
+- **`/api/health` under logins** tells a non-admin only `{ok, auth}`. `scripts/dev.sh` waits on
+  `hpc: true` there, which a deployment with logins on never returns to an anonymous caller.
+  `dev.sh` is for the development stack, where logins are off, so this has not bitten. A health
+  check for the Linode should sign in or read `systemctl`.
 
 ## B — developer experience
 

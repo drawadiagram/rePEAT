@@ -124,7 +124,7 @@ the work dir twice, and the broker exited "TLS cert not found" (the trap recorde
 | endpoint | `amarel3` login node | `tmux` (§4) | the broker at `https://<linode-ip>:8443`, outbound |
 | protocol jobs | Amarel compute nodes | Slurm, one job each | nothing |
 | Caddy | the same VM, `:80`/`:443` | `caddy.service` | the agent at `127.0.0.1:8000`; serves the built frontend from `/srv/repeat/www` |
-| browser | the user's laptop | — | Caddy, over HTTPS with basic auth (`plans/LINODE_DEPLOY.md` Phase 1); `ssh -L` still works |
+| browser | the user's laptop | — | Caddy, over HTTPS; the app's own logins are the gate (`plans/LINODE_DEPLOY.md` Phase 2); `ssh -L` still works |
 
 This is Orbit's intended pattern, not an adaptation of it. Upstream's `DEPLOYMENT.md` puts the broker
 on a "public-facing" host under systemd and the endpoint on "one per cluster or login node",
@@ -146,8 +146,9 @@ because it is the broker's only other client, the protocol's scripts are read on
 - **The agent's backend stays on loopback**, and Caddy fronts it (`plans/LINODE_DEPLOY.md`
   Phase 1). It ships no CORS middleware, and `_authorize_write` (`app.py`) opens settings writes to
   loopback callers when `DESIGNAGENT_ADMIN_TOKEN` is unset.
-  - **Behind a same-host proxy that test is true for every caller** (backlog **A17**), so on this
-    VM the token is mandatory, not optional. It is set in `/etc/repeat/backend.env`.
+  - **Behind a same-host proxy that test is true for every caller** (backlog **A17**). On this VM
+    logins are on, so the settings routes need a signed-in admin and the bind address is never
+    consulted. With logins off, the token would be mandatory.
   - Never bind the backend to a public address.
 - **Nothing listens on `amarel3`.** The shared-loopback problem found in the survey — about 86 users
   on one `127.0.0.1` — now matters only to the dev stack (`pytest -m live`,

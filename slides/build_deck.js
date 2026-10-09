@@ -269,7 +269,7 @@ So treat the science as a demo and the plumbing as the deliverable. The plumbing
   const rows = [
     ["Tasks return futures, never results", "Every interface's submit() places the work and returns a handle. Nothing in the graph awaits a task at submission time.", "tasks/base.py:159"],
     ["Task duration is not the interface's business", "The same handle covers a 40 ms REST call and a queued batch job. Only the capability flags differ.", "tasks/base.py:62"],
-    ["Status is a stream, not a return value", "Nodes emit progress over LangGraph's custom channel; the manager fans task events onto the same SSE stream.", "graph/deps.py · app.py:124"],
+    ["Status is a stream, not a return value", "Nodes emit progress over LangGraph's custom channel; the manager fans task events onto the same SSE stream.", "graph/deps.py · app.py:437"],
     ["State holds references, not payloads", "Coordinates go to a content-addressed blob and travel as a path, because every checkpoint is serialized.", "orchestrator.py:292"],
     ["Every layer has a floor", "No key, no endpoint, no graph DB: each degrades to something that still answers, and says so.", "runtime.py · analyst.py:166"],
   ];
@@ -663,7 +663,7 @@ And the bottom right is not a contrived example. ESM Atlas genuinely dropped one
     '    future.set_exception(exc)',
     '    handle = TaskHandle(..., state=TaskState.FAILED,',
     '                        error=str(exc))',
-  ], M + 5.9, 4.05, 6.93, 1.5, { anchor: "tasks/manager.py:111–127  ·  TRIMMED", fs: 10.5 });
+  ], M + 5.9, 4.05, 6.93, 1.5, { anchor: "tasks/manager.py:134–150  ·  TRIMMED", fs: 10.5 });
 
   text(s, [
     { text: "The invariant: ", options: { bold: true, color: C.ink } },
@@ -717,7 +717,7 @@ The state enum normalizes across vocabularies, because ORBIT and PSI/J each have
     '    return integration.execution_wrappers.asyncflow(',
     '        body, flow_type=AsyncFlowType.FUNCTION_TASK,',
     '        backend="compute", retry=retry)',
-  ], M, 2.55, 6.1, 1.85, { anchor: "runtime.py:204–217  ·  TRIMMED", fs: 10 });
+  ], M, 2.55, 6.1, 1.85, { anchor: "runtime.py:295–308  ·  TRIMMED", fs: 10 });
 
   code(s, [
     'async def submit(self, spec: TaskSpec) -> TaskHandle:',
@@ -725,9 +725,10 @@ The state enum normalizes across vocabularies, because ORBIT and PSI/J each have
     '    # create_task so submission returns immediately: the',
     '    # flowgentic wrapper for FUNCTION_TASK is a coroutine',
     '    # function, not a future factory.',
-    '    future = asyncio.ensure_future(_call(fn, spec))',
+    '    future = asyncio.ensure_future(',
+    '        _call(fn, spec, llm_credentials(spec.name)))',
     '    return self._handle(spec, future)',
-  ], M, 4.6, 6.1, 1.25, { anchor: "tasks/local.py:58–63  ·  VERBATIM", fs: 10 });
+  ], M, 4.6, 6.1, 1.25, { anchor: "tasks/local.py:80–85  ·  VERBATIM", fs: 10 });
 
   card(s, M + 6.4, 2.55, 6.43, 1.3, "Three constraints the pool imposes", [
     "Task bodies live at module level in tools/ — no closures over clients, or they will not pickle.",
@@ -1046,7 +1047,7 @@ The bottom line is a small thing I only noticed when building this deck: only ti
     ["ChemGraph not installed", "the task reports unavailable; nothing else changes", "chemgraph_available()"],
     ["ESM Atlas drops a request", "design survives sequence-only; round scores the rest", `really happened: ${CAMP}-r2-5`],
     ["Tier 1/2 write fails", "warn, rank in memory, tell the user in the reply", "test_lake_write_failure_does_not_lose_the_round"],
-    ["No SQLite checkpointer", "InMemorySaver, with a note on /api/health", "runtime.py:375"],
+    ["No SQLite checkpointer", "InMemorySaver, with a note on /api/health", "runtime.py:466"],
   ];
   const cw = [2.9, 5.0, 4.43];
   const tbl = [["when", "what happens", "evidence"].map(h => ({ text: h,
@@ -1124,7 +1125,7 @@ And the fourth row is the one I did not have to arrange. ESM Atlas dropped a req
     '    ...  yield JSON.parse(line.slice(6)) as Frame;',
     '  }',
     '}',
-  ], M, 3.05, 6.1, 2.1, { anchor: "frontend/src/lib/api.ts:38–57  ·  TRIMMED", fs: 10 });
+  ], M, 3.05, 6.1, 2.1, { anchor: "frontend/src/lib/api.ts:42–61  ·  TRIMMED", fs: 10 });
   text(s, "A chunk boundary can land mid-frame, so partial frames are held in a buffer until a " +
     "blank line. A malformed frame is skipped, never fatal.",
     M, 5.25, 6.1, 0.5, { fontSize: 11, color: C.muted, italic: true });

@@ -38,11 +38,11 @@ ANCHORS: list[tuple[str, int, str]] = [
     ("backend/designagent/tasks/base.py", 62, "@dataclass(frozen=True)"),
     ("backend/designagent/tasks/base.py", 92, "@dataclass"),
     ("backend/designagent/tasks/base.py", 148, "class TaskInterface(ABC):"),
-    ("backend/designagent/tasks/manager.py", 76, "def interface_for"),
-    ("backend/designagent/tasks/manager.py", 111, "name, interface = self.interface_for(spec)"),
+    ("backend/designagent/tasks/manager.py", 95, "def interface_for"),
+    ("backend/designagent/tasks/manager.py", 134, "name, interface = self.interface_for(spec)"),
     # S9 — the substrate
-    ("backend/designagent/runtime.py", 204, "retry = RetryConfig("),
-    ("backend/designagent/tasks/local.py", 58, "async def submit"),
+    ("backend/designagent/runtime.py", 295, "retry = RetryConfig("),
+    ("backend/designagent/tasks/local.py", 80, "async def submit"),
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 73,
      "# Try to include aiohttp timeouts if present"),
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 23,
@@ -67,7 +67,7 @@ ANCHORS: list[tuple[str, int, str]] = [
      "# A storage failure must not lose"),
     ("backend/designagent/graph/nodes/analyst.py", 405, "def _rank_in_memory"),
     # S15 — the frontend
-    ("frontend/src/lib/api.ts", 38, 'let buffer = "";'),
+    ("frontend/src/lib/api.ts", 42, 'let buffer = "";'),
     # S17 / B1 — the wrap_nodes deviation
     ("backend/designagent/config.py", 69,
      "# Route node bodies through flowgentic's EXECUTION_BLOCK"),
@@ -77,17 +77,17 @@ ANCHORS: list[tuple[str, int, str]] = [
     # Cited in slide body text rather than in a code block's anchor label. These
     # were untracked until an edit to app.py shifted one of them by a line, which
     # nothing caught — a citation is a citation wherever it appears on the slide.
-    ("backend/designagent/app.py", 124, "def _frame"),
+    ("backend/designagent/app.py", 437, "def _frame"),
     ("backend/designagent/tasks/base.py", 159, "async def submit"),
-    ("backend/designagent/runtime.py", 375, 'notes.append(f"Using in-memory checkpoints'),
+    ("backend/designagent/runtime.py", 466, 'notes.append(f"Using in-memory checkpoints'),
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 71, "except Exception:"),
     ("refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py", 75,
      "import aiohttp"),
     # Found by scanning the deck for every `file:line` it prints, rather than by
     # trusting this table: these three were cited in CODE_FOR_DECK.md with no
     # anchor here, so they drifted silently when runtime.py and orbit.py grew.
-    ("backend/designagent/runtime.py", 179, "async def _make_backend"),
-    ("backend/designagent/runtime.py", 208, "retryable_exceptions=(ConnectionError, OSError),"),
+    ("backend/designagent/runtime.py", 270, "async def _make_backend"),
+    ("backend/designagent/runtime.py", 299, "retryable_exceptions=(ConnectionError, OSError),"),
     ("backend/designagent/tasks/hpc/orbit.py", 345, "def _apply_task_status"),
 ]
 

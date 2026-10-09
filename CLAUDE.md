@@ -61,13 +61,15 @@ with no fallback once it finds a file. Run everything from the repo root.
 .venv/bin/python -m designagent --reload        # backend on :8000
 .venv/bin/python -m designagent --check-config  # effective config, secrets masked
 .venv/bin/python -m designagent --check-config --probe   # ...and try each credential
+.venv/bin/python -m designagent --add-user NAME [--admin] # an account (logins on); --passwd, --list-users
+.venv/bin/python -m designagent --gen-secrets-key       # a DESIGNAGENT_SECRETS_KEY
 cd frontend && npm run dev                      # Vite on :5173, proxies /api
 cd frontend && npm run build                    # tsc -b && vite build
-cd frontend && npm test                         # 39 vitest/jsdom tests, no servers
+cd frontend && npm test                         # 45 vitest/jsdom tests, no servers
 cd frontend && npm run test:e2e                 # 2 Playwright tests in a real browser
 cd frontend && E2E_LIVE=1 npm run test:e2e      # ...plus one real round trip
 
-.venv/bin/python -m pytest -q                   # 399 offline tests, no network
+.venv/bin/python -m pytest -q                   # 417 offline tests, no network
 .venv/bin/python -m pytest -q -m live           # 12 live tests; starts a real broker
 .venv/bin/python -m pytest -q -m remote         # 8 tests against a real HPC endpoint
 .venv/bin/python -m pytest -q -m llm            # 4 tests against a real API key
@@ -137,7 +139,7 @@ browser ─SSE─ app.py ── graph/build.py ── nodes ── Deps ── T
 
 **Nodes reach the outside only through `Deps`** (`graph/deps.py`: settings, tasks, history,
 artifacts). Never import a store or an interface into a node. This is convention, not an enforced
-check, and it is the only reason 399 tests run with no network, no process pool and no endpoint — the
+check, and it is the only reason 417 tests run with no network, no process pool and no endpoint — the
 suite hands nodes an in-process `TaskManager` and a `tmp_path` lake.
 
 **Every interface's `submit()` returns immediately with a handle whose `future` resolves later.**
@@ -168,6 +170,38 @@ pool**, and a new pool needs a new flowgentic integration and compiled graph, so
 the whole runtime. Orbit credentials are read only in the server process, so they are applied in
 place by `Runtime.reconfigure`. `config.adopt` is for that in-place case and `install_settings` for a
 fresh process: the first keeps the override bookkeeping, the second resets it.
+
+**Logins are off unless `DESIGNAGENT_AUTH_ENABLED=true`, and off they change nothing.** With no
+`runtime.auth`, `app._user` returns None and every ownership check passes, which is why the rest of
+the suite needed no edit when they arrived. On (the Linode), every route except `/api/login` and a
+bare `/api/health` needs the session cookie. A chat session must be the caller's (404 otherwise),
+session ids are minted by `POST /api/sessions`, and the operator's settings routes need the admin
+role instead of the shared token. `tests/test_auth.py` is the contract.
+
+**A turn's user travels in a `ContextVar`, never in `configurable` or state.** `context.current_turn`
+is set inside `/api/chat`'s `run_graph` task, and asyncio copies it to every task the turn creates.
+`Deps.settings` is a property that resolves it, so every node gets the user's own key and endpoint
+without knowing users exist, and `TaskManager._hpc` routes `hpc` work to that user's interface. Not
+`configurable`: LangGraph's `get_checkpoint_metadata` copies every string in it into checkpoint
+metadata, so a key put there would be saved every turn. Pinned by
+`test_no_user_secret_is_persisted_by_a_turn`, which scans the checkpointer, the task snapshots and
+the data dir for the key.
+
+**A pool task that calls the model gets the key as a call argument.** `TaskDef.needs_llm` marks it,
+and `tasks/local.llm_credentials` captures the turn's key at submission and passes it as `_llm`. It
+is **never** put in `spec.params`, which `record_task_submitted` writes to the lake and the task
+routes return. A worker's own settings were fixed at fork and are the operator's, and a plain user
+must not fall through to them: `llm.settings_for_task` keeps an empty key empty. ChemGraph reads
+its key only from the environment, so `run_chemgraph` sets the variable for the call and restores
+it.
+
+**User credentials are a fixed, small surface** (`auth/credentials.USER_FIELDS`): the Anthropic key
+and model, and an Orbit broker, token, cert, endpoint, account and queue. They are stored as Fernet
+ciphertext with each value bound to its user and field, and validated by rejection. A broker must
+be on `DESIGNAGENT_ORBIT_ALLOWED_BROKERS`, because it is a host this server will dial and hand a
+token to. A plain user's baseline has every operator credential *removed*; an admin's is the
+operator's. Every path, shell and scheduler choice stays operator-only. Each user's endpoint gets
+its own `OrbitInterface` under a unique client name (`runtime.OrbitRegistry`, backlog A18).
 
 **A secret is `SecretStr` and is rendered only by `config.mask`.** No response body carries a value —
 `config.describe` emits `{present, source, hint}` — and a `logging.Filter` in `app.lifespan` scrubs
@@ -366,9 +400,10 @@ how the `mpnn` group stayed invisible after being added server-side, and `globus
 `test_every_reported_credential_group_reaches_the_settings_panel` now reads the component and
 fails on a group that is reported but unrendered, with the exceptions named.
 
-**Reported is not the same as writable, and the direction matters.** `PUT /api/settings` is
-unauthenticated on loopback by design (`_authorize_write`), so the write surface is a security
-boundary, not a convenience. `mpnn_command` and `mpnn_prologue` are reported and deliberately
+**Reported is not the same as writable, and the direction matters.** With logins off,
+`PUT /api/settings` is unauthenticated on loopback by design (`_authorize_write`), so the write
+surface is a security boundary, not a convenience. With logins on it needs an admin, but the
+operator's settings are still everyone's defaults, so the same care applies. `mpnn_command` and `mpnn_prologue` are reported and deliberately
 **refused**: both name shell the server will run — the prologue is appended to the job script
 verbatim (`tasks/hpc/artifacts.py`) and the command names the executable — so accepting them would
 make that route arbitrary code execution, as the server user locally and on the endpoint under the
