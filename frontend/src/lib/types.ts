@@ -157,6 +157,31 @@ export interface ProbeResult {
   detail: string;
 }
 
+/** `GET /api/me`. With logins off, only `{ auth: false }`. */
+export interface Me {
+  auth: boolean;
+  user?: { id: string; username: string; role: "admin" | "user" };
+  llm?: boolean;
+  llm_error?: string;
+  model?: string | null;
+  hpc?: boolean;
+  hpc_shared?: boolean;
+  hpc_error?: string;
+  endpoint?: string;
+}
+
+/** A user's own credential, as the server describes it: never a secret's value. */
+export type UserCredential =
+  | { present: boolean; hint: string; source: "user" }
+  | { value: string; source: "user" };
+
+export interface CredentialsView {
+  credentials: Record<string, UserCredential>;
+  fields: string[];
+  can_store: boolean;
+  allowed_brokers: string[];
+}
+
 export function isSecret(field: SecretField | PlainField): field is SecretField {
   return "present" in field;
 }

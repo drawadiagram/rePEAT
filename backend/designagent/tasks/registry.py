@@ -38,6 +38,11 @@ class TaskDef:
     # them is a surface that cannot be acted on. Must stay last with a default --
     # `tests/conftest.py` builds TaskDef positionally.
     planner_selectable: bool = True
+    # Whether the body calls the LLM itself, in a pool worker. Such a body is
+    # handed the turn's LLM credentials as an `_llm` argument at call time
+    # (`tasks/local.py`), because a worker's own settings were fixed at fork and
+    # are the operator's, not the signed-in user's.
+    needs_llm: bool = False
 
 
 CATALOG: dict[str, TaskDef] = {
@@ -96,10 +101,12 @@ CATALOG: dict[str, TaskDef] = {
         "generate_visualization", molviz_agent.generate_visualization, "local",
         "Compose a Mol* view spec from the design state and the user's request.",
         produces="visualization",
+        needs_llm=True,
     ),
     "run_chemgraph": TaskDef(
         "run_chemgraph", chemgraph_agent.run_chemgraph, "local",
         "Run a cheminformatics or quantum-chemistry task through ChemGraph.",
+        needs_llm=True,
     ),
     # --- Remote HPC workflows ---
     "fold_sequence_hpc": TaskDef(

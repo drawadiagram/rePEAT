@@ -14,6 +14,7 @@ import asyncio
 import logging
 from typing import Any, Callable
 
+from ..context import current_turn
 from .base import (
     Capabilities,
     TaskHandle,
@@ -23,6 +24,27 @@ from .base import (
 from .registry import CATALOG
 
 log = logging.getLogger(__name__)
+
+
+def llm_credentials(name: str) -> dict[str, Any] | None:
+    """The turn's LLM credentials for a body that calls the model itself.
+
+    Read at submission, in the turn's context, and passed to the body as an
+    argument: a pool worker's own settings were fixed at fork and are the
+    operator's. Deliberately *not* added to `spec.params` — those are recorded
+    in the lake (`record_task_submitted`), returned in task records and shown
+    by the task routes, and a key must reach none of them.
+    """
+    task_def = CATALOG.get(name)
+    turn = current_turn.get()
+    if task_def is None or not task_def.needs_llm or turn is None:
+        return None
+    settings = turn.settings
+    return {
+        "api_key": settings.llm_key,
+        "model": settings.model,
+        "max_tokens": settings.max_tokens,
+    }
 
 
 class LocalTaskInterface(TaskInterface):
@@ -59,7 +81,7 @@ class LocalTaskInterface(TaskInterface):
         fn = self._resolve(spec.name)
         # create_task so submission returns immediately: the flowgentic wrapper
         # for FUNCTION_TASK is a coroutine function, not a future factory.
-        future = asyncio.ensure_future(_call(fn, spec))
+        future = asyncio.ensure_future(_call(fn, spec, llm_credentials(spec.name)))
         return self._handle(spec, future)
 
 
@@ -78,13 +100,18 @@ class QueryTaskInterface(TaskInterface):
         task_def = CATALOG.get(spec.name)
         if task_def is None:
             raise KeyError(f"unknown task: {spec.name}")
-        future = asyncio.ensure_future(_call(task_def.body, spec))
+        future = asyncio.ensure_future(
+            _call(task_def.body, spec, llm_credentials(spec.name))
+        )
         return self._handle(spec, future)
 
 
-async def _call(fn: Callable, spec: TaskSpec) -> Any:
+async def _call(fn: Callable, spec: TaskSpec, llm: dict[str, Any] | None = None) -> Any:
     """Invoke a task body with its params, tolerating sync bodies."""
-    result = fn(**spec.params)
+    kwargs = dict(spec.params)
+    if llm is not None:
+        kwargs["_llm"] = llm
+    result = fn(**kwargs)
     if asyncio.iscoroutine(result) or isinstance(result, asyncio.Future):
         return await result
     return result

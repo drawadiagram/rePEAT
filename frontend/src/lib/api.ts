@@ -1,7 +1,9 @@
 import type {
   AgentState,
   ArtifactRef,
+  CredentialsView,
   Frame,
+  Me,
   ProbeResult,
   SettingsResponse,
   SettingsView,
@@ -21,12 +23,14 @@ export async function* streamChat(
   sessionId: string,
   signal?: AbortSignal,
 ): AsyncGenerator<Frame> {
-  const response = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, session_id: sessionId }),
-    signal,
-  });
+  const response = notice401(
+    await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, session_id: sessionId }),
+      signal,
+    }),
+  );
 
   if (!response.ok || !response.body) {
     yield { type: "error", message: `server returned ${response.status}` };
@@ -58,12 +62,109 @@ export async function* streamChat(
   }
 }
 
-export async function fetchSession(
-  sessionId: string,
-): Promise<{ state: AgentState; messages: { role: string; content: string }[]; tasks: TaskChip[] }> {
+export async function fetchSession(sessionId: string): Promise<{
+  state: AgentState;
+  messages: { role: string; content: string }[];
+  tasks: TaskChip[];
+  /** The server does not know this id, or it is someone else's (both are 404). */
+  missing?: boolean;
+}> {
   const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
+  if (response.status === 404) return { state: {}, messages: [], tasks: [], missing: true };
   if (!response.ok) return { state: {}, messages: [], tasks: [] };
   return response.json();
+}
+
+// --- logins -----------------------------------------------------------------
+//
+// Inert unless the server says `auth: true`. Anything else — logins off, an old
+// server without /api/me, a stubbed route in a test — reads as "no logins", so
+// the app behaves exactly as it did before they existed.
+
+/** Fired on any 401, so the app can return to the sign-in page from anywhere. */
+export const UNAUTHORIZED = "designagent:unauthorized";
+
+function notice401(response: Response): Response {
+  if (response.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED));
+  return response;
+}
+
+export async function fetchMe(): Promise<Me> {
+  try {
+    const response = await fetch("/api/me");
+    if (!response.ok) return { auth: response.status === 401 };
+    const body = await response.json();
+    return body && body.auth === true ? (body as Me) : { auth: false };
+  } catch {
+    return { auth: false };
+  }
+}
+
+export async function login(
+  username: string,
+  password: string,
+): Promise<{ ok: boolean; status: number; detail?: string }> {
+  const response = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (response.ok) return { ok: true, status: response.status };
+  const body = await response.json().catch(() => ({}));
+  return { ok: false, status: response.status, detail: body?.detail };
+}
+
+export async function logout(): Promise<void> {
+  await fetch("/api/logout", { method: "POST" });
+}
+
+/** A new session id. Minted by the server under logins, locally otherwise. */
+export async function newSessionId(auth: boolean): Promise<string> {
+  if (auth) {
+    const response = notice401(await fetch("/api/sessions", { method: "POST" }));
+    if (response.ok) return (await response.json()).session_id;
+  }
+  return `s-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export async function fetchCredentials(): Promise<CredentialsView | null> {
+  const response = notice401(await fetch("/api/me/credentials"));
+  return response.ok ? response.json() : null;
+}
+
+export async function saveCredentials(
+  values: Record<string, string>,
+): Promise<{ ok: boolean; status: number; detail?: string; view?: CredentialsView }> {
+  const response = notice401(
+    await fetch("/api/me/credentials", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(values),
+    }),
+  );
+  const body = await response.json().catch(() => ({}));
+  return response.ok
+    ? { ok: true, status: response.status, view: body }
+    : { ok: false, status: response.status, detail: body?.detail };
+}
+
+export async function clearCredentials(): Promise<boolean> {
+  const response = notice401(await fetch("/api/me/credentials", { method: "DELETE" }));
+  return response.ok;
+}
+
+export async function testCredentials(
+  values: Record<string, string>,
+): Promise<Record<string, ProbeResult>> {
+  const response = notice401(
+    await fetch("/api/me/credentials/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(values),
+    }),
+  );
+  if (!response.ok) return {};
+  return (await response.json()).probes ?? {};
 }
 
 export async function fetchHealth(): Promise<Record<string, unknown>> {

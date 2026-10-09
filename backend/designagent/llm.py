@@ -70,6 +70,27 @@ def build_llm(settings: Settings | None = None, *, stream: bool = False, **kwarg
     return ChatAnthropic(**options, **kwargs)
 
 
+def settings_for_task(llm: dict[str, Any] | None) -> Settings | None:
+    """A pool worker's settings with the turn's LLM credentials over them.
+
+    `llm` is what `tasks/local.py` hands a `needs_llm` body: None when no one is
+    signed in, in which case the worker's own settings apply unchanged. An empty
+    key stays empty — a user who brought none must not fall through to the key
+    the worker was forked with, which is the operator's.
+    """
+    if llm is None:
+        return None
+    from pydantic import SecretStr
+
+    return get_settings().model_copy(
+        update={
+            "anthropic_api_key": SecretStr(llm.get("api_key") or ""),
+            "model": llm.get("model") or get_settings().model,
+            "max_tokens": int(llm.get("max_tokens") or get_settings().max_tokens),
+        }
+    )
+
+
 async def complete(
     system: str,
     user: str,

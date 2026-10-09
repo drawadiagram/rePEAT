@@ -14,11 +14,11 @@ Amarel. §2 has the full picture, §3 the Linode half, §4 the Amarel half.
 This is a deployment record as much as a procedure: fill in what each rung of the ladder at the
 bottom actually returned, so the next person reads results rather than intentions.
 
-Status as of 2026-10-08: **only the Amarel side's startup has been run** — `~/orbit-venv` is built
-and `scripts/amarel_endpoint.sh selftest` passes on a login node against a throwaway loopback broker
-(rung 0-pre). No Linode VM exists yet, so nothing has crossed the internet. Every other command
-below is derived from the Orbit CLIs and docs and from `tasks/hpc/local_orbit.py`. Treat the rest of
-the document as unverified until the ladder says otherwise.
+Status as of 2026-10-09: **rungs 0-pre and 0a–3 pass.** The broker runs on the Linode under systemd,
+and the endpoint on `amarel3` has dialled in over the internet and registered with `psij,sysinfo`.
+The agent's own probe sees it. **No job has been submitted yet** — rung 4 is the first that spends
+queue time — so everything about PSI/J against the real Slurm (§6's four things to write down) is
+still unverified. The ladder at the bottom records what each rung returned.
 
 ### Environment survey, 2026-10-07
 
@@ -45,16 +45,16 @@ node, no `SLURM_JOB_ID`), with the repo at `/cache/home/mh1314/rePEAT`. Nothing 
 no recorded revision (backlog **B1**), so re-read `--help` against any other revision. Upstream's own
 `DEPLOYMENT.md` in that checkout is the companion to this document.
 
-**Linode:** fill in when the VM exists.
+**Linode**, as built 2026-10-09 (`plans/LINODE_DEPLOY.md` is the deployment plan for this host).
 
 | Item | Value |
 | --- | --- |
-| label / region | / Newark, NJ |
-| plan / image | Linode 8 GB / Ubuntu 24.04 LTS |
-| public IPv4 (`<linode-ip>`) | |
-| Cloud Firewall | |
-| broker port | `8443` |
-| cert generated (expires +365 d) | |
+| label / region | — / Newark, NJ (`2600:3c03::/64`) |
+| plan / image | **Linode 4 GB** (2 vCPU AMD EPYC 7642, 3.9 GB RAM, 79 GB disk) / Ubuntu 24.04.4 LTS. The floor below, not the 8 GB recommended; final. Plus a 2 GB swapfile |
+| public IPv4 (`<linode-ip>`) | `97.107.137.219`, reverse `97-107-137-219.ip.linodeusercontent.com` |
+| Cloud Firewall | not yet confirmed. The host's UFW mirrors §3 step 2: 22 any, 8443 from `128.6.0.0/16`, plus 80/443 any for the UI (`LINODE_DEPLOY.md` Phase 1) |
+| broker port | `8443`, `orbit-broker.service`, broker RSS 81 MB at idle |
+| cert generated (expires +365 d) | 2026-10-09, expires **2027-10-09 03:22 UTC**; SAN `IP:97.107.137.219, IP:127.0.0.1` |
 
 ---
 
@@ -94,9 +94,11 @@ the broker**, and so is this agent. That single fact decides the topology (§2).
 and `psij` *if the endpoint has it*, but Orbit decides per host: `PluginRhapsody.is_enabled` is true
 only when `utils.host_role` says `compute` (inside an allocation) or `standalone` (no batch system).
 On `amarel3` Slurm is detected and there is no allocation, so the role is `login` and rhapsody is
-skipped with one INFO line (`[PluginHost] Skipping plugin (not applicable here)`). PSI/J loads on
-every host. That costs this path nothing: every `hpc` submission here is `kind="job"`
-(`nodes/orchestrator.py`, `nodes/protocol.py`), which goes to psij.
+skipped with one INFO line (`[PluginHost] Skipping plugin (not applicable here)`). With the explicit
+`-p psij,sysinfo` below there is no skip line at all — rhapsody is never asked for; the 2026-10-09
+startup logged only `Loading plugins: ['psij', 'sysinfo']` and one load line each, and `host_role`
+confirmed `role: login`. PSI/J loads on every host. That costs this path nothing: every `hpc`
+submission here is `kind="job"` (`nodes/orchestrator.py`, `nodes/protocol.py`), which goes to psij.
 
 **Why `psij,sysinfo` and not the default.** On a login node `default` is
 `psij,staging,sysinfo,queue_info`. Upstream's `plans/security_token_mitigation.md` describes psij
@@ -121,7 +123,8 @@ the work dir twice, and the broker exited "TLS cert not found" (the trap recorde
 | agent (rePEAT backend) | the same VM, `127.0.0.1:8000` | `tmux` or a systemd service (§3) | the broker at `https://127.0.0.1:8443` |
 | endpoint | `amarel3` login node | `tmux` (§4) | the broker at `https://<linode-ip>:8443`, outbound |
 | protocol jobs | Amarel compute nodes | Slurm, one job each | nothing |
-| browser | the user's laptop | — | the agent, over `ssh -L` to the VM |
+| Caddy | the same VM, `:80`/`:443` | `caddy.service` | the agent at `127.0.0.1:8000`; serves the built frontend from `/srv/repeat/www` |
+| browser | the user's laptop | — | Caddy, over HTTPS; the app's own logins are the gate (`plans/LINODE_DEPLOY.md` Phase 2); `ssh -L` still works |
 
 This is Orbit's intended pattern, not an adaptation of it. Upstream's `DEPLOYMENT.md` puts the broker
 on a "public-facing" host under systemd and the endpoint on "one per cluster or login node",
@@ -140,10 +143,13 @@ because it is the broker's only other client, the protocol's scripts are read on
 - **The broker's port faces the internet**, so the token is the gate. Auth is on by default and must
   stay on: **never `--no-auth`** on this broker. Narrow the port with a Linode Cloud Firewall to the
   Rutgers range the endpoint egresses from (§3), and keep the key on the VM.
-- **The agent's backend stays on loopback.** It ships no CORS middleware, and `_authorize_write`
-  (`app.py`) opens settings writes to loopback callers when `DESIGNAGENT_ADMIN_TOKEN` is unset. On a
-  VM only we log into, loopback is ours, which is what that design assumes; set the token anyway.
-  Never bind the backend to a public address; the browser reaches it over `ssh -L`.
+- **The agent's backend stays on loopback**, and Caddy fronts it (`plans/LINODE_DEPLOY.md`
+  Phase 1). It ships no CORS middleware, and `_authorize_write` (`app.py`) opens settings writes to
+  loopback callers when `DESIGNAGENT_ADMIN_TOKEN` is unset.
+  - **Behind a same-host proxy that test is true for every caller** (backlog **A17**). On this VM
+    logins are on, so the settings routes need a signed-in admin and the bind address is never
+    consulted. With logins off, the token would be mandatory.
+  - Never bind the backend to a public address.
 - **Nothing listens on `amarel3`.** The shared-loopback problem found in the survey — about 86 users
   on one `127.0.0.1` — now matters only to the dev stack (`pytest -m live`,
   `DESIGNAGENT_ORBIT_LOCAL=true`), which starts a `--no-auth` broker (backlog **A16**). Run that on
@@ -242,7 +248,14 @@ is **Drop**; keep it, and add two rules:
 
 `128.6.0.0/16` is Rutgers' block (`whois`: "Rutgers, The State University") and covers the NAT pool
 the survey saw (`128.6.37.137`); widen it only if the endpoint's address turns out to come from
-elsewhere. The allow-list is defence in depth, not the gate — the token is. The agent reaches the
+elsewhere. **An uncommitted Cloud Firewall rule is indistinguishable from a stopped broker** by
+error text: it blocked rung 0c once with the broker already active and answering on its own
+loopback. Only the *shape* of the failure separates them — a dropped packet hangs until the timeout
+(`timeout 8 bash -c 'exec 3<>/dev/tcp/<ip>/8443'` returning after the full 8 s, and an unused port
+like 9999 behaving identically), while a reachable host with nothing listening answers with an RST
+at once. `amarel_endpoint.sh check` prints "nothing answers" for both.
+
+The allow-list is defence in depth, not the gate — the token is. The agent reaches the
 broker over loopback, which the Cloud Firewall never sees. The image enables no host firewall; a UFW
 mirror of the same rules is optional (`ufw allow ssh`, `ufw allow from 128.6.0.0/16 to any port 8443
 proto tcp`, `ufw enable` — allow ssh first or you lock yourself out). If the account defines a Default
@@ -480,14 +493,14 @@ with every logged-in user (backlog **A16**), and the role is `login`, so rhapsod
 
 | # | Where | Command | Proves | Result |
 | --- | --- | --- | --- | --- |
-| 0a | VM | §3 steps 1–3, ending `./scripts/setup.sh --check` and `.venv/bin/python -c "import radical.orbit"` | the agent's venv exists and can import Orbit | |
-| 0b | VM | `systemctl status orbit-broker`; `GET /endpoints` (§3) returns `{"endpoints": [], …}` | the broker is up, TLS and the token work | |
+| 0a | VM | §3 steps 1–3, ending `./scripts/setup.sh --check` and `.venv/bin/python -c "import radical.orbit"` | the agent's venv exists and can import Orbit | 2026-10-09: `setup.sh --check` all ok, every refcodes pin matched; offline suite 396 passed, 2 skipped. Orbit is now installed by `setup.sh` itself, from `refcodes/radical.orbit` |
+| 0b | VM | `systemctl status orbit-broker`; `GET /endpoints` (§3) returns `{"endpoints": [], …}` | the broker is up, TLS and the token work | 2026-10-09: active. `GET /endpoints` returned `{"endpoints":[{"name":"broker","plugins":["sysinfo"],"connected":true,…}],"total":1}`; the broker lists **itself**, not `[]` as predicted. Wrong token → 401, no token → 401; the public IP answers 200 from the VM. The same authenticated call also answers **from `amarel3`**, so the pinned cert and the token work across the internet and not only on loopback |
 | 0-pre | login node | `./scripts/amarel_endpoint.sh selftest` | the endpoint starts with `psij,sysinfo` and registers; auth is on | 2026-10-08, `amarel4`, Orbit 0.8.0 @ `c7ede0c`, Python 3.12: registered in 1 s with `plugins=['psij', 'sysinfo']`; `GET /endpoints` listed it `connected: true`; wrong token → 401. tmux `start`/`status`/`stop` also exercised: after `stop` the broker no longer lists it |
-| 0c | amarel3 → VM | start the endpoint (§4); `GET /endpoints` lists `amarel3`, `connected: true`, with `psij` | the endpoint reaches the broker across the internet | |
-| 1 | VM | `.venv/bin/python -m pytest -q -m live` | the client path against a localhost broker we start ourselves | |
-| 2 | VM | `DESIGNAGENT_ORBIT_LOCAL=true .venv/bin/python -m pytest -q -m remote` | the remote tier's assertions, rehearsed with no allocation | |
-| 3 | VM | `.venv/bin/python -m designagent --check-config --probe` | the agent's credentials reach the real broker and the endpoint is visible | |
-| 4 | VM | `.venv/bin/python -m pytest -q -m remote` | submit → poll → logs → cancel across a real scheduler. **This is backlog A1's question.** | |
+| 0c | amarel3 → VM | start the endpoint (§4); `GET /endpoints` lists `amarel3`, `connected: true`, with `psij` | the endpoint reaches the broker across the internet | 2026-10-09 05:14 UTC: `WebSocket /register [accepted]` from **`128.6.37.137`** (the Rutgers NAT address the survey saw, so the `128.6.0.0/16` rule fits). `GET /endpoints` listed `amarel3`, `connected: true`, plugins `psij, sysinfo`. From the endpoint side the same minute: `amarel_endpoint.sh check` all ok, and `start` logged `registered as 'amarel3' (role=endpoint, plugins=['psij', 'sysinfo'])` at 05:14:33 UTC, the same second as `Starting ORBIT endpoint`. `GET /endpoints` from `amarel3` listed **two** rows, `amarel3` with `plugin_count: 2` and the broker's own. `GET /amarel3/sysinfo/host_role` through the gateway → `{"role": "login", "scheduler": "slurm", "psij_executor": "slurm", "job_id": null, "python_version": "3.12.13"}` — the first capability call to make the whole `amarel3 → broker → amarel3` round trip, and it settles one of §6's four rung-4 questions early. At 05:14:40 the endpoint logged `[psij] Registered session … (owner=designagent)` twice and one unregister: that is rung 3's probe, seen from the other end |
+| 1 | VM | `.venv/bin/python -m pytest -q -m live` | the client path against a localhost broker we start ourselves | 2026-10-09: **11 passed, 1 skipped** (the ProteinMPNN test, which is not installed on the VM by design). The first run skipped all 12 with `No module named 'opentelemetry.sdk'`: Orbit's rhapsody plugin calls `start_telemetry`, which needs rhapsody's `telemetry` extra. `setup.sh` now installs and checks it |
+| 2 | VM | `DESIGNAGENT_ORBIT_LOCAL=true .venv/bin/python -m pytest -q -m remote` | the remote tier's assertions, rehearsed with no allocation | 2026-10-09: **8 passed** |
+| 3 | VM | `.venv/bin/python -m designagent --check-config --probe` | the agent's credentials reach the real broker and the endpoint is visible | 2026-10-09, with `/etc/repeat/backend.env` loaded: `orbit [ok] endpoint amarel3`, `hpc: configured`, exit 0. `llm` absent (no key yet); `protocol_*` cluster paths still unset |
+| 4 | VM | `.venv/bin/python -m pytest -q -m remote` | submit → poll → logs → cancel across a real scheduler. **This is backlog A1's question.** | 2026-10-09, run with `DESIGNAGENT_ORBIT_CLIENT_NAME=designagent-rung4`, since the backend holds the default name (backlog **A18**). **4 passed**: endpoint names itself; a PSI/J job runs through Slurm and returns its logs; a queued job is cancelled; the manager routes `hpc` work here. **4 failed, none of them the path itself:** rhapsody is absent on a login node (**D4**, expected); `custom_attributes` with `slurm.requeue: ""` → HTTP 500, a test bug, fixed and re-run green (**A19**); `directory` and the fetch test name paths that exist only on the VM (**A20**). A1 is answered: **the path works** |
 | 5 | VM | one real hhblits run | a 12-hour walltime, 0 GPUs, 32 GiB, and a `directory` that persists | |
 | 6 | VM | the full protocol spine | everything else | |
 
@@ -508,3 +521,19 @@ Four things to write down from rung 4, because each is the first evidence we wil
   fails a job whose `--chdir` does not exist before anything runs, so `$PROJ` must be created first;
 - **how long a known-size output takes to come back.** Job stdout and in-band staged files now
   travel `amarel3` → Linode over the internet (backlog **D5**).
+
+**What rung 4 answered (2026-10-09):**
+
+- **`native_id` comes back.** A probe job reported `native_id: "62380976"`, which matched the
+  `SLURM_JOB_ID` it printed. It ran on `hal0140`.
+- **Batch system:** `host_role` returned `role: login`, `scheduler: slurm`, `psij_executor: slurm`
+  (rung 0c, from the endpoint side). Nothing site-specific surfaced as a rejection. The only 500 was
+  our own malformed attribute (**A19**). No kept submit script has been read yet.
+- **`directory` is honoured when it exists, and silently replaced when it does not.**
+  - `directory=/scratch/mh1314` printed `/scratch/mh1314` (job `62380976`).
+  - `directory=/scratch/mh1314/no-such-dir-rung4` printed **`/tmp`** and still reported **DONE,
+    exit 0** (job `62380977`).
+  - So the claim above, "Slurm fails a job whose `--chdir` does not exist", is **wrong on Amarel**:
+    it falls back to `/tmp`. `$PROJ` must exist before a compute stage, and a stage cannot rely on
+    Slurm to notice when it does not (backlog **A20**).
+- **Output transfer time** is still unmeasured (D5): rung 4's jobs printed a few lines each.

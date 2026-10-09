@@ -261,8 +261,11 @@ async def test_custom_attributes_are_accepted_by_the_endpoint(orbit, remote_sett
             "duration_sec": 600,
             # Keyed for whichever executor the site runs; on the `local`
             # executor of the development stack these render nothing, which is
-            # exactly the "accepted and harmless" case being checked.
-            "custom_attributes": {"slurm.requeue": ""},
+            # exactly the "accepted and harmless" case being checked. It must
+            # take a value: PSI/J's Slurm template renders `--name=value`, and
+            # `slurm.requeue: ""` came back on Amarel as HTTP 500, "sbatch:
+            # option '--requeue' doesn't allow an argument" (backlog A19).
+            "custom_attributes": {"slurm.comment": "rePEAT remote tier"},
         },
     )
     assert "custom_attributes" in params["job_spec"]

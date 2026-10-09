@@ -30,10 +30,10 @@ Priority: ★ must show · ○ show if time. ~20 lines is the legible maximum at
 | S8-A | 8 | `backend/designagent/tasks/base.py:22–34, 62–67, 70–83` | 20 | TRIMMED | ★ |
 | S8-B | 8 | `backend/designagent/tasks/base.py:92–120` (`TaskHandle`) | 18 | TRIMMED | ★ |
 | S8-C | 8 | `backend/designagent/tasks/base.py:148–186` (the ABC) | 20 | TRIMMED | ★★ |
-| S8-D | 8 | `backend/designagent/tasks/manager.py:111–128` | 18 | VERBATIM | ★ |
-| S8-E | 8 | `backend/designagent/tasks/manager.py:76–88` (`interface_for`) | 13 | VERBATIM | ○ |
-| S9-A | 9 | `backend/designagent/runtime.py:179–219` | 20 | TRIMMED | ★★ |
-| S9-B | 9 | `backend/designagent/tasks/local.py:58–63` | 6 | VERBATIM | ★ |
+| S8-D | 8 | `backend/designagent/tasks/manager.py:134–151` | 18 | VERBATIM | ★ |
+| S8-E | 8 | `backend/designagent/tasks/manager.py:95–113` (`interface_for`) | 19 | VERBATIM | ○ |
+| S9-A | 9 | `backend/designagent/runtime.py:270–310` | 20 | TRIMMED | ★★ |
+| S9-B | 9 | `backend/designagent/tasks/local.py:80–85` | 6 | VERBATIM | ★ |
 | S9-C | 9 | `refcodes/flowgentic/src/flowgentic/langGraph/fault_tolerance.py:73–84` | 12 | **VERBATIM — the bug** | ★★ |
 | S9-D | 9 | `refcodes/flowgentic/.../fault_tolerance.py:23–37` (the defaults) | 15 | TRIMMED | ★ |
 | S10-A | 10 | `backend/designagent/tasks/hpc/orbit.py:328–343` | 16 | VERBATIM | ★★ |
@@ -44,12 +44,12 @@ Priority: ★ must show · ○ show if time. ~20 lines is the legible maximum at
 | S11-B | 11 | `backend/designagent/tasks/hpc/globus.py:90–104` | 15 | VERBATIM | ★ |
 | S12-A | 12 | `backend/designagent/tools/molviz_agent.py:143–154` | 12 | TRIMMED | ○ |
 | S13-A | 13 | `backend/designagent/lake/graph.py:24–51` (the schema) | 20 | TRIMMED | ★ |
-| S13-B | 13 | `backend/designagent/lake/store.py:87–118` | 18 | TRIMMED | ★ |
+| S13-B | 13 | `backend/designagent/lake/store.py:89–120` | 18 | TRIMMED | ★ |
 | S14-A | 14 | `backend/designagent/graph/nodes/analyst.py:166–195` | 20 | TRIMMED | ★★ |
 | S14-B | 14 | `backend/designagent/graph/nodes/analyst.py:405–411` (`_rank_in_memory`) | 7 | VERBATIM | ★ |
-| S15-A | 15 | `frontend/src/lib/api.ts:36–58` | 20 | TRIMMED | ○ |
+| S15-A | 15 | `frontend/src/lib/api.ts:40–62` | 20 | TRIMMED | ○ |
 | S16-A | 16 | — (shell) | 6 | VERBATIM | ★ |
-| S17-A | 17 | `backend/designagent/config.py:65–68` | 4 | **VERBATIM** | ★★ |
+| S17-A | 17 | `backend/designagent/config.py:69–72` | 4 | **VERBATIM** | ★★ |
 
 **Re-deriving anchors.** Do this before presenting; drift hides here. Every anchor above is checked
 by matching the snippet's first code line against the current source, which is automated:
@@ -95,7 +95,7 @@ meant.
 
 Reached whenever `RetryConfig.retryable_exceptions` is left at its default — which is `()`
 (`:38–40`), i.e. the common case. Passing an explicit tuple is what sidesteps it, and that is what
-`runtime.py:208` does.
+`runtime.py:299` does.
 
 Observed as: `ModuleNotFoundError: No module named 'aiohttp'` raised from `fault_tolerance.py:75` on
 the first wrapped task, in an env with `httpx` but not `aiohttp`.
@@ -118,11 +118,11 @@ the first wrapped task, in an env with `httpx` but not `aiohttp`.
 30 s with 3 attempts is right for a service call and wrong for a protein fold. Measured against this
 repo's own workload: the six round-1 folds in the reference campaign took **13.3 s to 31.7 s** each,
 and round 2 ran to **42.4 s** — so the default would have cancelled and silently re-run roughly half
-of them. Our wrapper passes `timeout_sec=None, max_attempts=1` (`runtime.py:204–209`).
+of them. Our wrapper passes `timeout_sec=None, max_attempts=1` (`runtime.py:295–300`).
 
 ### S17-A — the deviation, recorded in the code · **VERBATIM**
 
-`backend/designagent/config.py:65–68`
+`backend/designagent/config.py:69–72`
 
 ```python
     # Route node bodies through flowgentic's EXECUTION_BLOCK as well as tasks.

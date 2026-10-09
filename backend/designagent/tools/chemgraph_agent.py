@@ -16,6 +16,7 @@ import os
 from typing import Any
 
 from ..config import get_settings
+from ..llm import settings_for_task
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ def _model_name(settings) -> str:
 async def run_chemgraph(
     task: str = "",
     workflow: str = "single_agent",
+    _llm: dict[str, Any] | None = None,
     **_: Any,
 ) -> dict[str, Any]:
     """Run a cheminformatics task through ChemGraph.
@@ -73,7 +75,7 @@ async def run_chemgraph(
             "error": "ChemGraph is not installed; install the 'chem' extra to enable it"
         }
 
-    settings = get_settings()
+    settings = settings_for_task(_llm) or get_settings()
     if not settings.llm_available:
         return {"error": "ChemGraph needs an LLM; set ANTHROPIC_API_KEY"}
 
@@ -81,9 +83,12 @@ async def run_chemgraph(
     log_dir = settings.data_dir / "chemgraph"
     log_dir.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("CHEMGRAPH_LOG_DIR", str(log_dir))
-    # Assigned, not setdefault: ChemGraph reads the key from the environment, and
-    # a worker's env can carry an empty ANTHROPIC_API_KEY from the parent while
-    # `settings` holds a key supplied at runtime. Settings is authoritative.
+    # ChemGraph reads its key from the environment and nowhere else, so the key
+    # has to be put there — but only for this call. Under logins it is the
+    # signed-in user's, and a worker runs other users' tasks next; leaving it set
+    # would hand this user's key to whoever's ChemGraph call came after. A pool
+    # worker runs one task at a time, so set-and-restore is enough.
+    previous = os.environ.get("ANTHROPIC_API_KEY")
     os.environ["ANTHROPIC_API_KEY"] = settings.llm_key
 
     before = set(log_dir.glob("*"))
@@ -99,6 +104,11 @@ async def run_chemgraph(
     except Exception as exc:
         log.warning("ChemGraph failed: %s", exc)
         return {"error": f"ChemGraph failed: {exc}", "task": task}
+    finally:
+        if previous is None:
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+        else:
+            os.environ["ANTHROPIC_API_KEY"] = previous
 
     answer = getattr(result, "content", None) or str(result)
     new_files = sorted(str(p) for p in set(log_dir.glob("*")) - before)

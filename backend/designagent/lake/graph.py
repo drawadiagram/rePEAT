@@ -54,12 +54,13 @@ _SCHEMA = [
 class GraphStore:
     """Tier 1 provenance graph."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, buffer_pool_mb: int = 0):
         import kuzu
 
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = kuzu.Database(str(self._path))
+        # 0 is Kuzu's own "default", ~80% of physical RAM (kuzu.Database docs).
+        self._db = kuzu.Database(str(self._path), buffer_pool_size=buffer_pool_mb << 20)
         self._conn = kuzu.Connection(self._db)
         self._lock = threading.RLock()
         self._init_schema()

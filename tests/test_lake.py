@@ -160,3 +160,26 @@ def test_campaign_report_shape(lake):
     report = lake.campaign_report("c1")
     assert set(report) == {"designs", "tasks", "scores", "analyses"}
     assert report["analyses"][0]["payload"]["note"] == "ok"
+
+
+def test_the_kuzu_buffer_pool_setting_reaches_the_database(tmp_path, monkeypatch):
+    """Unset, Kuzu takes ~80% of the host's RAM; on the 4 GB Linode that is most
+    of the machine. The setting must arrive at `kuzu.Database` in bytes."""
+    import kuzu
+
+    seen = {}
+    real = kuzu.Database
+
+    def spy(path, **kwargs):
+        seen.update(kwargs)
+        return real(path, **kwargs)
+
+    monkeypatch.setattr(kuzu, "Database", spy)
+    history = DesignHistory(
+        Settings(data_dir=tmp_path, anthropic_api_key="", kuzu_buffer_pool_mb=64)
+    )
+    try:
+        assert seen["buffer_pool_size"] == 64 * 1024 * 1024
+        assert history.graph.query("RETURN 1 AS one") == [{"one": 1}]
+    finally:
+        history.close()

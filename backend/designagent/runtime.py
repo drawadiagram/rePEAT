@@ -21,7 +21,10 @@ are read only in this process, so they need nothing but a reconnect. See
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import secrets
+import time
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from typing import Any
@@ -30,6 +33,7 @@ from pydantic import SecretStr
 
 from .artifacts.store import ArtifactStore
 from .config import Settings, adopt, get_settings, install_settings
+from .context import TurnContext
 from .graph.build import build_graph
 from .graph.deps import Deps
 from .lake.store import DesignHistory
@@ -82,6 +86,11 @@ class Runtime:
     # Why the last Orbit attempt failed, for /api/health. The LLM's equivalent
     # lives on Deps, because only nodes can observe it.
     orbit_error: str = ""
+    # Logins (plans/LINODE_DEPLOY.md, Phase 2). All three are None with
+    # DESIGNAGENT_AUTH_ENABLED off, and every route then behaves as before.
+    auth: Any = None              # auth.store.AuthStore
+    credentials: Any = None       # auth.credentials.CredentialService
+    orbit_registry: Any = None    # OrbitRegistry
     _stack: AsyncExitStack | None = field(default=None, repr=False)
     _notes: list[str] = field(default_factory=list)
 
@@ -139,7 +148,7 @@ class Runtime:
         # Nodes read `deps.settings` on every turn, so the compiled graph picks
         # this up without being rebuilt.
         self.deps.settings = new
-        self.deps.last_llm_error = ""
+        self.deps.clear_llm_errors()
         if any(f.startswith(("orbit_", "globus_")) for f in changed):
             await self._restart_orbit(new)
             restarted.append("orbit")
@@ -165,7 +174,26 @@ class Runtime:
         if interface is not None:
             self.manager.attach_hpc(interface)
 
+    async def turn_context(self, user: Any) -> TurnContext:
+        """Who this turn is for, with their settings and their `hpc` interface."""
+        resolved = self.credentials.resolve(user, self.settings)
+        hpc, error = None, ""
+        if resolved.own_orbit:
+            hpc, error = await self.orbit_registry.get(user, resolved.settings)
+        problems = [*resolved.errors, *([error] if error else [])]
+        return TurnContext(
+            user_id=user.id,
+            username=user.username,
+            role=user.role,
+            settings=resolved.settings,
+            hpc=hpc,
+            use_shared_hpc=resolved.shared_orbit,
+            hpc_error="; ".join(problems),
+        )
+
     async def close(self) -> None:
+        if self.orbit_registry is not None:
+            await self.orbit_registry.close_all()
         await self.manager.close()
         if self._stack is not None:
             await self._stack.aclose()
@@ -173,7 +201,70 @@ class Runtime:
         if self.orbit_stack is not None:
             await _stop_local_stack(self.orbit_stack)
             self.orbit_stack = None
+        if self.auth is not None:
+            self.auth.close()
         self.history.close()
+
+
+class OrbitRegistry:
+    """One Orbit interface per signed-in user who brought their own endpoint.
+
+    Keyed by user, and rebuilt when that user's broker, endpoint, cert or token
+    changes. Each interface registers under its **own client name**: two clients
+    sharing one silently steal each other's replies (backlog A18, observed, not
+    yet read in the broker's source) — which two users' interfaces would
+    otherwise do the moment both were connected.
+
+    A failed connect is remembered for `retry_after` seconds, so a wrong token
+    costs one connect timeout rather than one per turn.
+    """
+
+    def __init__(self, retry_after: float = 60.0):
+        self.retry_after = retry_after
+        self._entries: dict[str, tuple[tuple, Any, str, float]] = {}
+        self._lock = asyncio.Lock()
+
+    async def get(self, user: Any, settings: Settings) -> tuple[Any, str]:
+        from .auth.credentials import fingerprint
+
+        key = fingerprint(settings)
+        async with self._lock:
+            entry = self._entries.get(user.id)
+            if entry is not None:
+                old_key, iface, error, when = entry
+                if old_key == key:
+                    if iface is not None and getattr(iface, "connected", True):
+                        return iface, ""
+                    if iface is None and time.monotonic() - when < self.retry_after:
+                        return None, error
+                await self._close(iface)
+            name = f"{settings.orbit_client_name}-{user.username}-{secrets.token_hex(3)}"
+            iface, error = await _make_orbit(
+                settings.model_copy(update={"orbit_client_name": name})
+            )
+            self._entries[user.id] = (key, iface, error, time.monotonic())
+            return iface, error
+
+    async def drop(self, user_id: str) -> None:
+        async with self._lock:
+            entry = self._entries.pop(user_id, None)
+            if entry is not None:
+                await self._close(entry[1])
+
+    async def close_all(self) -> None:
+        async with self._lock:
+            for _key, iface, _error, _when in self._entries.values():
+                await self._close(iface)
+            self._entries.clear()
+
+    @staticmethod
+    async def _close(iface: Any) -> None:
+        if iface is None:
+            return
+        try:
+            await iface.close()
+        except Exception as exc:  # a dead interface must not block its replacement
+            log.warning("closing a user's Orbit interface failed: %s", exc)
 
 
 async def _make_backend(settings: Settings):
@@ -377,6 +468,24 @@ async def build_runtime(settings: Settings | None = None) -> Runtime:
     # The LLM and Orbit lines are not appended here: `Runtime.live_notes()`
     # recomputes them, so a credential supplied at runtime is reflected at once.
 
+    # --- logins ---
+    auth = credentials = registry = None
+    if settings.auth_enabled:
+        from .auth.credentials import CredentialService
+        from .auth.store import AuthStore
+
+        auth = AuthStore(settings.auth_db_path, session_hours=settings.auth_session_hours)
+        credentials = CredentialService(auth, settings)
+        registry = OrbitRegistry()
+        notes.append(
+            f"Logins on: {auth.user_count()} account(s); credentials "
+            + (
+                "encrypted at rest."
+                if credentials.can_store
+                else "cannot be stored (no secrets key)."
+            )
+        )
+
     deps = Deps(settings=settings, tasks=manager, history=history, artifacts=artifacts)
     graph = build_graph(
         deps,
@@ -401,6 +510,9 @@ async def build_runtime(settings: Settings | None = None) -> Runtime:
         orbit_stack=orbit_stack,
         persistent_checkpoints=persistent_checkpoints,
         orbit_error=orbit_error,
+        auth=auth,
+        credentials=credentials,
+        orbit_registry=registry,
         _stack=stack,
         _notes=notes,
     )

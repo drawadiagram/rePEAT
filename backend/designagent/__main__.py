@@ -25,10 +25,29 @@ def main() -> None:
         action="store_true",
         help="with --check-config, also try each credential against its service",
     )
+    accounts = parser.add_argument_group(
+        "accounts", "for DESIGNAGENT_AUTH_ENABLED=true; run with the server's environment"
+    )
+    accounts.add_argument("--add-user", metavar="NAME", help="create an account")
+    accounts.add_argument("--admin", action="store_true", help="with --add-user: an admin")
+    accounts.add_argument("--passwd", metavar="NAME", help="set an account's password")
+    accounts.add_argument("--list-users", action="store_true")
+    accounts.add_argument(
+        "--gen-secrets-key",
+        action="store_true",
+        help="print a new DESIGNAGENT_SECRETS_KEY (credentials at rest)",
+    )
     args = parser.parse_args()
 
     if args.check_config:
         raise SystemExit(_check_config(probe=args.probe))
+    if args.gen_secrets_key:
+        from .auth.credentials import CredentialBox
+
+        print(CredentialBox.generate_key())
+        return
+    if args.add_user or args.passwd or args.list_users:
+        raise SystemExit(_accounts(args))
 
     # uvicorn does not tell the app what it bound to, and the settings-write
     # routes need to know whether that was loopback.
@@ -43,6 +62,54 @@ def main() -> None:
         reload=args.reload,
         log_level="info",
     )
+
+
+def _read_password(prompt: str) -> str:
+    """From the terminal when there is one, else one line of stdin (for scripts)."""
+    import getpass
+    import sys
+
+    if sys.stdin.isatty():
+        first = getpass.getpass(prompt)
+        if getpass.getpass("again: ") != first:
+            raise SystemExit("the two passwords differ")
+        return first
+    return sys.stdin.readline().rstrip("\n")
+
+
+def _accounts(args) -> int:
+    """Account management. Writes `data/auth.sqlite` directly; the server need not run.
+
+    SQLite takes its own locks, so this is safe beside a running server, and a
+    new account can sign in at once.
+    """
+    from .auth.store import AuthStore
+    from .config import get_settings
+
+    settings = get_settings()
+    settings.ensure_dirs()
+    store = AuthStore(settings.auth_db_path, session_hours=settings.auth_session_hours)
+    try:
+        if args.list_users:
+            for user in store.users():
+                print(f"{user.username:<24} {user.role:<6} {user.id}")
+            return 0
+        if args.add_user:
+            user = store.create_user(
+                args.add_user,
+                _read_password(f"password for {args.add_user}: "),
+                "admin" if args.admin else "user",
+            )
+            print(f"created {user.username} ({user.role})")
+            return 0
+        store.set_password(args.passwd, _read_password(f"new password for {args.passwd}: "))
+        print(f"password changed for {args.passwd}; their sessions were ended")
+        return 0
+    except ValueError as exc:
+        print(f"error: {exc}")
+        return 1
+    finally:
+        store.close()
 
 
 def _check_config(*, probe: bool) -> int:

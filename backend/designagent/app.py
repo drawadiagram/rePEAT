@@ -17,15 +17,20 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from hmac import compare_digest
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from .auth.credentials import USER_FIELDS, CredentialError, NoSecretsKey, validate
+from .auth.store import User
 from .config import (
     Settings,
     apply_overrides,
@@ -36,6 +41,7 @@ from .config import (
     overrides,
     secret_values,
 )
+from .context import current_turn
 from .graph.trace import summarize
 from .preflight import probe_all
 from .runtime import Runtime, build_runtime, needs_rebuild
@@ -121,6 +127,313 @@ def _runtime(request: Request) -> Runtime:
     return runtime
 
 
+# --- logins -----------------------------------------------------------------
+#
+# Everything below is inert unless DESIGNAGENT_AUTH_ENABLED is on: with no
+# `runtime.auth`, `_user` returns None and every check passes, so the
+# development server, dev.sh and the offline suite see the app as it was.
+#
+# With it on, a request is someone's only if it carries a live session cookie.
+# The cookie is HttpOnly, Secure and SameSite=Strict, and every mutating route
+# also refuses an `Origin` that is not this host: SameSite already stops a
+# cross-site form, the Origin check stops anything that gets past it, and the
+# app still installs no CORS middleware (see `_authorize_write`).
+
+COOKIE = "designagent_session"
+
+
+def _user(request: Request, runtime: Runtime) -> User | None:
+    """The signed-in user, None when logins are off, or 401."""
+    if runtime.auth is None:
+        return None
+    user = runtime.auth.user_for_token(request.cookies.get(COOKIE, ""))
+    if user is None:
+        raise HTTPException(401, "sign in first")
+    return user
+
+
+def _same_origin(request: Request, runtime: Runtime) -> None:
+    """Refuse a cross-origin write. A request with no Origin is not a browser's."""
+    if runtime.auth is None:
+        return
+    origin = request.headers.get("origin")
+    if origin and urlsplit(origin).netloc != request.headers.get("host", ""):
+        raise HTTPException(403, "cross-origin request refused")
+
+
+def _require_admin(user: User | None) -> None:
+    if user is not None and not user.is_admin:
+        raise HTTPException(403, "only an admin may change the server's settings")
+
+
+def _own_session(runtime: Runtime, user: User | None, session_id: str) -> None:
+    """404, not 403, for someone else's session: whether it exists is theirs too."""
+    if user is None:
+        return
+    if runtime.auth.session_owner(session_id) != user.id:
+        raise HTTPException(404, "no such session")
+
+
+def _client_ip(request: Request) -> str:
+    """The caller's address, believing X-Forwarded-For only from a local proxy."""
+    host = request.client.host if request.client else ""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if host in ("127.0.0.1", "::1") and forwarded:
+        # Caddy writes the client it saw; the last hop is the one it added.
+        return forwarded.split(",")[-1].strip()
+    return host
+
+
+class _LoginLimiter:
+    """Failed logins per (address, username) and per username, in memory.
+
+    In memory is enough for one process: the aim is to make guessing slow, and a
+    restart that forgets the counts costs an attacker a restart they cannot cause.
+    """
+
+    WINDOW = 15 * 60
+    PER_PAIR = 10
+    PER_USER = 30
+
+    def __init__(self) -> None:
+        self._fails: dict[tuple[str, str], list[float]] = {}
+
+    def _recent(self, key: tuple[str, str]) -> list[float]:
+        cutoff = time.monotonic() - self.WINDOW
+        kept = [t for t in self._fails.get(key, []) if t > cutoff]
+        self._fails[key] = kept
+        return kept
+
+    def blocked(self, ip: str, username: str) -> bool:
+        return (
+            len(self._recent((ip, username))) >= self.PER_PAIR
+            or len(self._recent(("*", username))) >= self.PER_USER
+        )
+
+    def failed(self, ip: str, username: str) -> None:
+        now = time.monotonic()
+        self._recent((ip, username)).append(now)
+        self._recent(("*", username)).append(now)
+
+    def succeeded(self, ip: str, username: str) -> None:
+        self._fails.pop((ip, username), None)
+
+
+_limiter = _LoginLimiter()
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+@app.post("/api/login")
+async def login(request: Request, body: LoginRequest) -> JSONResponse:
+    runtime = _runtime(request)
+    if runtime.auth is None:
+        raise HTTPException(404, "logins are not enabled on this server")
+    _same_origin(request, runtime)
+    ip = _client_ip(request)
+    if _limiter.blocked(ip, body.username):
+        raise HTTPException(429, "too many failed sign-ins; wait a few minutes")
+    # scrypt is deliberately slow; keep it off the event loop.
+    user = await asyncio.to_thread(runtime.auth.authenticate, body.username, body.password)
+    if user is None:
+        _limiter.failed(ip, body.username)
+        log.info("failed sign-in for %r from %s", body.username, ip)
+        raise HTTPException(401, "wrong username or password")
+    _limiter.succeeded(ip, body.username)
+    token = runtime.auth.start_session(user)
+    response = JSONResponse({"user": _user_view(user)})
+    response.set_cookie(
+        COOKIE,
+        token,
+        max_age=int(runtime.settings.auth_session_hours * 3600),
+        httponly=True,
+        secure=runtime.settings.auth_cookie_secure,
+        samesite="strict",
+        path="/",
+    )
+    log.info("%s signed in from %s", user.username, ip)
+    return response
+
+
+@app.post("/api/logout")
+async def logout(request: Request) -> JSONResponse:
+    runtime = _runtime(request)
+    if runtime.auth is not None:
+        _same_origin(request, runtime)
+        token = request.cookies.get(COOKIE, "")
+        user = runtime.auth.user_for_token(token)
+        runtime.auth.end_session(token)
+        if user is not None:
+            # Their decrypted credentials and their Orbit connection go with them.
+            runtime.credentials.forget(user)
+            await runtime.orbit_registry.drop(user.id)
+    response = JSONResponse({"signed_out": True})
+    response.delete_cookie(COOKIE, path="/")
+    return response
+
+
+def _user_view(user: User) -> dict[str, str]:
+    return {"id": user.id, "username": user.username, "role": user.role}
+
+
+@app.get("/api/me")
+async def me(request: Request) -> JSONResponse:
+    """Who is signed in, and what their credentials give them.
+
+    With logins off this says so and nothing else, which is how the frontend
+    knows not to show a sign-in page.
+    """
+    runtime = _runtime(request)
+    user = _user(request, runtime)
+    if user is None:
+        return JSONResponse({"auth": False})
+    turn = await runtime.turn_context(user)
+    hpc = runtime.manager.interfaces.get("hpc") if turn.use_shared_hpc else turn.hpc
+    return JSONResponse(
+        {
+            "auth": True,
+            "user": _user_view(user),
+            "llm": turn.settings.llm_available,
+            "llm_error": runtime.deps.llm_error_for(user.id),
+            "model": turn.settings.model if turn.settings.llm_available else None,
+            "hpc": hpc is not None and getattr(hpc, "connected", True),
+            "hpc_shared": turn.use_shared_hpc,
+            "hpc_error": turn.hpc_error,
+            "endpoint": turn.settings.orbit_endpoint if hpc is not None else "",
+        }
+    )
+
+
+# --- chat sessions -------------------------------------------------------------
+
+
+@app.post("/api/sessions")
+async def new_session(request: Request) -> JSONResponse:
+    """A fresh session id. Minted here, so nobody can claim one by guessing it."""
+    runtime = _runtime(request)
+    user = _user(request, runtime)
+    if user is None:
+        return JSONResponse({"session_id": f"s-{secrets.token_urlsafe(9)}"})
+    _same_origin(request, runtime)
+    return JSONResponse({"session_id": runtime.auth.create_chat_session(user)})
+
+
+@app.get("/api/sessions")
+async def list_sessions(request: Request) -> JSONResponse:
+    runtime = _runtime(request)
+    user = _user(request, runtime)
+    if user is None:
+        return JSONResponse({"sessions": []})
+    return JSONResponse({"sessions": runtime.auth.sessions_of(user)})
+
+
+# --- my credentials -----------------------------------------------------------
+
+
+class CredentialsUpdate(BaseModel):
+    """A sparse update of the caller's own credentials. `""` clears a field."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    anthropic_api_key: str | None = None
+    model: str | None = None
+    orbit_broker_url: str | None = None
+    orbit_broker_token: str | None = None
+    orbit_broker_cert: str | None = None
+    orbit_endpoint: str | None = None
+    orbit_account: str | None = None
+    orbit_queue: str | None = None
+
+    def values(self) -> dict[str, str]:
+        return {k: v for k, v in self.model_dump().items() if v is not None}
+
+
+def _credentials_view(runtime: Runtime, user: User) -> dict[str, Any]:
+    return {
+        "credentials": runtime.credentials.describe(user),
+        "fields": list(USER_FIELDS),
+        "can_store": runtime.credentials.can_store,
+        "allowed_brokers": list(runtime.settings.allowed_brokers),
+    }
+
+
+def _signed_in(request: Request, runtime: Runtime) -> User:
+    user = _user(request, runtime)
+    if user is None:
+        raise HTTPException(404, "logins are not enabled on this server")
+    return user
+
+
+@app.get("/api/me/credentials")
+async def read_my_credentials(request: Request) -> JSONResponse:
+    runtime = _runtime(request)
+    return JSONResponse(_credentials_view(runtime, _signed_in(request, runtime)))
+
+
+@app.put("/api/me/credentials")
+async def write_my_credentials(request: Request, body: CredentialsUpdate) -> JSONResponse:
+    """Store the caller's credentials, encrypted. Applies from their next turn."""
+    runtime = _runtime(request)
+    user = _signed_in(request, runtime)
+    _same_origin(request, runtime)
+    try:
+        values = validate(body.values(), runtime.settings)
+        runtime.credentials.save(user, values)
+    except CredentialError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except NoSecretsKey as exc:
+        raise HTTPException(503, str(exc)) from exc
+    # A changed broker, endpoint or token needs a new connection; the registry
+    # notices by fingerprint, but dropping now frees the old one at once.
+    if any(name.startswith("orbit_broker") or name == "orbit_endpoint" for name in values):
+        await runtime.orbit_registry.drop(user.id)
+    runtime.deps.forget_llm_error(user.id)
+    return JSONResponse({"applied": True, **_credentials_view(runtime, user)})
+
+
+@app.delete("/api/me/credentials")
+async def clear_my_credentials(request: Request) -> JSONResponse:
+    runtime = _runtime(request)
+    user = _signed_in(request, runtime)
+    _same_origin(request, runtime)
+    runtime.credentials.clear(user)
+    await runtime.orbit_registry.drop(user.id)
+    runtime.deps.forget_llm_error(user.id)
+    return JSONResponse({"applied": True, **_credentials_view(runtime, user)})
+
+
+@app.post("/api/me/credentials/test")
+async def test_my_credentials(request: Request, body: CredentialsUpdate) -> JSONResponse:
+    """Probe the caller's credentials, with the unsaved values layered on top."""
+    runtime = _runtime(request)
+    user = _signed_in(request, runtime)
+    _same_origin(request, runtime)
+    try:
+        values = validate(body.values(), runtime.settings)
+    except CredentialError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    resolved = runtime.credentials.resolve(user, runtime.settings)
+    update: dict[str, Any] = {}
+    for name, value in values.items():
+        if name in ("anthropic_api_key", "orbit_broker_token"):
+            from pydantic import SecretStr
+
+            update[name] = SecretStr(value)
+        elif name == "orbit_broker_cert":
+            update[name] = runtime.credentials._cert_path(user, value) if value else ""
+        else:
+            update[name] = value
+    if values.get("orbit_broker_url") and (values.get("orbit_endpoint") or resolved.own_orbit):
+        update["orbit_enabled"] = True
+    candidate = resolved.settings.model_copy(update=update)
+    probes = await probe_all(candidate)
+    # Only the user's own groups: the rest are the operator's and not theirs to see.
+    return JSONResponse({"probes": {k: v for k, v in probes.items() if k in ("llm", "orbit")}})
+
+
 def _frame(kind: str, payload: dict | None = None) -> str:
     body = {"type": kind, **(payload or {})}
     return f"data: {json.dumps(body, default=str)}\n\n"
@@ -133,6 +446,12 @@ def _frame(kind: str, payload: dict | None = None) -> str:
 async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
     runtime = _runtime(request)
     session_id = body.session_id
+    # Checked before the stream opens, so a refusal is a status code rather than
+    # an error frame inside a 200.
+    user = _user(request, runtime)
+    _same_origin(request, runtime)
+    _own_session(runtime, user, session_id)
+    turn = await runtime.turn_context(user) if user is not None else None
 
     async def stream() -> AsyncIterator[str]:
         # Task events arrive from the manager on its own schedule, and graph
@@ -150,6 +469,11 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
         trace: list[dict] = []
 
         async def run_graph() -> None:
+            # This task's own context (ensure_future copied it), so setting it
+            # here reaches every node and task submission of this turn and no
+            # other turn's. See `context.py` for why this is not `configurable`.
+            if turn is not None:
+                current_turn.set(turn)
             config = {
                 "configurable": {"thread_id": session_id},
                 "recursion_limit": 50,
@@ -303,6 +627,7 @@ def _content_of(message: Any) -> str:
 async def get_session(request: Request, session_id: str) -> JSONResponse:
     """Current state for a session, so a reload restores the UI."""
     runtime = _runtime(request)
+    _own_session(runtime, _user(request, runtime), session_id)
     config = {"configurable": {"thread_id": session_id}}
     try:
         snapshot = await runtime.app.aget_state(config)
@@ -344,9 +669,15 @@ def _raw_content(message: Any) -> str:
 @app.get("/api/artifacts/{artifact_id}")
 async def get_artifact(request: Request, artifact_id: str) -> Response:
     runtime = _runtime(request)
+    user = _user(request, runtime)  # before the lookup, for the same reason as tasks
     record = runtime.artifacts.get(artifact_id)
     if record is None:
         raise HTTPException(404, "no such artifact")
+    if user is not None:
+        try:
+            _own_session(runtime, user, record.get("session_id") or "")
+        except HTTPException:
+            raise HTTPException(404, "no such artifact") from None
     data = runtime.artifacts.read_bytes(artifact_id)
     if data is None:
         raise HTTPException(410, "artifact file is missing")
@@ -361,6 +692,7 @@ async def get_artifact(request: Request, artifact_id: str) -> Response:
 @app.get("/api/artifacts")
 async def list_artifacts(request: Request, session_id: str = "default") -> JSONResponse:
     runtime = _runtime(request)
+    _own_session(runtime, _user(request, runtime), session_id)
     return JSONResponse({"artifacts": runtime.artifacts.list_for_session(session_id)})
 
 
@@ -370,27 +702,51 @@ async def list_artifacts(request: Request, session_id: str = "default") -> JSONR
 @app.get("/api/tasks")
 async def list_tasks(request: Request, session_id: str | None = None) -> JSONResponse:
     runtime = _runtime(request)
-    return JSONResponse({"tasks": runtime.manager.snapshot(session_id)})
+    user = _user(request, runtime)
+    if user is None:
+        return JSONResponse({"tasks": runtime.manager.snapshot(session_id)})
+    if session_id:
+        _own_session(runtime, user, session_id)
+        return JSONResponse({"tasks": runtime.manager.snapshot(session_id)})
+    # No session named: every task this user owns, never anyone else's — this
+    # used to return every task in the process.
+    tasks: list[dict] = []
+    for owned in runtime.auth.sessions_of(user):
+        tasks.extend(runtime.manager.snapshot(owned["session_id"]))
+    return JSONResponse({"tasks": tasks})
+
+
+def _own_task(request: Request, runtime: Runtime, task_id: str):
+    # Who first: checked the other way round, an anonymous caller learned which
+    # task ids exist from the difference between 404 and 401.
+    user = _user(request, runtime)
+    handle = runtime.manager.get(task_id)
+    if handle is None:
+        raise HTTPException(404, "no such task")
+    if user is not None:
+        try:
+            _own_session(runtime, user, handle.meta.get("session_id") or "")
+        except HTTPException:
+            raise HTTPException(404, "no such task") from None
+    return handle
 
 
 @app.get("/api/tasks/{task_id}")
 async def get_task(request: Request, task_id: str) -> JSONResponse:
     runtime = _runtime(request)
-    handle = runtime.manager.get(task_id)
-    if handle is None:
-        raise HTTPException(404, "no such task")
-    return JSONResponse(handle.snapshot())
+    return JSONResponse(_own_task(request, runtime, task_id).snapshot())
 
 
 @app.post("/api/tasks/{task_id}/cancel")
 async def cancel_task(request: Request, task_id: str) -> JSONResponse:
     runtime = _runtime(request)
-    handle = runtime.manager.get(task_id)
-    if handle is None:
-        raise HTTPException(404, "no such task")
+    handle = _own_task(request, runtime, task_id)
+    _same_origin(request, runtime)
     ok = await runtime.manager.cancel(task_id)
     if not ok:
-        interface = runtime.manager.interfaces.get(handle.interface)
+        interface = runtime.manager.interface_of(task_id) or runtime.manager.interfaces.get(
+            handle.interface
+        )
         reason = (
             "this interface cannot cancel a running task"
             if interface and not interface.capabilities.supports_cancel
@@ -476,7 +832,16 @@ def _authorize_write(request: Request, runtime: Runtime) -> None:
     installs no CORS middleware. **Do not add a permissive CORS policy** — it
     would turn that into a real hole. Setting `DESIGNAGENT_ADMIN_TOKEN` requires
     the header even on loopback, and binding anywhere else requires one.
+
+    With logins on, none of that applies: these routes change the *operator's*
+    settings, so they need a signed-in admin and a same-origin request, and the
+    shared token is not consulted. That closes backlog A17, where a same-host
+    proxy made every caller "loopback".
     """
+    if runtime.auth is not None:
+        _require_admin(_user(request, runtime))
+        _same_origin(request, runtime)
+        return
     settings = runtime.settings
     expected = settings.admin_secret
     if not expected:
@@ -507,7 +872,11 @@ def _running_tasks(runtime: Runtime) -> list[str]:
 
 @app.get("/api/settings")
 async def read_settings(request: Request) -> JSONResponse:
-    return JSONResponse(_settings_view(_runtime(request)))
+    runtime = _runtime(request)
+    # The operator's configuration: paths, scheduler, broker. An admin's to read.
+    if runtime.auth is not None:
+        _require_admin(_user(request, runtime))
+    return JSONResponse(_settings_view(runtime))
 
 
 @app.put("/api/settings")
@@ -621,6 +990,13 @@ async def _rebuild(app: FastAPI, candidate: Settings, previous: Settings) -> Run
 @app.get("/api/health")
 async def health(request: Request) -> JSONResponse:
     runtime = _runtime(request)
+    if runtime.auth is not None:
+        # Unauthenticated callers learn that the server is up and wants a login,
+        # nothing about its configuration. A signed-in user gets `/api/me`, which
+        # is about *their* key and endpoint; an admin also gets the full view.
+        user = runtime.auth.user_for_token(request.cookies.get(COOKIE, ""))
+        if user is None or not user.is_admin:
+            return JSONResponse({"ok": True, "auth": True})
     return JSONResponse(
         {
             "ok": True,
@@ -648,7 +1024,8 @@ async def health(request: Request) -> JSONResponse:
 @app.get("/api/catalog")
 async def catalog(request: Request) -> JSONResponse:
     """What the agent can do, for the UI's help panel."""
-    _runtime(request)
+    runtime = _runtime(request)
+    _user(request, runtime)
     from .tasks.registry import CATALOG
 
     return JSONResponse(

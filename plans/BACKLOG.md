@@ -16,6 +16,11 @@ when fixed and the rest close up, so refer to issues by their title in commit me
 ## A — correctness and honesty
 
 ### A1 · No HPC endpoint has ever executed a task
+**Answered 2026-10-09: the path works.** `pytest -m remote` against the `amarel3` endpoint through
+the Linode broker submitted real Slurm jobs, polled them, read their logs, cancelled one, and got
+the Slurm id back in `native_id` (`plans/AMAREL_ENDPOINT.md` §6, rung 4). What rung 4 found instead
+is in **A18**, **A19** and **A20**. The entry stays below as the record of how it got here.
+
 The remote path is proven against a localhost broker only (`tests/test_orbit_local.py`, 12 tests).
 That exercises the client — websocket, plugin sessions, push events, PSI/J offset tailing,
 cancellation — and says nothing about a scheduler, a queue, staging, or an allocation.
@@ -311,7 +316,118 @@ local to `local_orbit.py` and the client settings it hands back.
 `plans/AMAREL_ENDPOINT.md` runs ladder rungs 1–2 on that VM, where loopback is private. The entry
 stands for anyone who runs the dev stack on a login node.
 
+### A17 · Behind a same-host proxy, `bound_to_loopback` is true for every caller
+**Closed on the Linode 2026-10-09 by logins** (`DESIGNAGENT_AUTH_ENABLED=true`). With logins on,
+`_authorize_write` needs a signed-in admin and a same-origin request, and never consults the bind
+address. The trap below still applies to any deployment behind a proxy with logins **off**.
+
+`Settings.bound_to_loopback` (`config.py`) reads the address uvicorn *binds*, not the address a
+request comes from. On the Linode the backend binds `127.0.0.1` and Caddy proxies the internet to it
+(`plans/LINODE_DEPLOY.md` Phase 1), so every request is local by that test. With no
+`DESIGNAGENT_ADMIN_TOKEN`, `_authorize_write` then opens `PUT`/`DELETE /api/settings` and
+`POST /api/settings/test` to anyone who gets past the proxy.
+
+**Repro:** with the token unset, start the backend on loopback behind any reverse proxy. A `PUT
+/api/settings` through the proxy is accepted.
+
+**Mitigated on the Linode, not fixed:** `/etc/repeat/backend.env` sets the token, and Caddy's
+`basic_auth` sits in front. The fix is Phase 2 of the deploy plan: per-user logins, with
+`_authorize_write` becoming a role check and the loopback-open default retired. Until then, **any
+deployment behind a proxy must set the token.**
+
+### A18 · Two clients with the same Orbit name silently steal each other's replies
+`orbit_client_name` defaults to `designagent`, and the broker evidently routes replies by that
+name (inferred from behaviour, not yet read in its source). Found 2026-10-09 on the Linode:
+- The backend service was started while `pytest -m remote` was mid-run, with the same environment.
+- The backend logged `[Runtime] name 'designagent' in use; retrying with backoff`, then registered a
+  few seconds later.
+- From then on the test process's calls got no answers. Its job-status polls blocked forever in
+  `orbit/runtime.py:876` (`call` → `future.result()`, no timeout), the last three tests failed, and
+  pytest hung in teardown, shutting down an executor whose threads would never return.
+
+Nothing errors: the second process looks healthy and the first just stops hearing back.
+
+**Repro:** run the backend and `pytest -m remote` against the same broker with the same
+`DESIGNAGENT_ORBIT_CLIENT_NAME`.
+
+**Workaround:** give every extra client its own name. The rung 4 re-run used
+`DESIGNAGENT_ORBIT_CLIENT_NAME=designagent-rung4`.
+
+**Fix:**
+- A per-process suffix on the default name (hostname plus pid, or a random tag).
+- Phase 2's per-user `OrbitRegistry` **must** mint a distinct client name per interface, or two
+  users' interfaces will collide in exactly this way. **Done** (`runtime.OrbitRegistry`,
+  `test_each_users_orbit_interface_is_their_own`). The process-wide interface still uses the bare
+  default, so a backend restart collides with *its own* previous connection. The new process
+  retries until the broker drops the old one, about 10 s on 2026-10-09, during which `hpc` is not
+  yet available.
+- The unbounded `future.result()` is upstream's (backlog C), and is worth reporting.
+
+### A19 · A `custom_attributes` flag that takes no value cannot be expressed
+PSI/J's Slurm template renders every custom attribute as `--<name>=<value>`. `{"slurm.requeue": ""}`
+therefore became `--requeue=`, and the endpoint answered **HTTP 500**: `sbatch: option '--requeue'
+doesn't allow an argument`. Found by rung 4 on 2026-10-09, in
+`test_custom_attributes_are_accepted_by_the_endpoint`. That was a bug in the *test*, which now sends
+`slurm.comment` and passes on Amarel and against the development stack.
+
+**Why it matters anyway:** `--requeue` is exactly the flag CLAUDE.md lists as lost in the move off
+the skill's `#SBATCH` headers, so restoring it is not a one-line `custom_attributes` change.
+
+The protocol's own use, `slurm.constraint` with a value (`protocol/specs.py`), renders correctly.
+
+### A20 · A missing `--chdir` runs the job in `/tmp` and reports success
+On Amarel, a job whose `directory` does not exist is **not** rejected: Slurm falls back to `/tmp`,
+and the job ends DONE with exit 0. Probe of 2026-10-09:
+- `directory=/scratch/mh1314/no-such-dir-rung4` printed `/tmp`, job `62380977`, DONE, exit 0;
+- the same body with `directory=/scratch/mh1314` printed that directory.
+
+`AMAREL_ENDPOINT.md` §6 had assumed the opposite.
+
+**Exposure in the protocol:** small but real.
+- The push stage `mkdir -p`s the project subdirectories before any compute stage, and compute bodies
+  read relative inputs under `set -euo pipefail`. So a missing directory *usually* fails loudly on
+  the first missing input.
+- A stage whose first act is to create its own output (`mkdir -p "$out"` in the MPNN and AF3 specs)
+  could instead do its work in the compute node's `/tmp` and report success, and those files would
+  be lost.
+
+**Fix:** a guard line at the top of every compute body in `protocol/specs.py`:
+`[ "$PWD" = <directory> ] || { echo "not in <directory>: Slurm fell back to $PWD" >&2; exit 97; }`.
+This turns the silent fallback into a named failure.
+
+**And two remote tests assume a shared filesystem.** `test_a_jobs_working_directory_is_honoured`
+and `test_a_file_comes_back_out_of_a_project_directory` build their directories under the test's
+`tmp_path`, on the machine running pytest. That holds for the development stack and never for a real
+endpoint, so both fail on Amarel for that reason alone. They need a remote base directory, for
+example `DESIGNAGENT_REMOTE_TEST_DIR`, defaulting to `tmp_path` when `ORBIT_LOCAL`, with the files
+created and checked by jobs rather than by the test process.
+
 ---
+
+### A21 · What Phase 2's logins leave open
+Logins and per-user credentials landed 2026-10-09 (`plans/LINODE_DEPLOY.md` Phase 2,
+`tests/test_auth.py`). Known gaps, none of them a hole in what was built:
+
+- **The broker is still shared, and it is not a tenant boundary** (the plan's Phase 3). A user who
+  brings their own endpoint must point at the allow-listed broker on this VM, with its one ingress
+  token. Every endpoint holds that token, and anyone with it can submit to every endpoint on the
+  broker. Per-user isolation of *HPC* needs one broker per user. Until then, give only trusted users
+  the token.
+- **`OrbitRegistry` never closes an idle interface.** One connection stays open per user who has
+  used `hpc` since the last restart, closed only on sign-out or a credential change. That is fine at
+  lab scale and a slow leak beyond it.
+- **Sessions from before logins have no owner** and are unreachable under logins (404 for everyone).
+  `AuthStore.assign_session` exists for adoption, but no CLI exposes it yet.
+- **The login lockout is in memory**: a restart forgets the counts. It also keys on
+  `X-Forwarded-For` only from a loopback peer, which is correct behind Caddy and wrong behind any
+  other proxy that is not on this host.
+- **The Playwright tier was not run on this change.** The VM has no Chromium. Both e2e tests stub
+  `/api/**` without `auth: true`, which reads as logins off, so they should be unaffected. Run
+  them on a workstation to confirm.
+- **`/api/health` under logins** tells a non-admin only `{ok, auth}`. `scripts/dev.sh` waits on
+  `hpc: true` there, which a deployment with logins on never returns to an anonymous caller.
+  `dev.sh` is for the development stack, where logins are off, so this has not bitten. A health
+  check for the Linode should sign in or read `systemctl`.
 
 ## B — developer experience
 
@@ -327,13 +443,33 @@ of those packages, and right now nothing records which.
 **Options:** git submodules pinned to a SHA; or a `refcodes/VERSIONS.md` recording each package's
 commit; or vendoring the three into the repo. The middle one is cheap and would do.
 
-**And a fourth package `setup.sh` does not install at all: `radical.orbit`.** `tasks/hpc/orbit.py`
-imports it lazily and `local_orbit._script` looks for its CLI scripts, but neither `setup.sh` nor
-`pyproject.toml` names it, so a venv that passes `--check` cannot use `hpc`, and `-m live` errors on
-"Orbit CLI scripts not found". The only revision now on record is the reference checkout on
-`amarel3`: `/home/mh1314/radical.orbit`, 0.8.0, branch `devel`, commit `c7ede0c` (2026-09-29).
-Installing it is not a plain `pip install -e`: its requirements pull `rhapsody-py` from PyPI, which
-would displace the editable `refcodes/rhapsody` — see `plans/AMAREL_ENDPOINT.md` §3, step 3.
+**Partly closed, 2026-10-09: the revisions are now recorded.** The user's working `refcodes/`
+was copied to the Linode as clean git trees. `scripts/setup.sh` carries their commits in
+`REFCODES_PINS`, and `--check` warns when a checkout differs. The list is in the repo, not in
+`refcodes/` itself, because that directory is gitignored. Still open: a fresh clone has no way to
+*get* the checkouts, only to verify them.
+
+| Checkout | Commit | Date | Branch | Used by |
+| --- | --- | --- | --- | --- |
+| `radical.asyncflow` | `038d52a` | 2026-08-20 | main (v0.5.1) | `setup.sh` |
+| `rhapsody` | `71536ac` | 2026-09-08 | main | `setup.sh` |
+| `flowgentic` | `dd27bd8` | 2026-08-19 | **`demo/radical`**, not main | `setup.sh`, `--no-deps` |
+| `radical.orbit` | `c7ede0c` | 2026-09-29 | devel (0.8.0) | `setup.sh`; the broker; the Amarel endpoint |
+| `ProteinMPNN` | `8907e66` | 2023-06-27 | detached | `setup_mpnn.sh` (its own `MPNN_REV` pin) |
+| `ChemGraph` | `d7a34ca` | 2026-10-01 | main | `.[chem]` only |
+| `langgraph` | `b36b1d5` | 2026-10-01 | main (1.2.12) | reference reading |
+| `hpc-bridge` | `46f63bf` | 2026-09-22 | main | reference reading |
+| `rcsb-molstar` | `7153df7` | 2026-09-22 | master | reference reading |
+| `enzyme-redesign-protocol` | `20a3600` | 2026-09-30 | main | read at runtime: `DESIGNAGENT_PROTOCOL_SCRIPTS_DIR` points at its `scripts/` |
+
+**`radical.orbit`, the fourth package, is now installed by `setup.sh`** when its checkout is present.
+`tasks/hpc/orbit.py` imports it lazily and `local_orbit._script` looks for its CLI scripts. Before
+this, a venv that passed `--check` could not use `hpc`, and `-m live` errored on "Orbit CLI scripts
+not found".
+
+It is not a plain `pip install -e`: its requirements pull `rhapsody-py` from PyPI, which would
+displace the editable `refcodes/rhapsody`. So it goes in `--no-deps` with the rest named, and
+`--check` asserts that `rhapsody` still resolves to `refcodes/`.
 
 ### B2 · Is `E,F,I` the right lint baseline?
 `ruff check backend tests` is clean at `E,F,I` and that is what `pyproject.toml` pins. The open
