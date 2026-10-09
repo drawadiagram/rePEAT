@@ -258,9 +258,12 @@ const PROBE_LABEL: Record<ProbeResult["state"], string> = {
 export default function SettingsPanel({
   onClose,
   onChanged,
+  auth = false,
 }: {
   onClose: () => void;
   onChanged: () => void;
+  /** Logins are on: only an admin opens this, and the role replaces the token. */
+  auth?: boolean;
 }) {
   const [view, setView] = useState<SettingsView | null>(null);
   const [draft, setDraft] = useState<Record<string, string | boolean | number>>({});
@@ -356,6 +359,9 @@ export default function SettingsPanel({
         </header>
 
         <p className="muted sheet-intro">
+          {auth
+            ? "The server's own settings, used by admins and as every user's defaults. Each user's key and endpoint are theirs, under My credentials. "
+            : ""}
           Values here live in this server process only. They are not written to disk —
           put them in <code>.env</code> to survive a restart.
         </p>
@@ -423,17 +429,19 @@ export default function SettingsPanel({
           </section>
         ))}
 
-        <section className="sheet-group">
-          <label className="sheet-row">
-            <span className="sheet-label">Admin token</span>
-            <input
-              type="password"
-              value={admin}
-              placeholder="only when the server is not on loopback"
-              onChange={(event) => setAdmin(event.target.value)}
-            />
-          </label>
-        </section>
+        {!auth && (
+          <section className="sheet-group">
+            <label className="sheet-row">
+              <span className="sheet-label">Admin token</span>
+              <input
+                type="password"
+                value={admin}
+                placeholder="only when the server is not on loopback"
+                onChange={(event) => setAdmin(event.target.value)}
+              />
+            </label>
+          </section>
+        )}
 
         {message && <p className="sheet-message">{message}</p>}
 

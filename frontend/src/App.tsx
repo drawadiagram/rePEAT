@@ -1,15 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ArtifactPane from "./artifacts/ArtifactPane";
 import ChatPane from "./chat/ChatPane";
-import { fetchHealth, fetchSession, streamChat } from "./lib/api";
+import {
+  UNAUTHORIZED,
+  fetchHealth,
+  fetchMe,
+  fetchSession,
+  logout,
+  newSessionId,
+  streamChat,
+} from "./lib/api";
 import type {
   AgentState,
   ChatMessage,
   Frame,
   StatusLine,
   TaskChip,
+  Me,
   TraceEntry,
 } from "./lib/types";
+import CredentialsPanel from "./settings/CredentialsPanel";
+import LoginPage from "./settings/LoginPage";
 import SettingsPanel from "./settings/SettingsPanel";
 
 const SESSION_KEY = "designagent.session";
@@ -22,7 +33,46 @@ function initialSession(): string {
   return fresh;
 }
 
+/**
+ * The sign-in gate. With logins off (`auth: false`, also what any error reads
+ * as) it renders the app straight away, exactly as before logins existed.
+ */
 export default function App() {
+  const [me, setMe] = useState<Me | null>(null);
+
+  const refresh = useCallback(async () => setMe(await fetchMe()), []);
+
+  useEffect(() => {
+    void refresh();
+    // Any 401 — an expired cookie, a sign-out in another tab — comes back here.
+    const onUnauthorized = () => setMe({ auth: true });
+    window.addEventListener(UNAUTHORIZED, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED, onUnauthorized);
+  }, [refresh]);
+
+  if (me === null) return null;
+  if (me.auth && !me.user) return <LoginPage onSignedIn={() => void refresh()} />;
+  return (
+    <Workspace
+      me={me}
+      onMeChanged={() => void refresh()}
+      onSignOut={async () => {
+        await logout();
+        setMe({ auth: true });
+      }}
+    />
+  );
+}
+
+function Workspace({
+  me,
+  onMeChanged,
+  onSignOut,
+}: {
+  me: Me;
+  onMeChanged: () => void;
+  onSignOut: () => void;
+}) {
   const [sessionId, setSessionId] = useState(initialSession);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [state, setState] = useState<AgentState>({});
@@ -32,12 +82,28 @@ export default function App() {
   const [paneOpen, setPaneOpen] = useState(true);
   const [health, setHealth] = useState<Record<string, any>>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [credentialsOpen, setCredentialsOpen] = useState(false);
   const abort = useRef<AbortController | null>(null);
+  const isAdmin = !me.auth || me.user?.role === "admin";
+
+  // Under logins the badges describe *this user's* key and endpoint, which is
+  // what /api/me reports; /api/health is the server's.
+  const llm = me.auth ? me.llm : (health.llm as boolean | undefined);
+  const hpc = me.auth ? me.hpc : (health.hpc as boolean | undefined);
+  const openCredentials = () => (me.auth ? setCredentialsOpen(true) : setSettingsOpen(true));
 
   // Restore the session on load, so a refresh keeps the conversation.
   useEffect(() => {
-    void fetchHealth().then(setHealth);
-    void fetchSession(sessionId).then((body) => {
+    if (!me.auth) void fetchHealth().then(setHealth);
+    void fetchSession(sessionId).then(async (body) => {
+      if (body.missing && me.auth) {
+        // A stored id the server does not know, or another account's: start a
+        // fresh one rather than show someone a 404 as an empty conversation.
+        const fresh = await newSessionId(true);
+        localStorage.setItem(SESSION_KEY, fresh);
+        setSessionId(fresh);
+        return;
+      }
       if (body.messages?.length) {
         setMessages(
           body.messages
@@ -50,7 +116,7 @@ export default function App() {
         setTasks(Object.fromEntries(body.tasks.map((t) => [t.id, t])));
       }
     });
-  }, [sessionId]);
+  }, [sessionId, me.auth]);
 
   const send = useCallback(
     async (text: string) => {
@@ -135,15 +201,15 @@ export default function App() {
 
   const stop = useCallback(() => abort.current?.abort(), []);
 
-  const newSession = useCallback(() => {
-    const fresh = `s-${Math.random().toString(36).slice(2, 10)}`;
+  const newSession = useCallback(async () => {
+    const fresh = await newSessionId(me.auth);
     localStorage.setItem(SESSION_KEY, fresh);
     setMessages([]);
     setState({});
     setTasks({});
     setStatuses([]);
     setSessionId(fresh);
-  }, []);
+  }, [me.auth]);
 
   const taskList = useMemo(() => Object.values(tasks), [tasks]);
   const hasArtifacts = Boolean(
@@ -167,22 +233,27 @@ export default function App() {
           {typeof state.round === "number" && state.round > 0 && (
             <span className="badge">round {state.round}</span>
           )}
-          {health.llm === false && (
+          {llm === false && (
             <button
               className="badge warn badge-button"
               title="No API key: every node is using its rule-based path. Click to add one."
-              onClick={() => setSettingsOpen(true)}
+              onClick={openCredentials}
             >
               rule-based mode
             </button>
           )}
-          {health.hpc ? (
-            <span className="badge ok">HPC</span>
+          {hpc ? (
+            <span className="badge ok" title={me.endpoint ? `endpoint ${me.endpoint}` : undefined}>
+              HPC
+            </span>
           ) : (
             <button
               className="badge badge-button"
-              title="No HPC endpoint: tasks marked hpc run their local equivalents. Click to configure one."
-              onClick={() => setSettingsOpen(true)}
+              title={
+                me.hpc_error ||
+                "No HPC endpoint: tasks marked hpc run their local equivalents. Click to configure one."
+              }
+              onClick={openCredentials}
             >
               local only
             </button>
@@ -194,20 +265,39 @@ export default function App() {
               Show panel
             </button>
           )}
-          <button className="link" onClick={() => setSettingsOpen(true)}>
-            Settings
-          </button>
-          <button className="link" onClick={newSession}>
+          {me.auth && (
+            <button className="link" onClick={() => setCredentialsOpen(true)}>
+              My credentials
+            </button>
+          )}
+          {isAdmin && (
+            <button className="link" onClick={() => setSettingsOpen(true)}>
+              Settings
+            </button>
+          )}
+          <button className="link" onClick={() => void newSession()}>
             New session
           </button>
+          {me.auth && (
+            <button className="link" onClick={onSignOut} title={`signed in as ${me.user?.username}`}>
+              Sign out
+            </button>
+          )}
         </span>
       </header>
 
       {settingsOpen && (
         <SettingsPanel
+          auth={me.auth}
           onClose={() => setSettingsOpen(false)}
-          onChanged={() => void fetchHealth().then(setHealth)}
+          onChanged={() => {
+            void fetchHealth().then(setHealth);
+            onMeChanged();
+          }}
         />
+      )}
+      {credentialsOpen && (
+        <CredentialsPanel onClose={() => setCredentialsOpen(false)} onChanged={onMeChanged} />
       )}
 
       <main className="panes">

@@ -516,7 +516,20 @@ body {
   color: var(--text);
   width: 100%;
 }
-.sheet-row input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.sheet-row textarea {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  width: 100%;
+  resize: vertical;
+}
+.sheet-row input:focus,
+.sheet-row textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .sheet-row input[type="checkbox"] { justify-self: start; width: 16px; height: 16px; }
 .sheet-row input:disabled {
   opacity: 0.6;
@@ -607,3 +620,23 @@ body {
 .trace-statuses { margin-top: 6px; color: var(--muted); }
 .trace-statuses summary { cursor: pointer; font-size: 12px; }
 .trace-status { font-size: 12px; padding: 1px 0 1px 10px; }
+
+/* Sign-in: shown only when the server has logins on (LoginPage.tsx). */
+.login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--bg);
+}
+.login-card {
+  width: min(360px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.login-card h1 { font-size: 18px; margin: 0 0 4px; }
+.login-card .primary { justify-self: end; }
