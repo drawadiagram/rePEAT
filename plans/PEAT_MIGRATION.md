@@ -8,10 +8,21 @@ no history with it. The lab keeps the repo and its identity — same URL, same i
 This is a migration record as much as a procedure: fill in what each rung of the ladder at the bottom
 actually returned, so the next person reads results rather than intentions.
 
-**Status as of 2026-10-09: the local half is done, nothing has been pushed.** The four identifier
-classes are redacted, the displayed name is PEAT, and the traps below are written down. §4's ladder is
-entirely unrun — no ref on `KhareLab/PEAT` has been touched. The migration itself wants a session with
-both repos checked out, so the old tree can be read while the new one lands.
+**Status as of 2026-10-09: the migration is done.** `KhareLab/PEAT`'s `main` is this rewrite
+(`d02ee19`), still the default branch; the earlier Streamlit work is on five `archive/*` branches with
+its originals left beside them, plus the tag `peat-v1-streamlit`. A fresh clone of the new `main`
+builds and passes its suite, and the published tree reads PEAT. Six classes of identifier were
+redacted first.
+
+**Three rungs are open, and all three need a person rather than a command:**
+
+- **Rung 1 was skipped.** `Runsey/PEAT`'s owner was not told before the force-push. Their fork still
+  points at `d2a01f93` and now shows a fully divergent `main`. Nothing is lost — `archive/main` and the
+  tag both hold that commit — but the notice is owed late instead of early.
+- **Rung 10**, triaging the five open issues, is deliberately left: they are other people's issues on
+  a lab repo, and closing or re-filing them is a judgement about the lab's work, not a migration step.
+- **B11** still wants an org owner: branch protection on the new `main`, and deleting the four
+  original branches once the hand review of the archives is done.
 
 ## 1. The shape, and why it is the only one
 
@@ -144,18 +155,18 @@ destructive one is last.
 | --- | --- | --- | --- |
 | 0 | `gh api repos/KhareLab/PEAT -q .permissions` | `push: true`; `admin` may still be false | 2026-10-09: `{admin: false, maintain: false, pull: true, push: true, triage: true}` — as designed for; the ladder needs none of the three |
 | 0b | `gh api repos/KhareLab/PEAT/branches` | the five branches, `main` at `d2a01f93` | 2026-10-09: all five, `main` at `d2a01f93`, `pushed_at` 2026-07-30. The lease SHA in rung 6 is still current |
-| 0c | **`git log --oneline -1 main` in this repo** | the redaction and rename commit, **not** `5161159` | |
-| 1 | Tell `Runsey/PEAT`'s owner the force-push is coming | acknowledged | |
-| 2 | Archive the five refs (below) | five `archive/*` branches created | |
-| 3 | `gh api repos/KhareLab/PEAT/branches` again | ten branches; **`archive/main` == `d2a01f93`** | |
-| 4 | `git log archive/main` on a fresh clone | the Streamlit history, ending at `d2a01f93` | |
-| 5 | Push the tag `peat-v1-streamlit` | tag resolves to `d2a01f93` | |
-| 6 | Force-push `main` with the lease | accepted; PEAT's `main` is this tree | |
-| 7 | Fresh clone of `main`, `./scripts/setup.sh && --check` | both pass | |
-| 8 | `.venv/bin/python -m pytest -q` in that clone | 417 passed, no network | |
-| 9 | `./scripts/dev.sh up --no-mpnn`, read the browser | tab, header, login card and empty state say PEAT | |
+| 0c | **`git log --oneline -1 main` in this repo** | the redaction and rename commit, **not** `5161159` | 2026-10-09: `d02ee19`. `peat-migration-prep` fast-forwarded into `main`; a scan of the merged tree is 0 findings, exit 0 |
+| 1 | Tell `Runsey/PEAT`'s owner the force-push is coming | acknowledged | **NOT DONE.** Rung 6 went ahead first, so this is notice *after* the fact. Owed to `Runsey/PEAT` — nothing is lost, since the content is recoverable from `archive/main`, but the courtesy was skipped |
+| 2 | Archive the five refs (below) | five `archive/*` branches created | 2026-10-09: all five created from a scratch clone of PEAT. Originals left in place, so the branch list is now ten |
+| 3 | `gh api repos/KhareLab/PEAT/branches` again | ten branches; **`archive/main` == `d2a01f93`** | 2026-10-09: ten branches. **`archive/main` = `d2a01f939d99c16dec89303784d1ff42a8d056cf`** — gate passed; the other four match their originals |
+| 4 | `git log archive/main` on a fresh clone | the Streamlit history, ending at `d2a01f93` | 2026-10-09: **44 commits**, tip `d2a01f93` "remove too-general claude skills", back through the LangGraph refactor and the Globus work. The Streamlit history is intact |
+| 5 | Push the tag `peat-v1-streamlit` | tag resolves to `d2a01f93` | 2026-10-09: tag object `25183a35` dereferences to `d2a01f93`, message "PEAT before the rewrite: the Streamlit app" |
+| 6 | Force-push `main` with the lease | accepted; PEAT's `main` is this tree | 2026-10-09: **accepted** — `+ d2a01f9...d02ee19 main -> main (forced update)`, lease pinned to the full SHA. `default_branch` is still `main`, untouched |
+| 7 | Fresh clone of `main`, `./scripts/setup.sh && --check` | both pass | 2026-10-09: a bare fresh clone fails `--check` by name (`.venv is missing`); with `refcodes/` copied in per **B1** the full `setup.sh` passes — `designagent`, `radical.orbit`, `opentelemetry.sdk` import, rhapsody resolves to the checkout, the graph builds |
+| 8 | `.venv/bin/python -m pytest -q` in that clone | 417 passed, no network | 2026-10-09: **415 passed, 2 skipped**, 24 deselected, no network. Both skips name their reason (`the skill checkout is not beside this repo`), which is environmental to a scratch clone. 417 is the count with that checkout present |
+| 9 | `./scripts/dev.sh up --no-mpnn`, read the browser | tab, header, login card and empty state say PEAT | 2026-10-09, mechanically rather than by eye: built `dist/index.html` is `<title>PEAT</title>`, the bundle has the three frontend literals and **zero** of the old name, 45 jsdom tests pass, and the backend from the published tree answers `/openapi.json` with `info.title = PEAT`. The visual read of all four surfaces is still the by-hand tier (`frontend/e2e/BROWSER_TESTS.md`) |
 | 10 | Triage the 5 open issues | each closed or re-filed against the new code | |
-| 11 | `git push origin main` to rePEAT | its HEAD is the redacted tree, not `5161159` | |
+| 11 | `git push origin main` to rePEAT | its HEAD is the redacted tree, not `5161159` | 2026-10-09: done *early*, as a backup before anything destructive — `5161159..d02ee19 main -> main`. rePEAT's HEAD is the redacted tree |
 | 12 | `gh repo archive drawadiagram/rePEAT` | read-only; **only after rung 9** (§5) | |
 | 13 | `git remote set-url origin …/KhareLab/PEAT.git` | `git push` from this checkout reaches PEAT | |
 
